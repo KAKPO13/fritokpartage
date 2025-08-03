@@ -1,5 +1,5 @@
-import { collection, addDoc } from 'firebase/firestore';
-import { db } from '@/firebaseConfig'; // ajuste le chemin si nécessaire
+import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
+import { db } from '@/firebaseConfig';
 import Link from 'next/link';
 
 export default async function Page({ params, searchParams }) {
@@ -7,7 +7,7 @@ export default async function Page({ params, searchParams }) {
   const ref = searchParams?.ref || null;
   const token = searchParams?.token || null;
 
-  // Enregistrement dans Firestore
+  // 🔐 Enregistrement du partage
   try {
     await addDoc(collection(db, 'sharedVideos'), {
       videoId,
@@ -19,18 +19,36 @@ export default async function Page({ params, searchParams }) {
     console.error('Erreur Firestore :', error);
   }
 
-  // Construction du lien d’achat avec tracking
+  // 🔍 Récupération de l'URL de la vidéo depuis Firestore
+  let videoUrl = null;
+  try {
+    const q = query(collection(db, 'videos'), where('id', '==', videoId));
+    const querySnapshot = await getDocs(q);
+    querySnapshot.forEach((doc) => {
+      videoUrl = doc.data().url; // Assure-toi que le champ s'appelle bien 'url'
+    });
+  } catch (error) {
+    console.error('Erreur récupération vidéo :', error);
+  }
+
   const purchaseUrl = `/buy/${videoId}?ref=${ref || 'direct'}&token=${token || 'none'}`;
 
   return (
     <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
       <h1>🎬 Vidéo partagée : {videoId}</h1>
-      {ref && <p>🔗 Référent : {ref}</p>}
-      {token && <p>🛡️ Jeton : {token}</p>}
+
+      {videoUrl ? (
+        <video
+          src={videoUrl}
+          controls
+          style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }}
+        />
+      ) : (
+        <p>❌ Vidéo introuvable</p>
+      )}
 
       <Link href={purchaseUrl}>
         <button style={{
-          marginTop: '1rem',
           padding: '0.75rem 1.5rem',
           backgroundColor: '#0070f3',
           color: '#fff',
@@ -44,6 +62,7 @@ export default async function Page({ params, searchParams }) {
     </div>
   );
 }
+
 
 
 
