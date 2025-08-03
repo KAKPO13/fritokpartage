@@ -22,7 +22,7 @@ export default async function Page({ params, searchParams }) {
   // 🔍 Récupération de l'URL de la vidéo depuis Firestore
   let videoUrl = null;
   try {
-    const q = query(collection(db, 'videos'), where('id', '==', videoId));
+    const q = query(collection(db, 'video_playlist'), where('id', '==', videoId));
     const querySnapshot = await getDocs(q);
     querySnapshot.forEach((doc) => {
       videoUrl = doc.data().url; // Assure-toi que le champ s'appelle bien 'url'
