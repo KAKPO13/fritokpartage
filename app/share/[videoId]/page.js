@@ -1,65 +1,46 @@
-import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
-import { db } from '@/firebaseConfig';
-import Link from 'next/link';
+import { doc, getDoc, getFirestore } from 'firebase/firestore';
+import { initializeApp } from 'firebase/app';
+import React from 'react';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
+  authDomain: "cgsp-app.firebaseapp.com",
+  projectId: "cgsp-app",
+  storageBucket: "cgsp-app.appspot.com",
+  messagingSenderId: "463987328508",
+  appId: "1:463987328508:android:829287eef68a37af739e79"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+export const dynamic = 'force-dynamic'; // 👈 Active SSR
 
 export default async function Page({ params, searchParams }) {
   const { videoId } = params;
-  const ref = searchParams?.ref || null;
-  const token = searchParams?.token || null;
+  const { ref, token } = searchParams;
 
-  // 🔐 Enregistrement du partage
-  try {
-    await addDoc(collection(db, 'sharedVideos'), {
-      videoId,
-      referrer: ref,
-      token,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('Erreur Firestore :', error);
+  const docRef = doc(db, "video_playlist", videoId);
+  const docSnap = await getDoc(docRef);
+
+  if (!docSnap.exists()) {
+    return (
+      <main style={{ textAlign: 'center', padding: '2rem' }}>
+        <h1>🎬 Vidéo introuvable</h1>
+        <p>Le lien que vous avez suivi ne correspond à aucune vidéo.</p>
+      </main>
+    );
   }
 
-  // 🔍 Récupération de l'URL de la vidéo depuis Firestore
-  let videoUrl = null;
-  try {
-    const q = query(collection(db, 'video_playlist'), where('id', '==', videoId));
-    const querySnapshot = await getDocs(q);
-    querySnapshot.forEach((doc) => {
-      videoUrl = doc.data().url; // Assure-toi que le champ s'appelle bien 'url'
-    });
-  } catch (error) {
-    console.error('Erreur récupération vidéo :', error);
-  }
-
-  const purchaseUrl = `/buy/${videoId}?ref=${ref || 'direct'}&token=${token || 'none'}`;
+  const data = docSnap.data();
 
   return (
-    <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>🎬 Vidéo partagée : {videoId}</h1>
-
-      {videoUrl ? (
-        <video
-          src={videoUrl}
-          controls
-          style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }}
-        />
-      ) : (
-        <p>❌ Vidéo introuvable</p>
-      )}
-
-      <Link href={purchaseUrl}>
-        <button style={{
-          padding: '0.75rem 1.5rem',
-          backgroundColor: '#0070f3',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '5px',
-          cursor: 'pointer'
-        }}>
-          🛒 Acheter cette vidéo
-        </button>
-      </Link>
-    </div>
+    <main style={{ padding: '2rem' }}>
+      <h1>{data.title}</h1>
+      <video src={data.url} controls style={{ width: '100%', maxWidth: '600px' }} />
+      <p>{data.description}</p>
+      {ref && <p>🔗 Partagé par : {ref}</p>}
+    </main>
   );
 }
 
