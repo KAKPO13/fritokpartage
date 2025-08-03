@@ -1,5 +1,6 @@
-import { doc, getDoc, getFirestore, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, getFirestore } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
+import React from 'react';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
@@ -9,21 +10,11 @@ const firebaseConfig = {
   messagingSenderId: "463987328508",
   appId: "1:463987328508:android:829287eef68a37af739e79"
 };
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-export async function generateStaticParams() {
-  const snapshot = await getDocs(collection(db, "video_playlist"));
-  const params = [];
-
-  snapshot.forEach(doc => {
-    params.push({ videoId: doc.id });
-  });
-
-  return params;
-}
-
-export const dynamic = 'force-static';
+export const dynamic = 'force-dynamic'; // 👈 Active SSR
 
 export default async function Page({ params, searchParams }) {
   const { videoId } = params;
@@ -33,29 +24,24 @@ export default async function Page({ params, searchParams }) {
   const docSnap = await getDoc(docRef);
 
   if (!docSnap.exists()) {
-    return <h1>404 - Vidéo introuvable</h1>;
+    return (
+      <main style={{ textAlign: 'center', padding: '2rem' }}>
+        <h1>🎬 Vidéo introuvable</h1>
+        <p>Le lien que vous avez suivi ne correspond à aucune vidéo.</p>
+      </main>
+    );
   }
 
   const data = docSnap.data();
 
   return (
-    <>
-      <head>
-        <title>{data.title} - FriTok</title>
-        <meta property="og:title" content={data.title} />
-        <meta property="og:description" content={data.description} />
-        <meta property="og:video" content={data.url} />
-        <meta property="og:type" content="video.other" />
-        <meta property="og:image" content="https://cdn.fritok.com/og-default.jpg" />
-      </head>
-      <main>
-        <h1>🎥 Produit recommandé sur FriTok</h1>
-        <h2>{data.title}</h2>
-        <p>{data.description}</p>
-        <video controls src={data.url}></video>
-        <p>Recommandé par : {ref}</p>
-      </main>
-    </>
+    <main style={{ padding: '2rem' }}>
+      <h1>{data.title}</h1>
+      <video src={data.url} controls style={{ width: '100%', maxWidth: '600px' }} />
+      <p>{data.description}</p>
+      {ref && <p>🔗 Partagé par : {ref}</p>}
+    </main>
   );
 }
+
 
