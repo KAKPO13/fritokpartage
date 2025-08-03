@@ -1,4 +1,4 @@
-import { doc, getDoc, getFirestore } from 'firebase/firestore';
+import { doc, getDoc, getFirestore, collection, addDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import React from 'react';
 
@@ -20,6 +20,21 @@ export default async function Page({ params, searchParams }) {
   const { videoId } = params;
   const { ref, token } = searchParams;
 
+  // 🔐 Enregistrement du partage
+  if (videoId && ref && token) {
+    try {
+      await addDoc(collection(db, 'share_events'), {
+        videoId,
+        referrer: ref,
+        token,
+        timestamp: new Date().toISOString(),
+        source: 'web',
+      });
+    } catch (error) {
+      console.error('Erreur Firestore :', error);
+    }
+  }
+
   const docRef = doc(db, "video_playlist", videoId);
   const docSnap = await getDoc(docRef);
 
@@ -34,15 +49,34 @@ export default async function Page({ params, searchParams }) {
 
   const data = docSnap.data();
 
+  // 🔗 Lien vers la page de paiement avec tracking
+  const paymentUrl = `/buy/${videoId}?ref=${ref || 'direct'}&token=${token || 'none'}`;
+
   return (
-    <main style={{ padding: '2rem' }}>
+    <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
       <h1>{data.title}</h1>
-      <video src={data.url} controls style={{ width: '100%', maxWidth: '600px' }} />
+      <video src={data.url} controls style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }} />
       <p>{data.description}</p>
       {ref && <p>🔗 Partagé par : {ref}</p>}
+
+      <a href={paymentUrl}>
+        <button style={{
+          marginTop: '1rem',
+          padding: '1rem 2rem',
+          backgroundColor: '#00C851',
+          color: '#fff',
+          border: 'none',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontSize: '1rem'
+        }}>
+          🛒 Acheter maintenant
+        </button>
+      </a>
     </main>
   );
 }
+
 
 
 
