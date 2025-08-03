@@ -1,6 +1,6 @@
 import { doc, getDoc, getFirestore, collection, addDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
-import React from 'react';
+import Link from 'next/link';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
@@ -14,13 +14,13 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-export const dynamic = 'force-dynamic'; // 👈 Active SSR
+export const dynamic = 'force-dynamic';
 
 export default async function Page({ params, searchParams }) {
   const { videoId } = params;
   const { ref, token } = searchParams;
 
-  // 🔐 Enregistrement du partage
+  // 🔐 Tracking du partage
   if (videoId && ref && token) {
     try {
       await addDoc(collection(db, 'share_events'), {
@@ -35,6 +35,7 @@ export default async function Page({ params, searchParams }) {
     }
   }
 
+  // 🔍 Récupération des infos produit
   const docRef = doc(db, "video_playlist", videoId);
   const docSnap = await getDoc(docRef);
 
@@ -48,18 +49,37 @@ export default async function Page({ params, searchParams }) {
   }
 
   const data = docSnap.data();
+  const price = new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'EUR'
+  }).format(data.price || 4.99);
 
-  // 🔗 Lien vers la page de paiement avec tracking
-  const paymentUrl = `/buy/${videoId}?ref=${ref || 'direct'}&token=${token || 'none'}`;
+  const purchaseUrl = `/buy/${videoId}?ref=${ref || 'direct'}&token=${token || 'none'}`;
 
   return (
     <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
       <h1>{data.title}</h1>
+
+      {data.thumbnail && (
+        <img
+          src={data.thumbnail}
+          alt={`Aperçu de ${data.title}`}
+          style={{
+            width: '100%',
+            maxWidth: '600px',
+            marginBottom: '1rem',
+            borderRadius: '12px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+          }}
+        />
+      )}
+
       <video src={data.url} controls style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }} />
       <p>{data.description}</p>
+      <p><strong>Prix :</strong> {price}</p>
       {ref && <p>🔗 Partagé par : {ref}</p>}
 
-      <a href={paymentUrl}>
+      <Link href={purchaseUrl}>
         <button style={{
           marginTop: '1rem',
           padding: '1rem 2rem',
@@ -72,10 +92,11 @@ export default async function Page({ params, searchParams }) {
         }}>
           🛒 Acheter maintenant
         </button>
-      </a>
+      </Link>
     </main>
   );
 }
+
 
 
 
