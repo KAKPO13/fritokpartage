@@ -16,8 +16,7 @@
   },
   "scripts": {
   "dev": "next dev",
-  "build": "next build",
-  "export": "next export"
+  "build": "next build"
 },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
