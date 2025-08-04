@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import OrderConfirmation from './OrderConfirmation'; // ✅ Importation
+import OrderConfirmation from './OrderConfirmation'; // ✅ Assure-toi que ce fichier existe
 
 export default function BuyPageClient({ title, description, videoUrl, thumbnail, price, referrer, token }) {
   const [showFullImage, setShowFullImage] = useState(false);
@@ -10,13 +10,14 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   if (confirming) {
     return (
       <OrderConfirmation
-        title={title}
-        price={price}
-        thumbnail={thumbnail}
-        token={token}
+        title={title || ""}
+        price={price || "4.99 €"}
+        thumbnail={thumbnail || ""}
+        token={token || ""}
+        referrer={referrer || ""}
       />
     );
-      }
+  }
 
   return (
     <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
@@ -76,8 +77,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       {token && <p>🛡️ Jeton : {token}</p>}
 
       <button
-        
-          onClick={() => setConfirming(true)}
+        onClick={() => setConfirming(true)} // 👈 Affiche OrderConfirmation
         style={{
           marginTop: '1rem',
           padding: '1rem 2rem',
