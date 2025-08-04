@@ -5,7 +5,7 @@ import { doc, setDoc, collection } from 'firebase/firestore';
 import { db } from '../../../firebaseConfig';
 import geohash from 'ngeohash';
 
-export default function BuyPageClient({ title, videoUrl, thumbnail, price, referrer, token }) {
+export default function BuyPageClient({ title, description, videoUrl, thumbnail, price, referrer, token }) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
@@ -39,12 +39,6 @@ export default function BuyPageClient({ title, videoUrl, thumbnail, price, refer
       return;
     }
 
-    const numericPrice = Number(price);
-    if (isNaN(numericPrice)) {
-      alert("❌ Le prix doit être un nombre valide.");
-      return;
-    }
-
     const hash = geohash.encode(latitude, longitude);
     const docRef = doc(collection(db, 'commandes'));
     const commandeId = docRef.id;
@@ -55,7 +49,7 @@ export default function BuyPageClient({ title, videoUrl, thumbnail, price, refer
         description,
         videoUrl,
         thumbnail,
-        price: numericPrice,
+        price,
         referrer,
         token
       },
@@ -76,8 +70,8 @@ export default function BuyPageClient({ title, videoUrl, thumbnail, price, refer
       setTelephone('');
       setObservations('');
     } catch (error) {
-      console.error('❌ Erreur lors de l’enregistrement:', error.message, error.stack);
-      alert(`Erreur lors de l’enregistrement de la commande : ${error.message}`);
+      console.error('❌ Erreur lors de l’enregistrement:', error);
+      alert('Erreur lors de l’enregistrement de la commande.');
     }
   };
 
@@ -192,5 +186,4 @@ export default function BuyPageClient({ title, videoUrl, thumbnail, price, refer
     </main>
   );
 }
-
 
