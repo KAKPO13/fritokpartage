@@ -1,46 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import OrderConfirmation from './OrderConfirmation'; // Assure-toi que ce fichier existe
 
-export default function BuyPageClient({
-  title = "Produit mystère",
-  description = "Aucune description disponible.",
-  videoUrl = "",
-  thumbnail = "",
-  price = "4.99 €",
-  referrer = "",
-  token = ""
-}) {
+export default function BuyPageClient({ title, description, videoUrl, thumbnail, price, referrer, token }) {
   const [showFullImage, setShowFullImage] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-
-  const colors = {
-    primary: '#ff5722',
-    background: '#f9f9f9',
-    text: '#333',
-    accent: '#ffc107'
-  };
-
-  if (confirming) {
-    return (
-      <OrderConfirmation
-        title={title}
-        price={price}
-        thumbnail={thumbnail}
-        token={token}
-        referrer={referrer}
-      />
-    );
-  }
+  
 
   return (
-    <main style={{
-      padding: '2rem',
-      fontFamily: 'system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"',
-      backgroundColor: colors.background,
-      color: colors.text
-    }}>
+    <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
       <h1>🛒 Acheter : {title}</h1>
 
       {thumbnail && (
@@ -90,39 +57,27 @@ export default function BuyPageClient({
         </>
       )}
 
-      {videoUrl && (
-        <video
-          src={videoUrl}
-          controls
-          style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem', borderRadius: '12px' }}
-        />
-      )}
-
+      <video src={videoUrl} controls style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }} />
       <p>{description}</p>
       <p><strong>Prix :</strong> {price}</p>
       {referrer && <p>🔗 Référent : {referrer}</p>}
       {token && <p>🛡️ Jeton : {token}</p>}
 
       <button
-        onClick={() => setConfirming(true)}
+        onClick={() => alert(`Paiement simulé pour ${title}`)}
         style={{
           marginTop: '1rem',
           padding: '1rem 2rem',
-          background: `linear-gradient(135deg, ${colors.primary}, ${colors.accent})`,
+          backgroundColor: '#ff5722',
           color: '#fff',
           border: 'none',
-          borderRadius: '12px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+          borderRadius: '8px',
           cursor: 'pointer',
-          fontSize: '1rem',
-          transition: 'transform 0.2s ease'
+          fontSize: '1rem'
         }}
-        onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
-        onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
       >
         💳 Payer maintenant
       </button>
     </main>
   );
 }
-
