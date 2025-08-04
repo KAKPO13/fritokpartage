@@ -40,7 +40,7 @@ export default async function Page({ params, searchParams }) {
       description={data.description}
       videoUrl={data.url}
       thumbnail={data.thumbnail || null}
-      price={data.price || "4.99 €"}
+      price={data.price || 3000}
       referrer={ref}
       token={token}
     />
