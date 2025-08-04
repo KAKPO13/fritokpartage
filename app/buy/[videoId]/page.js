@@ -1,6 +1,6 @@
 import { doc, getDoc, getFirestore } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
- import BuyPageWithConfirmation from './BuyPageWithConfirmation';
+import BuyPageClient from './BuyPageClient';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
@@ -34,20 +34,16 @@ export default async function Page({ params, searchParams }) {
 
   const data = docSnap.data();
 
- 
-
-return (
-  <BuyPageWithConfirmation
-    title={data.title}
-    description={data.description}
-    videoUrl={data.url}
-    thumbnail={data.thumbnail || null}
-    price={data.price || "4.99 €"}
-    referrer={ref}
-    token={token}
-  />
-);
-
-
+  return (
+    <BuyPageClient
+      title={data.title}
+      description={data.description}
+      videoUrl={data.url}
+      thumbnail={data.thumbnail || null}
+      price={data.price || "4.99 €"}
+      referrer={ref}
+      token={token}
+    />
+  );
 }
 
