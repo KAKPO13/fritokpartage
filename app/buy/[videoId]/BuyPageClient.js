@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { addDoc, collection, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, collection } from 'firebase/firestore';
 import { db } from '../../../firebaseConfig';
 import geohash from 'ngeohash';
 
@@ -40,6 +40,8 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     }
 
     const hash = geohash.encode(latitude, longitude);
+    const docRef = doc(collection(db, 'commandes'));
+    const commandeId = docRef.id;
 
     const commande = {
       produit: {
@@ -58,15 +60,13 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       telephone,
       observations,
       statut: "en attente",
-      commandeId: "",
+      commandeId,
       date: new Date().toISOString()
     };
 
     try {
-      const docRef = await addDoc(collection(db, 'commandes'), commande);
-      await updateDoc(docRef, { commandeId: docRef.id });
-
-      alert('✅ Commande enregistrée avec succès !');
+      await setDoc(docRef, commande);
+      alert(`✅ Commande enregistrée avec succès ! ID : ${commandeId}`);
       setTelephone('');
       setObservations('');
     } catch (error) {
