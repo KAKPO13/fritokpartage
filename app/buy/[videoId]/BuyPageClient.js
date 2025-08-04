@@ -50,13 +50,14 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     const commandeId = docRef.id;
 
     const commande = {
-      produit: {
-        title: title ?? '',
+      articles: {
+        nom_frifri: title ?? '',
         videoUrl: videoUrl ?? '',
-        thumbnail: thumbnail ?? '',
-        price: numericPrice,
+        imageUrl: thumbnail ?? '',
+        prix_frifri: numericPrice,
         referrer: referrer ?? '',
-        token: token ?? ''
+        token: token ?? '',
+        totalPrix: numericPrice
         // description exclue volontairement
       },
       latitude,
