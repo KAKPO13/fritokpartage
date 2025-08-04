@@ -39,6 +39,12 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       return;
     }
 
+    const numericPrice = Number(price);
+    if (isNaN(numericPrice)) {
+      alert("❌ Le prix doit être un nombre valide.");
+      return;
+    }
+
     const hash = geohash.encode(latitude, longitude);
     const docRef = doc(collection(db, 'commandes'));
     const commandeId = docRef.id;
@@ -49,7 +55,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
         description,
         videoUrl,
         thumbnail,
-        price,
+        price: numericPrice,
         referrer,
         token
       },
@@ -70,8 +76,8 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       setTelephone('');
       setObservations('');
     } catch (error) {
-      console.error('❌ Erreur lors de l’enregistrement:', error);
-      alert('Erreur lors de l’enregistrement de la commande.');
+      console.error('❌ Erreur lors de l’enregistrement:', error.message, error.stack);
+      alert(`Erreur lors de l’enregistrement de la commande : ${error.message}`);
     }
   };
 
@@ -186,4 +192,5 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     </main>
   );
 }
+
 
