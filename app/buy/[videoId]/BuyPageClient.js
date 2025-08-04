@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { addDoc, collection } from 'firebase/firestore';
-import { db } from '../../firebaseConfig'; // adapte selon la profondeur
+import { db } from '../../../firebaseConfig';
 import geohash from 'ngeohash';
 
 export default function BuyPageClient({ title, description, videoUrl, thumbnail, price, referrer, token }) {
