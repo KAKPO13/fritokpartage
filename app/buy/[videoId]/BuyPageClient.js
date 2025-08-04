@@ -33,15 +33,15 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     );
   }, []);
 
+  const sanitizeString = (value) => typeof value === 'string' ? value : '';
+  const sanitizeNumber = (value) => {
+    const num = Number(value);
+    return isNaN(num) ? 0 : num;
+  };
+
   const handlePayment = async () => {
     if (!latitude || !longitude || !address || !telephone) {
       alert("Veuillez remplir tous les champs requis.");
-      return;
-    }
-
-    const numericPrice = Number(price);
-    if (isNaN(numericPrice)) {
-      alert("❌ Le prix doit être un nombre valide.");
       return;
     }
 
@@ -51,20 +51,20 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
     const commande = {
       produit: {
-        title,
-        description,
-        videoUrl,
-        thumbnail,
-        price: numericPrice,
-        referrer,
-        token
+        title: sanitizeString(title),
+        description: sanitizeString(description),
+        videoUrl: sanitizeString(videoUrl),
+        thumbnail: sanitizeString(thumbnail),
+        price: sanitizeNumber(price),
+        referrer: sanitizeString(referrer),
+        token: sanitizeString(token)
       },
       latitude,
       longitude,
       geohash: hash,
-      adresse: address,
-      telephone,
-      observations,
+      adresse: sanitizeString(address),
+      telephone: sanitizeString(telephone),
+      observations: sanitizeString(observations),
       statut: "en attente",
       commandeId,
       date: new Date().toISOString()
@@ -83,13 +83,13 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
   return (
     <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>🛒 Acheter : {title}</h1>
+      <h1>🛒 Acheter : {sanitizeString(title)}</h1>
 
       {thumbnail && (
         <>
           <img
-            src={thumbnail}
-            alt={`Aperçu de ${title}`}
+            src={sanitizeString(thumbnail)}
+            alt={`Aperçu de ${sanitizeString(title)}`}
             onClick={() => setShowFullImage(true)}
             style={{
               width: '100%',
@@ -118,7 +118,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
               }}
             >
               <img
-                src={thumbnail}
+                src={sanitizeString(thumbnail)}
                 alt="Image agrandie"
                 style={{
                   maxWidth: '90%',
@@ -132,17 +132,17 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
         </>
       )}
 
-      <video src={videoUrl} controls style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }} />
-      <p>{description}</p>
-      <p><strong>Prix :</strong> {price}</p>
-      {referrer && <p>🔗 Référent : {referrer}</p>}
-      {token && <p>🛡️ Jeton : {token}</p>}
+      <video src={sanitizeString(videoUrl)} controls style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }} />
+      <p>{sanitizeString(description)}</p>
+      <p><strong>Prix :</strong> {sanitizeNumber(price)}</p>
+      {referrer && <p>🔗 Référent : {sanitizeString(referrer)}</p>}
+      {token && <p>🛡️ Jeton : {sanitizeString(token)}</p>}
       {latitude && longitude && (
         <>
           <p>📍 Latitude : {latitude}</p>
           <p>📍 Longitude : {longitude}</p>
-          <p>🔢 Geohash : {geohash.encode(latitude, longitude)}</p>
-          <p>🏠 Adresse : {address}</p>
+          <p>🔢 Geohash : {hash}</p>
+          <p>🏠 Adresse : {sanitizeString(address)}</p>
         </>
       )}
 
@@ -192,5 +192,4 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     </main>
   );
 }
-
 
