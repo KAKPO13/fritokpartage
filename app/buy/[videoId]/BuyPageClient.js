@@ -51,7 +51,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     };
 
     try {
-      await addDoc(collection(db, 'commande'), commande);
+      await addDoc(collection(db, 'commandes'), commande);
       alert('✅ Commande enregistrée avec succès !');
     } catch (error) {
       console.error('❌ Erreur lors de l’enregistrement:', error);
