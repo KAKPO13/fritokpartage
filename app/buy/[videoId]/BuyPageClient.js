@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { addDoc, collection } from 'firebase/firestore';
+import { addDoc, collection, updateDoc } from 'firebase/firestore';
 import { db } from '../../../firebaseConfig';
 import geohash from 'ngeohash';
 
@@ -10,6 +10,8 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
   const [address, setAddress] = useState('');
+  const [telephone, setTelephone] = useState('');
+  const [observations, setObservations] = useState('');
 
   useEffect(() => {
     navigator.geolocation.getCurrentPosition(
@@ -32,7 +34,13 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   }, []);
 
   const handlePayment = async () => {
+    if (!latitude || !longitude || !address || !telephone) {
+      alert("Veuillez remplir tous les champs requis.");
+      return;
+    }
+
     const hash = geohash.encode(latitude, longitude);
+
     const commande = {
       produit: {
         title,
@@ -47,12 +55,20 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       longitude,
       geohash: hash,
       adresse: address,
+      telephone,
+      observations,
+      statut: "en attente",
+      commandeId: "",
       date: new Date().toISOString()
     };
 
     try {
-      await addDoc(collection(db, 'commandes'), commande);
+      const docRef = await addDoc(collection(db, 'commandes'), commande);
+      await updateDoc(docRef, { commandeId: docRef.id });
+
       alert('✅ Commande enregistrée avec succès !');
+      setTelephone('');
+      setObservations('');
     } catch (error) {
       console.error('❌ Erreur lors de l’enregistrement:', error);
       alert('Erreur lors de l’enregistrement de la commande.');
@@ -124,10 +140,38 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
         </>
       )}
 
+      <div style={{ marginTop: '1rem' }}>
+        <input
+          type="text"
+          placeholder="📱 Numéro de téléphone"
+          value={telephone}
+          onChange={(e) => setTelephone(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '0.75rem',
+            marginBottom: '1rem',
+            borderRadius: '8px',
+            border: '1px solid #ccc'
+          }}
+        />
+        <textarea
+          placeholder="📝 Observations (facultatif)"
+          value={observations}
+          onChange={(e) => setObservations(e.target.value)}
+          rows={4}
+          style={{
+            width: '100%',
+            padding: '0.75rem',
+            borderRadius: '8px',
+            border: '1px solid #ccc',
+            marginBottom: '1rem'
+          }}
+        />
+      </div>
+
       <button
         onClick={handlePayment}
         style={{
-          marginTop: '1rem',
           padding: '1rem 2rem',
           backgroundColor: '#ff5722',
           color: '#fff',
@@ -142,3 +186,4 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     </main>
   );
 }
+
