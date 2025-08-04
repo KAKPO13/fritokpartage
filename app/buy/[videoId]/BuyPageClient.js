@@ -55,7 +55,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
         videoUrl: videoUrl ?? '',
         imageUrl: thumbnail ?? '',
         prix_frifri: numericPrice,
-        referrer: referrer ?? '',
+        ref_article: referrer ?? '',
         token: token ?? '',
         totalPrix: numericPrice
         // description exclue volontairement
@@ -63,10 +63,11 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       latitude,
       longitude,
       geohash: hash,
-      adresse: address ?? '',
+      adresseLivraison: address ?? '',
       telephone: telephone ?? '',
       observations: observations ?? '',
       statut: "en attente",
+      userId: telephone ?? '',
       commandeId,
       date: new Date().toISOString()
     };
