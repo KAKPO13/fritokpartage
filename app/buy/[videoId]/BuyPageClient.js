@@ -39,26 +39,32 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       return;
     }
 
+    const numericPrice = Number(price);
+    if (isNaN(numericPrice)) {
+      alert("❌ Le prix doit être un nombre valide.");
+      return;
+    }
+
     const hash = geohash.encode(latitude, longitude);
     const docRef = doc(collection(db, 'commandes'));
     const commandeId = docRef.id;
 
     const commande = {
       produit: {
-        title,
-        description,
-        videoUrl,
-        thumbnail,
-        price,
-        referrer,
-        token
+        title: title ?? '',
+        videoUrl: videoUrl ?? '',
+        thumbnail: thumbnail ?? '',
+        price: numericPrice,
+        referrer: referrer ?? '',
+        token: token ?? ''
+        // description exclue volontairement
       },
       latitude,
       longitude,
       geohash: hash,
-      adresse: address,
-      telephone,
-      observations,
+      adresse: address ?? '',
+      telephone: telephone ?? '',
+      observations: observations ?? '',
       statut: "en attente",
       commandeId,
       date: new Date().toISOString()
@@ -127,7 +133,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       )}
 
       <video src={videoUrl} controls style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }} />
-      <p>{description}</p>
+      <p>{description}</p> {/* Affiché mais non enregistré */}
       <p><strong>Prix :</strong> {price}</p>
       {referrer && <p>🔗 Référent : {referrer}</p>}
       {token && <p>🛡️ Jeton : {token}</p>}
@@ -186,4 +192,5 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     </main>
   );
 }
+
 
