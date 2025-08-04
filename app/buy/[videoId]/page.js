@@ -1,6 +1,7 @@
 import { doc, getDoc, getFirestore } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
  import BuyPageWithConfirmation from './BuyPageWithConfirmation';
+ 
 
 const firebaseConfig = {
   apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
