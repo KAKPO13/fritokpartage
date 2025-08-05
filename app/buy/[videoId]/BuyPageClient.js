@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { doc, setDoc, collection } from 'firebase/firestore';
 import { db } from '../../../firebaseConfig';
 import geohash from 'ngeohash';
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 export default function BuyPageClient({ title, description, videoUrl, thumbnail, price, referrer, token }) {
   const [showFullImage, setShowFullImage] = useState(false);
@@ -14,34 +16,37 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [observations, setObservations] = useState('');
 
   useEffect(() => {
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
+    const fetchLocation = async () => {
+      try {
+        const position = await new Promise((resolve, reject) =>
+          navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true })
+        );
+
         const { latitude, longitude } = position.coords;
         setLatitude(latitude);
         setLongitude(longitude);
 
-        try {
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-          const data = await response.json();
-          setAddress(data.display_name || '');
-        } catch (error) {
-          console.error('Erreur lors de la récupération de l’adresse :', error);
-        }
-      },
-      (error) => console.error('Erreur géolocalisation:', error),
-      { enableHighAccuracy: true }
-    );
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+        const data = await response.json();
+        setAddress(data.display_name || '');
+      } catch (error) {
+        console.error('Erreur géolocalisation ou récupération adresse :', error);
+        toast.error("❌ Impossible d'obtenir votre position.");
+      }
+    };
+
+    fetchLocation();
   }, []);
 
   const handlePayment = async () => {
-    if (!latitude || !longitude || !address || !telephone) {
-      alert("Veuillez remplir tous les champs requis.");
+    if (!latitude || !longitude || !address || !telephone.trim()) {
+      toast.warn("⚠️ Veuillez remplir tous les champs requis.");
       return;
     }
 
     const numericPrice = Number(price);
     if (isNaN(numericPrice)) {
-      alert("❌ Le prix doit être un nombre valide.");
+      toast.error("❌ Le prix doit être un nombre valide.");
       return;
     }
 
@@ -58,16 +63,15 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
         ref_article: referrer ?? '',
         token: token ?? '',
         totalPrix: numericPrice
-        // description exclue volontairement
       },
       latitude,
       longitude,
       geohash: hash,
       adresseLivraison: address ?? '',
-      telephone: telephone ?? '',
+      telephone: telephone.trim(),
       observations: observations ?? '',
       statut: "en attente",
-      userId: telephone ?? '',
+      userId: telephone.trim(),
       boutiqueId: referrer ?? '',
       commandeId,
       date: new Date().toISOString()
@@ -75,12 +79,12 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
     try {
       await setDoc(docRef, commande);
-      alert(`✅ Commande enregistrée avec succès ! ID : ${commandeId}`);
+      toast.success(`✅ Commande enregistrée avec succès ! ID : ${commandeId}`);
       setTelephone('');
       setObservations('');
     } catch (error) {
       console.error('❌ Erreur lors de l’enregistrement:', error);
-      alert('Erreur lors de l’enregistrement de la commande.');
+      toast.error('Erreur lors de l’enregistrement de la commande.');
     }
   };
 
@@ -136,7 +140,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       )}
 
       <video src={videoUrl} controls style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }} />
-      <p>{description}</p> {/* Affiché mais non enregistré */}
+      <p>{description}</p>
       <p><strong>Prix :</strong> {price}</p>
       {referrer && <p>🔗 Référent : {referrer}</p>}
       {token && <p>🛡️ Jeton : {token}</p>}
@@ -192,8 +196,11 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       >
         💳 Payer maintenant
       </button>
+
+      <ToastContainer position="top-right" autoClose={5000} />
     </main>
   );
 }
+
 
 
