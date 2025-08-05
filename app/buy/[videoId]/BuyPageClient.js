@@ -74,7 +74,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       telephone: telephone.trim(),
       observations: observations ?? '',
       statut: "en attente",
-      userId,
+      userId: referrer ?? '',
       boutiqueId,
       commandeId,
       date: new Date().toISOString()

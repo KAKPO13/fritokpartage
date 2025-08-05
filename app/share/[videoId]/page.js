@@ -64,13 +64,18 @@ export default async function Page({ params, searchParams }) {
   if (videoId && ref && token) {
     try {
       await addDoc(collection(db, 'share_events'), {
-        videoId,
-        referrer: ref,
-        userId: ref,
-        token,
-        timestamp: new Date().toISOString(),
-        source: 'web',
-      });
+  videoId,
+  referrer: ref,
+  userId: ref,
+  token,
+  timestamp: new Date().toISOString(),
+  source: 'web',
+  imageUrl: data.thumbnail ?? '',
+  title: data.title ?? '',
+  description: data.description ?? '',
+  price: data.price ?? '',
+});
+
     } catch (error) {
       console.error('Erreur Firestore :', error);
     }
