@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { doc, setDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection } from 'firebase/firestore';
 import { db } from '../../../firebaseConfig';
 import geohash from 'ngeohash';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
-export default function BuyPageClient({ title, description, videoUrl, thumbnail, referrer, token }) {
+export default function BuyPageClient({ videoId, referrer, token }) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
@@ -17,6 +17,10 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [userId, setUserId] = useState('');
   const [boutiqueId, setBoutiqueId] = useState('');
   const [price, setPrice] = useState('');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [thumbnail, setThumbnail] = useState('');
 
   useEffect(() => {
     const fetchLocation = async () => {
@@ -38,8 +42,32 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       }
     };
 
+    const fetchVideoData = async () => {
+      if (!videoId) return;
+
+      try {
+        const videoDoc = await getDoc(doc(db, 'video_playlist', videoId));
+        if (videoDoc.exists()) {
+          const data = videoDoc.data();
+          setUserId(data.userId || '');
+          setBoutiqueId(data.boutiqueId || '');
+          setPrice(data.price || '');
+          setTitle(data.title || '');
+          setDescription(data.description || '');
+          setVideoUrl(data.url || '');
+          setThumbnail(data.thumbnail || '');
+        } else {
+          toast.error("❌ Vidéo introuvable.");
+        }
+      } catch (error) {
+        console.error("Erreur récupération vidéo :", error);
+        toast.error("❌ Impossible de charger les données de la vidéo.");
+      }
+    };
+
     fetchLocation();
-  }, []);
+    fetchVideoData();
+  }, [videoId]);
 
   const handlePayment = async () => {
     if (!latitude || !longitude || !address.trim() || !telephone.trim()) {
@@ -59,12 +87,12 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
     const commande = {
       articles: {
-        nom_frifri: title ?? '',
-        videoUrl: videoUrl ?? '',
-        imageUrl: thumbnail ?? '',
+        nom_frifri: title,
+        videoUrl,
+        imageUrl: thumbnail,
         prix_frifri: numericPrice,
-        ref_article: referrer ?? '',
-        token: token ?? '',
+        ref_article: referrer,
+        token,
         totalPrix: numericPrice
       },
       latitude,
@@ -72,7 +100,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       geohash: hash,
       adresseLivraison: address,
       telephone: telephone.trim(),
-      observations: observations ?? '',
+      observations,
       statut: "en attente",
       userId,
       boutiqueId,
@@ -86,8 +114,8 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       setTelephone('');
       setObservations('');
     } catch (error) {
-      console.error('❌ Erreur lors de l’enregistrement ou de la notification:', error);
-      toast.error('Erreur lors de l’enregistrement de la commande ou de la notification.');
+      console.error('❌ Erreur lors de l’enregistrement de la commande :', error);
+      toast.error('Erreur lors de l’enregistrement de la commande.');
     }
   };
 
