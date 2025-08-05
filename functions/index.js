@@ -11,6 +11,10 @@ exports.generateOGMeta = functions.https.onRequest((req, res) => {
     description = "Partagez vos moments avec style.",
   } = req.query;
 
+  const protocol = req.protocol;
+  const host = req.get("host");
+  const url = `${protocol}://${host}${req.originalUrl}`;
+
   const html = `
     <!DOCTYPE html>
     <html lang="fr">
@@ -21,7 +25,7 @@ exports.generateOGMeta = functions.https.onRequest((req, res) => {
         <meta property="og:image" content="${image}" />
         <meta property="og:description" content="${description}" />
         <meta property="og:type" content="website" />
-        <meta property="og:url" content="${req.protocol}://${req.get("host")}${req.originalUrl}" />
+        <meta property="og:url" content="${url}" />
         <title>${title}</title>
       </head>
       <body>
@@ -30,7 +34,9 @@ exports.generateOGMeta = functions.https.onRequest((req, res) => {
     </html>
   `;
 
-  res.status(200).send(html);
+  res
+      .status(200)
+      .send(html);
 });
 
 // 📦 Envoie une notification à la boutique (utilisateur) lors d'une commande
@@ -38,7 +44,11 @@ exports.sendCommandeNotification = functions.https.onCall(async (data, context) 
   const {userId, title, commandeId} = data;
 
   try {
-    const userDoc = await admin.firestore().collection("users").doc(userId).get();
+    const userDoc = await admin
+        .firestore()
+        .collection("users")
+        .doc(userId)
+        .get();
 
     if (!userDoc.exists) {
       throw new Error("Utilisateur introuvable");
@@ -65,5 +75,4 @@ exports.sendCommandeNotification = functions.https.onCall(async (data, context) 
     return {success: false, error: error.message};
   }
 });
-
 
