@@ -7,16 +7,13 @@ import geohash from 'ngeohash';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
-export default function BuyPageClient({ title, description, videoUrl, thumbnail, referrer, token }) {
+export default function BuyPageClient({ title, description, videoUrl, thumbnail, price, referrer, token }) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
   const [address, setAddress] = useState('');
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
-  const [userId, setUserId] = useState('');
-  const [boutiqueId, setBoutiqueId] = useState('');
-  const [price, setPrice] = useState('');
 
   useEffect(() => {
     const fetchLocation = async () => {
@@ -39,85 +36,62 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     };
 
     fetchLocation();
-
-useEffect(() => {
-  const fetchVideoData = async () => {
-    if (!videoId) return;
-
-    try {
-      const videoDoc = await getDoc(doc(db, 'video_playlist', videoId));
-      if (videoDoc.exists()) {
-        const data = videoDoc.data();
-        setUserId(data.userId || '');
-        setBoutiqueId(data.boutiqueId || '');
-        setPrice(data.price || '');
-        setTitle(data.title || '');
-        setDescription(data.description || '');
-        setVideoUrl(data.url || '');
-        setThumbnail(data.thumbnail || '');
-      } else {
-        toast.error("❌ Vidéo introuvable.");
-      }
-    } catch (error) {
-      console.error("Erreur récupération vidéo :", error);
-      toast.error("❌ Impossible de charger les données de la vidéo.");
-    }
-  };
-
-  fetchVideoData();
-}, [videoId]);
-
   }, []);
 
   const handlePayment = async () => {
-    if (!latitude || !longitude || !address.trim() || !telephone.trim()) {
-      toast.warn("⚠️ Veuillez remplir tous les champs requis.");
-      return;
-    }
+  if (!latitude || !longitude || !address || !telephone.trim()) {
+    toast.warn("⚠️ Veuillez remplir tous les champs requis.");
+    return;
+  }
 
-    const numericPrice = Number(price);
-    if (isNaN(numericPrice)) {
-      toast.error("❌ Le prix doit être un nombre valide.");
-      return;
-    }
+  const numericPrice = Number(price);
+  if (isNaN(numericPrice)) {
+    toast.error("❌ Le prix doit être un nombre valide.");
+    return;
+  }
 
-    const hash = geohash.encode(latitude, longitude);
-    const docRef = doc(collection(db, 'commandes'));
-    const commandeId = docRef.id;
+  const hash = geohash.encode(latitude, longitude);
+  const docRef = doc(collection(db, 'commandes'));
+  const commandeId = docRef.id;
 
-    const commande = {
-      articles: {
-        nom_frifri: title ?? '',
-        videoUrl: videoUrl ?? '',
-        imageUrl: thumbnail ?? '',
-        prix_frifri: numericPrice,
-        ref_article: referrer ?? '',
-        token: token ?? '',
-        totalPrix: numericPrice
-      },
-      latitude,
-      longitude,
-      geohash: hash,
-      adresseLivraison: address,
-      telephone: telephone.trim(),
-      observations: observations ?? '',
-      statut: "en attente",
-      userId,
-      boutiqueId,
-      commandeId,
-      date: new Date().toISOString()
-    };
-
-    try {
-      await setDoc(docRef, commande);
-      toast.success(`✅ Commande enregistrée avec succès ! ID : ${commandeId}`);
-      setTelephone('');
-      setObservations('');
-    } catch (error) {
-      console.error('❌ Erreur lors de l’enregistrement ou de la notification:', error);
-      toast.error('Erreur lors de l’enregistrement de la commande ou de la notification.');
-    }
+  const commande = {
+    articles: {
+      nom_frifri: title ?? '',
+      videoUrl: videoUrl ?? '',
+      imageUrl: thumbnail ?? '',
+      prix_frifri: numericPrice,
+      ref_article: referrer ?? '',
+      token: token ?? '',
+      totalPrix: numericPrice
+    },
+    latitude,
+    longitude,
+    geohash: hash,
+    adresseLivraison: address ?? '',
+    telephone: telephone.trim(),
+    observations: observations ?? '',
+    statut: "en attente",
+    userId: telephone.trim(),
+    boutiqueId: referrer ?? '',
+    commandeId,
+    date: new Date().toISOString()
   };
+
+  try {
+    await setDoc(docRef, commande);
+    toast.success(`✅ Commande enregistrée avec succès ! ID : ${commandeId}`);
+    setTelephone('');
+    setObservations('');
+
+    // 🔔 Envoi de la notification à la boutique
+    const sendNotification = httpsCallable(functions, 'sendCommandeNotification');
+    await sendNotification({ userId: referrer, title, commandeId });
+    toast.info("📨 Notification envoyée à la boutique.");
+  } catch (error) {
+    console.error('❌ Erreur lors de l’enregistrement ou de la notification:', error);
+    toast.error('Erreur lors de l’enregistrement de la commande ou de la notification.');
+  }
+};
 
   return (
     <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
@@ -172,9 +146,7 @@ useEffect(() => {
 
       <video src={videoUrl} controls style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }} />
       <p>{description}</p>
-      {userId && <p>👤 ID utilisateur : {userId}</p>}
-      {boutiqueId && <p>🏪 ID boutique : {boutiqueId}</p>}
-      {price && <p>💰 Prix : {price} €</p>}
+      <p><strong>Prix :</strong> {price}</p>
       {referrer && <p>🔗 Référent : {referrer}</p>}
       {token && <p>🛡️ Jeton : {token}</p>}
       {latitude && longitude && (
@@ -182,23 +154,11 @@ useEffect(() => {
           <p>📍 Latitude : {latitude}</p>
           <p>📍 Longitude : {longitude}</p>
           <p>🔢 Geohash : {geohash.encode(latitude, longitude)}</p>
+          <p>🏠 Adresse : {address}</p>
         </>
       )}
 
       <div style={{ marginTop: '1rem' }}>
-        <input
-          type="text"
-          placeholder="🏠 Adresse de livraison"
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '0.75rem',
-            marginBottom: '1rem',
-            borderRadius: '8px',
-            border: '1px solid #ccc'
-          }}
-        />
         <input
           type="text"
           placeholder="📱 Numéro de téléphone"
@@ -246,5 +206,6 @@ useEffect(() => {
     </main>
   );
 }
+
 
 
