@@ -39,54 +39,59 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   }, []);
 
   const handlePayment = async () => {
-    if (!latitude || !longitude || !address || !telephone.trim()) {
-      toast.warn("⚠️ Veuillez remplir tous les champs requis.");
-      return;
-    }
+  if (!latitude || !longitude || !address || !telephone.trim()) {
+    toast.warn("⚠️ Veuillez remplir tous les champs requis.");
+    return;
+  }
 
-    const numericPrice = Number(price);
-    if (isNaN(numericPrice)) {
-      toast.error("❌ Le prix doit être un nombre valide.");
-      return;
-    }
+  const numericPrice = Number(price);
+  if (isNaN(numericPrice)) {
+    toast.error("❌ Le prix doit être un nombre valide.");
+    return;
+  }
 
-    const hash = geohash.encode(latitude, longitude);
-    const docRef = doc(collection(db, 'commandes'));
-    const commandeId = docRef.id;
+  const hash = geohash.encode(latitude, longitude);
+  const docRef = doc(collection(db, 'commandes'));
+  const commandeId = docRef.id;
 
-    const commande = {
-      articles: {
-        nom_frifri: title ?? '',
-        videoUrl: videoUrl ?? '',
-        imageUrl: thumbnail ?? '',
-        prix_frifri: numericPrice,
-        ref_article: referrer ?? '',
-        token: token ?? '',
-        totalPrix: numericPrice
-      },
-      latitude,
-      longitude,
-      geohash: hash,
-      adresseLivraison: address ?? '',
-      telephone: telephone.trim(),
-      observations: observations ?? '',
-      statut: "en attente",
-      userId: telephone.trim(),
-      boutiqueId: referrer ?? '',
-      commandeId,
-      date: new Date().toISOString()
-    };
-
-    try {
-      await setDoc(docRef, commande);
-      toast.success(`✅ Commande enregistrée avec succès ! ID : ${commandeId}`);
-      setTelephone('');
-      setObservations('');
-    } catch (error) {
-      console.error('❌ Erreur lors de l’enregistrement:', error);
-      toast.error('Erreur lors de l’enregistrement de la commande.');
-    }
+  const commande = {
+    articles: {
+      nom_frifri: title ?? '',
+      videoUrl: videoUrl ?? '',
+      imageUrl: thumbnail ?? '',
+      prix_frifri: numericPrice,
+      ref_article: referrer ?? '',
+      token: token ?? '',
+      totalPrix: numericPrice
+    },
+    latitude,
+    longitude,
+    geohash: hash,
+    adresseLivraison: address ?? '',
+    telephone: telephone.trim(),
+    observations: observations ?? '',
+    statut: "en attente",
+    userId: telephone.trim(),
+    boutiqueId: referrer ?? '',
+    commandeId,
+    date: new Date().toISOString()
   };
+
+  try {
+    await setDoc(docRef, commande);
+    toast.success(`✅ Commande enregistrée avec succès ! ID : ${commandeId}`);
+    setTelephone('');
+    setObservations('');
+
+    // 🔔 Envoi de la notification à la boutique
+    const sendNotification = httpsCallable(functions, 'sendCommandeNotification');
+    await sendNotification({ userId: referrer, title, commandeId });
+    toast.info("📨 Notification envoyée à la boutique.");
+  } catch (error) {
+    console.error('❌ Erreur lors de l’enregistrement ou de la notification:', error);
+    toast.error('Erreur lors de l’enregistrement de la commande ou de la notification.');
+  }
+};
 
   return (
     <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
