@@ -12,7 +12,8 @@
     "next": "15.4.5",
     "ngeohash": "^0.6.3",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "react-toastify": "^11.0.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
