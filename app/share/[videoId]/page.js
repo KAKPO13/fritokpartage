@@ -66,6 +66,7 @@ export default async function Page({ params, searchParams }) {
       await addDoc(collection(db, 'share_events'), {
         videoId,
         referrer: ref,
+        userId: ref,
         token,
         timestamp: new Date().toISOString(),
         source: 'web',

@@ -14,6 +14,9 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [address, setAddress] = useState('');
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
+  const [userId, setUserId] = useState('');
+  const [boutiqueId, setBoutiqueId] = useState('');
+  const [price, setPrice] = useState('');
 
   useEffect(() => {
     const fetchLocation = async () => {
@@ -25,6 +28,9 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
         const { latitude, longitude } = position.coords;
         setLatitude(latitude);
         setLongitude(longitude);
+        setUserId(data.userId || '');
+        setBoutiqueId(data.boutiqueId || '');
+        setPrice(data.price || '');
 
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
         const data = await response.json();
@@ -71,8 +77,8 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     telephone: telephone.trim(),
     observations: observations ?? '',
     statut: "en attente",
-    userId: telephone.trim(),
-    boutiqueId: referrer ?? '',
+    userId,
+    boutiqueId,
     commandeId,
     date: new Date().toISOString()
   };
@@ -146,6 +152,9 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
       <video src={videoUrl} controls style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }} />
       <p>{description}</p>
+      {userId && <p>👤 ID utilisateur : {userId}</p>}
+      {boutiqueId && <p>🏪 ID boutique : {boutiqueId}</p>}
+      {price && <p>💰 Prix : {price} €</p>}
       <p><strong>Prix :</strong> {price}</p>
       {referrer && <p>🔗 Référent : {referrer}</p>}
       {token && <p>🛡️ Jeton : {token}</p>}
