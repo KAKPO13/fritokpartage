@@ -40,7 +40,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
     fetchLocation();
 
-
+useEffect(() => {
   const fetchVideoData = async () => {
     if (!videoId) return;
 
