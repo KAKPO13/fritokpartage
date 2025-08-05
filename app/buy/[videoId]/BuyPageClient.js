@@ -1,23 +1,53 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { doc, setDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection } from 'firebase/firestore';
 import { db } from '../../../firebaseConfig';
 import geohash from 'ngeohash';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
-export default function BuyPageClient({ title, description, videoUrl, thumbnail, price, referrer, token }) {
+export default function BuyPageClient({ videoId, referrer, token }) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
   const [address, setAddress] = useState('');
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
+
+  // Données liées à la vidéo
   const [userId, setUserId] = useState('');
   const [boutiqueId, setBoutiqueId] = useState('');
-  const [price, setPrice] = useState('');
+  const [videoPrice, setVideoPrice] = useState('');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [thumbnail, setThumbnail] = useState('');
 
+  // 📦 Récupération des métadonnées de la vidéo
+  useEffect(() => {
+    const fetchVideoData = async () => {
+      try {
+        const videoDoc = await getDoc(doc(db, 'video_playlist', videoId));
+        if (videoDoc.exists()) {
+          const data = videoDoc.data();
+          setUserId(data.userId || '');
+          setBoutiqueId(data.boutiqueId || '');
+          setVideoPrice(data.price || '');
+          setTitle(data.title || '');
+          setDescription(data.description || '');
+          setVideoUrl(data.url || '');
+          setThumbnail(data.thumbnail || '');
+        }
+      } catch (error) {
+        console.error('❌ Erreur lors de la récupération des données vidéo :', error);
+      }
+    };
+
+    fetchVideoData();
+  }, [videoId]);
+
+  // 📍 Géolocalisation
   useEffect(() => {
     const fetchLocation = async () => {
       try {
@@ -28,9 +58,6 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
         const { latitude, longitude } = position.coords;
         setLatitude(latitude);
         setLongitude(longitude);
-        setUserId(data.userId || '');
-        setBoutiqueId(data.boutiqueId || '');
-        setPrice(data.price || '');
 
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
         const data = await response.json();
@@ -44,60 +71,56 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     fetchLocation();
   }, []);
 
+  // 💳 Paiement
   const handlePayment = async () => {
-  if (!latitude || !longitude || !address || !telephone.trim()) {
-    toast.warn("⚠️ Veuillez remplir tous les champs requis.");
-    return;
-  }
+    if (!latitude || !longitude || !address || !telephone.trim()) {
+      toast.warn("⚠️ Veuillez remplir tous les champs requis.");
+      return;
+    }
 
-  const numericPrice = Number(price);
-  if (isNaN(numericPrice)) {
-    toast.error("❌ Le prix doit être un nombre valide.");
-    return;
-  }
+    const numericPrice = Number(videoPrice);
+    if (isNaN(numericPrice)) {
+      toast.error("❌ Le prix doit être un nombre valide.");
+      return;
+    }
 
-  const hash = geohash.encode(latitude, longitude);
-  const docRef = doc(collection(db, 'commandes'));
-  const commandeId = docRef.id;
+    const hash = geohash.encode(latitude, longitude);
+    const docRef = doc(collection(db, 'commandes'));
+    const commandeId = docRef.id;
 
-  const commande = {
-    articles: {
-      nom_frifri: title ?? '',
-      videoUrl: videoUrl ?? '',
-      imageUrl: thumbnail ?? '',
-      prix_frifri: numericPrice,
-      ref_article: referrer ?? '',
-      token: token ?? '',
-      totalPrix: numericPrice
-    },
-    latitude,
-    longitude,
-    geohash: hash,
-    adresseLivraison: address ?? '',
-    telephone: telephone.trim(),
-    observations: observations ?? '',
-    statut: "en attente",
-    userId,
-    boutiqueId,
-    commandeId,
-    date: new Date().toISOString()
+    const commande = {
+      articles: {
+        nom_frifri: title,
+        videoUrl,
+        imageUrl: thumbnail,
+        prix_frifri: numericPrice,
+        ref_article: referrer,
+        token,
+        totalPrix: numericPrice
+      },
+      latitude,
+      longitude,
+      geohash: hash,
+      adresseLivraison: address,
+      telephone: telephone.trim(),
+      observations,
+      statut: "en attente",
+      userId,
+      boutiqueId,
+      commandeId,
+      date: new Date().toISOString()
+    };
+
+    try {
+      await setDoc(docRef, commande);
+      toast.success(`✅ Commande enregistrée avec succès ! ID : ${commandeId}`);
+      setTelephone('');
+      setObservations('');
+    } catch (error) {
+      console.error('❌ Erreur lors de l’enregistrement de la commande :', error);
+      toast.error('Erreur lors de l’enregistrement de la commande.');
+    }
   };
-
-  try {
-    await setDoc(docRef, commande);
-    toast.success(`✅ Commande enregistrée avec succès ! ID : ${commandeId}`);
-    setTelephone('');
-    setObservations('');
-
-    // 🔔 Envoi de la notification à la boutique
-    const sendNotification = httpsCallable(functions, 'sendCommandeNotification');
-    await sendNotification({ userId: referrer, title, commandeId });
-    toast.info("📨 Notification envoyée à la boutique.");
-  } catch (error) {
-    console.error('❌ Erreur lors de l’enregistrement ou de la notification:', error);
-    toast.error('Erreur lors de l’enregistrement de la commande ou de la notification.');
-  }
-};
 
   return (
     <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
@@ -154,8 +177,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       <p>{description}</p>
       {userId && <p>👤 ID utilisateur : {userId}</p>}
       {boutiqueId && <p>🏪 ID boutique : {boutiqueId}</p>}
-      {price && <p>💰 Prix : {price} €</p>}
-      <p><strong>Prix :</strong> {price}</p>
+      {videoPrice && <p>💰 Prix : {videoPrice} €</p>}
       {referrer && <p>🔗 Référent : {referrer}</p>}
       {token && <p>🛡️ Jeton : {token}</p>}
       {latitude && longitude && (
