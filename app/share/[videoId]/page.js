@@ -16,7 +16,6 @@ const db = getFirestore(app);
 
 export const dynamic = 'force-dynamic'; // 👈 Active SSR
 
-// 🧠 Génération des métadonnées OG dynamiques
 export async function generateMetadata({ params }) {
   const { videoId } = params;
 
@@ -40,7 +39,7 @@ export async function generateMetadata({ params }) {
       description: data.description,
       images: [
         {
-          url: data.thumbnail, // Assure-toi que cette URL est publique
+          url: data.thumbnail,
           width: 1200,
           height: 630,
         },
@@ -60,27 +59,6 @@ export default async function Page({ params, searchParams }) {
   const { videoId } = params;
   const { ref, token } = searchParams;
 
-  // 🔐 Enregistrement du partage
-  if (videoId && ref && token) {
-    try {
-      await addDoc(collection(db, 'share_events'), {
-  videoId,
-  referrer: ref,
-  userId: ref,
-  token,
-  timestamp: new Date().toISOString(),
-  source: 'web',
-  imageUrl: data.thumbnail ?? '',
-  title: data.title ?? '',
-  description: data.description ?? '',
-  price: data.price ?? '',
-});
-
-    } catch (error) {
-      console.error('Erreur Firestore :', error);
-    }
-  }
-
   const docRef = doc(db, "video_playlist", videoId);
   const docSnap = await getDoc(docRef);
 
@@ -94,6 +72,27 @@ export default async function Page({ params, searchParams }) {
   }
 
   const data = docSnap.data();
+
+  // 🔐 Enregistrement du partage enrichi
+  if (videoId && ref && token) {
+    try {
+      await addDoc(collection(db, 'share_events'), {
+        videoId,
+        referrer: ref,
+        userId: ref,
+        token,
+        timestamp: new Date().toISOString(),
+        source: 'web',
+        imageUrl: data.thumbnail ?? '',
+        title: data.title ?? '',
+        description: data.description ?? '',
+        price: data.price ?? '',
+      });
+    } catch (error) {
+      console.error('Erreur Firestore :', error);
+    }
+  }
+
   const paymentUrl = `/buy/${videoId}?ref=${ref || 'direct'}&token=${token || 'none'}`;
 
   return (
