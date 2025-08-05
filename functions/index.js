@@ -1,8 +1,15 @@
 const functions = require("firebase-functions");
+const admin = require("firebase-admin");
+
+admin.initializeApp();
 
 // 🔗 Génère des métadonnées Open Graph dynamiques
 exports.generateOGMeta = functions.https.onRequest((req, res) => {
-  const { title = "Fritok", image = "https://fritok.netlify.app/default-og.png", description = "Partagez vos moments avec style." } = req.query;
+  const {
+    title = "Fritok",
+    image = "https://fritok.netlify.app/default-og.png",
+    description = "Partagez vos moments avec style.",
+  } = req.query;
 
   const html = `
     <!DOCTYPE html>
@@ -25,4 +32,38 @@ exports.generateOGMeta = functions.https.onRequest((req, res) => {
 
   res.status(200).send(html);
 });
+
+// 📦 Envoie une notification à la boutique (utilisateur) lors d'une commande
+exports.sendCommandeNotification = functions.https.onCall(async (data, context) => {
+  const {userId, title, commandeId} = data;
+
+  try {
+    const userDoc = await admin.firestore().collection("users").doc(userId).get();
+
+    if (!userDoc.exists) {
+      throw new Error("Utilisateur introuvable");
+    }
+
+    const token = userDoc.data().fcmToken;
+
+    if (!token) {
+      throw new Error("Token FCM non disponible");
+    }
+
+    const message = {
+      notification: {
+        title: "📦 Nouvelle commande reçue",
+        body: `Commande #${commandeId} pour ${title}`,
+      },
+      token,
+    };
+
+    await admin.messaging().send(message);
+    return {success: true};
+  } catch (error) {
+    console.error("Erreur FCM :", error);
+    return {success: false, error: error.message};
+  }
+});
+
 
