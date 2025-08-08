@@ -1,5 +1,6 @@
 import { doc, getDoc, getFirestore, collection, addDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
+import MiniChat from './MiniChat'; // adapte le chemin si nécessaire
 import React from 'react';
 
 const firebaseConfig = {
@@ -14,7 +15,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-export const dynamic = 'force-dynamic'; // 👈 Active SSR
+export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }) {
   const { videoId } = params;
@@ -73,7 +74,6 @@ export default async function Page({ params, searchParams }) {
 
   const data = docSnap.data();
 
-  // 🔐 Enregistrement du partage enrichi
   if (videoId && ref && token) {
     try {
       await addDoc(collection(db, 'share_events'), {
@@ -99,7 +99,12 @@ export default async function Page({ params, searchParams }) {
     <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
       <h1>{data.title}</h1>
       <p><strong>Prix :</strong> {data.price}</p>
-      <video src={data.url} controls style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }} poster={data.thumbnail} />
+      <video
+        src={data.url}
+        controls
+        style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }}
+        poster={data.thumbnail}
+      />
       <p>{data.description}</p>
       {ref && <p>🔗 Partagé par : {ref}</p>}
 
@@ -117,9 +122,13 @@ export default async function Page({ params, searchParams }) {
           🛒 Acheter maintenant
         </button>
       </a>
+
+      {/* 💬 Mini Chat intégré ici */}
+      <MiniChat videoId={videoId} />
     </main>
   );
 }
+
 
 
 
