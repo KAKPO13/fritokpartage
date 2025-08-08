@@ -1,6 +1,14 @@
 'use client';
 import React, { useEffect, useState, useRef } from 'react';
-import { collection, addDoc, query, where, onSnapshot, getFirestore, serverTimestamp } from 'firebase/firestore';
+import {
+  collection,
+  addDoc,
+  query,
+  where,
+  onSnapshot,
+  getFirestore,
+  serverTimestamp
+} from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -28,6 +36,7 @@ export default function MiniChat({ videoId }) {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [username, setUsername] = useState('');
+  const [replyTo, setReplyTo] = useState(null);
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -66,8 +75,10 @@ export default function MiniChat({ videoId }) {
         text: newMessage,
         timestamp: serverTimestamp(),
         sender: username,
+        replyTo: replyTo?.id || null,
       });
       setNewMessage('');
+      setReplyTo(null);
     } catch (error) {
       console.error('Erreur envoi message :', error);
     }
@@ -83,37 +94,121 @@ export default function MiniChat({ videoId }) {
       backgroundColor: '#f9f9f9'
     }}>
       <h3>💬 Mini Chat</h3>
-      <div style={{ maxHeight: '250px', overflowY: 'auto', marginBottom: '1rem', paddingRight: '0.5rem' }}>
+      <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '1rem', paddingRight: '0.5rem' }}>
         <AnimatePresence>
-          {messages.map(msg => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                marginBottom: '0.5rem',
-                backgroundColor: '#fff',
-                padding: '0.5rem',
-                borderRadius: '6px'
-              }}
-            >
-              <img
-                src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${msg.sender}`}
-                alt="avatar"
-                style={{ width: '32px', height: '32px', borderRadius: '50%', marginRight: '0.5rem' }}
-              />
-              <div>
-                <strong>{msg.sender}:</strong> {msg.text}
+          {messages.map((msg) => {
+            const replies = messages.filter(m => m.replyTo === msg.id);
+
+            return (
+              <div key={msg.id} style={{ position: 'relative', marginBottom: '1rem' }}>
+                {/* Ligne verticale */}
+                {replies.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '40px',
+                    left: '16px',
+                    width: '2px',
+                    height: `${replies.length * 60}px`,
+                    backgroundColor: '#ccc',
+                    zIndex: 0
+                  }} />
+                )}
+
+                {/* Message parent */}
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                  style={{
+                    backgroundColor: '#fff',
+                    padding: '0.5rem',
+                    borderRadius: '6px',
+                    borderLeft: '4px solid #007E33',
+                    position: 'relative',
+                    zIndex: 1
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <img
+                      src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${msg.sender}`}
+                      alt="avatar"
+                      style={{ width: '32px', height: '32px', borderRadius: '50%', marginRight: '0.5rem' }}
+                    />
+                    <div>
+                      <strong>{msg.sender}:</strong> {msg.text}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setReplyTo(msg)}
+                    style={{
+                      marginTop: '0.25rem',
+                      fontSize: '0.75rem',
+                      background: 'none',
+                      border: 'none',
+                      color: '#007E33',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ↪ Répondre
+                  </button>
+                </motion.div>
+
+                {/* Réponses indentées */}
+                {replies.map(reply => (
+                  <motion.div
+                    key={reply.id}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.3 }}
+                    style={{
+                      marginLeft: '2rem',
+                      marginTop: '0.5rem',
+                      backgroundColor: '#eefaf2',
+                      padding: '0.5rem',
+                      borderRadius: '6px',
+                      borderLeft: '3px solid #00b36b',
+                      position: 'relative',
+                      zIndex: 1
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <img
+                        src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${reply.sender}`}
+                        alt="avatar"
+                        style={{ width: '28px', height: '28px', borderRadius: '50%', marginRight: '0.5rem' }}
+                      />
+                      <div>
+                        <strong>{reply.sender}:</strong> {reply.text}
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
               </div>
-            </motion.div>
-          ))}
+            );
+          })}
         </AnimatePresence>
         <div ref={chatEndRef} />
       </div>
+
+      {replyTo && (
+        <div style={{
+          marginBottom: '0.5rem',
+          fontStyle: 'italic',
+          background: '#e0f7e9',
+          padding: '0.5rem',
+          borderRadius: '6px'
+        }}>
+          Répondre à <strong>{replyTo.sender}</strong>: “{replyTo.text}”
+          <button onClick={() => setReplyTo(null)} style={{
+            marginLeft: '1rem',
+            background: 'none',
+            border: 'none',
+            color: '#d00',
+            cursor: 'pointer'
+          }}>Annuler</button>
+        </div>
+      )}
+
       <div style={{ display: 'flex' }}>
         <input
           type="text"
@@ -137,4 +232,5 @@ export default function MiniChat({ videoId }) {
     </div>
   );
 }
+
 
