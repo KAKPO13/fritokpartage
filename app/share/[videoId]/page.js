@@ -2,6 +2,7 @@ import { doc, getDoc, getFirestore, collection, addDoc } from 'firebase/firestor
 import { initializeApp } from 'firebase/app';
 import MiniChat from './MiniChat'; // adapte le chemin si nécessaire
 import React from 'react';
+import Head from 'next/head';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
@@ -96,6 +97,20 @@ export default async function Page({ params, searchParams }) {
   const paymentUrl = `/buy/${videoId}?ref=${ref || 'direct'}&token=${token || 'none'}`;
 
   return (
+      <>
+    <Head>
+        <title>{data.title}</title>
+        <meta name="description" content={data.description} />
+        <meta property="og:title" content={data.title} />
+        <meta property="og:description" content={data.description} />
+        <meta property="og:image" content={data.thumbnail} />
+        <meta property="og:type" content="video.other" />
+        <meta property="og:url" content={`https://fritok.netlify.app/video/${videoId}`} />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={data.title} />
+        <meta name="twitter:description" content={data.description} />
+        <meta name="twitter:image" content={data.thumbnail} />
+      </Head>
     <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
       <h1>{data.title}</h1>
       <p><strong>Prix :</strong> {data.price}</p>
@@ -126,6 +141,7 @@ export default async function Page({ params, searchParams }) {
       {/* 💬 Mini Chat intégré ici */}
       <MiniChat videoId={videoId} />
     </main>
+     </>
   );
 }
 
