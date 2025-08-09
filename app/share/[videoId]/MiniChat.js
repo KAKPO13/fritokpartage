@@ -24,12 +24,33 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+const bannedWords = [
+  "con", "conn", "idiot", "imbécile", "abruti", "stupide", "crétin",
+  "merd", "put", "encul", "batard", "bâtard", "salop", "ordur",
+  "fdp", "ntm", "nique ta", "va te faire", "chier", "chiant", "branl", "racist", "nègre", "nazi", "antisem", "islamoph", "homophob",
+  "sale arabe", "sale noir", "sale blanc", "sale juif", "sale chinois",
+  "pédé", "tapette", "gouin", "handicapé", "mongol", "retardé", "porno", "porn", "xxx", "sexe", "s3xe", "suce", "baise", "baiser",
+  "fellation", "cul", "chatte", "vagin", "pénis", "zizi", "queue",
+  "gode", "sodom", "69", "orgasm", "jouir", "branlette",
+  "arnaque", "escroc", "escroquerie", "fraud", "fake", "faux avis",
+  "usurp", "hameçonnage", "phishing", "scam", "pirat", "hack", "crack",
+  "paypal gratuit", "numéro carte", "cvv", "bitcoin gratuit",
+  "visitez mon site", "cliquez ici", "gagnez de l'argent", "travail à domicile",
+  "promo", "réduction", "remise", "offre limitée", "parrainage",
+  "gagnez", "cashback", "abonnez-vous", "vendre vos données"
+];
+
 function generateRandomName() {
   const animals = ['Lion', 'Koala', 'Panda', 'Fox', 'Tiger', 'Otter', 'Zebra', 'Wolf'];
   const colors = ['Red', 'Blue', 'Green', 'Yellow', 'Purple', 'Orange', 'Pink'];
   const randAnimal = animals[Math.floor(Math.random() * animals.length)];
   const randColor = colors[Math.floor(Math.random() * colors.length)];
   return `${randColor}${randAnimal}${Math.floor(Math.random() * 1000)}`;
+}
+
+function containsBannedWords(text) {
+  const lowerText = text.toLowerCase();
+  return bannedWords.some(word => lowerText.includes(word));
 }
 
 export default function MiniChat({ videoId }) {
@@ -69,6 +90,11 @@ export default function MiniChat({ videoId }) {
   const sendMessage = async () => {
     if (newMessage.trim() === '') return;
 
+    if (containsBannedWords(newMessage)) {
+      alert("🚫 Ton message contient des mots interdits. Merci de rester respectueux.");
+      return;
+    }
+
     try {
       await addDoc(collection(db, 'chat_messages'), {
         videoId,
@@ -101,7 +127,6 @@ export default function MiniChat({ videoId }) {
 
             return (
               <div key={msg.id} style={{ position: 'relative', marginBottom: '1rem' }}>
-                {/* Ligne verticale */}
                 {replies.length > 0 && (
                   <div style={{
                     position: 'absolute',
@@ -114,7 +139,6 @@ export default function MiniChat({ videoId }) {
                   }} />
                 )}
 
-                {/* Message parent */}
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -153,7 +177,6 @@ export default function MiniChat({ videoId }) {
                   </button>
                 </motion.div>
 
-                {/* Réponses indentées */}
                 {replies.map(reply => (
                   <motion.div
                     key={reply.id}
