@@ -1,8 +1,7 @@
 import { doc, getDoc, getFirestore, collection, addDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
-import MiniChat from './MiniChat';
+import MiniChat from './MiniChat'; // adapte le chemin si nécessaire
 import React from 'react';
-import Head from 'next/head';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
@@ -17,6 +16,45 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata({ params }) {
+  const { videoId } = params;
+
+  const docRef = doc(db, "video_playlist", videoId);
+  const docSnap = await getDoc(docRef);
+
+  if (!docSnap.exists()) {
+    return {
+      title: "Vidéo introuvable",
+      description: "Ce lien ne correspond à aucune vidéo.",
+    };
+  }
+
+  const data = docSnap.data();
+
+  return {
+    title: data.title || "Vidéo FriTok",
+    description: data.description || "Découvrez cette vidéo partagée sur FriTok.",
+    openGraph: {
+      title: data.title,
+      description: data.description,
+      images: [
+        {
+          url: data.thumbnail,
+          width: 1200,
+          height: 630,
+        },
+      ],
+      type: "video.other",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: data.title,
+      description: data.description,
+      images: [data.thumbnail],
+    },
+  };
+}
 
 export default async function Page({ params, searchParams }) {
   const { videoId } = params;
@@ -58,51 +96,36 @@ export default async function Page({ params, searchParams }) {
   const paymentUrl = `/buy/${videoId}?ref=${ref || 'direct'}&token=${token || 'none'}`;
 
   return (
-    <>
-      <Head>
-        <title>{data.title}</title>
-        <meta name="description" content={data.description} />
-        <meta property="og:title" content={data.title} />
-        <meta property="og:description" content={data.description} />
-        <meta property="og:image" content={data.thumbnail} />
-        <meta property="og:type" content="video.other" />
-        <meta property="og:url" content={`https://fritok.netlify.app/video/${videoId}`} />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content={data.title} />
-        <meta name="twitter:description" content={data.description} />
-        <meta name="twitter:image" content={data.thumbnail} />
-      </Head>
+    <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+      <h1>{data.title}</h1>
+      <p><strong>Prix :</strong> {data.price}</p>
+      <video
+        src={data.url}
+        controls
+        style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }}
+        poster={data.thumbnail}
+      />
+      <p>{data.description}</p>
+      {ref && <p>🔗 Partagé par : {ref}</p>}
 
-      <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-        <h1>{data.title}</h1>
-        <p><strong>Prix :</strong> {data.price}</p>
-        <video
-          src={data.url}
-          controls
-          style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }}
-          poster={data.thumbnail}
-        />
-        <p>{data.description}</p>
-        {ref && <p>🔗 Partagé par : {ref}</p>}
+      <a href={paymentUrl}>
+        <button style={{
+          marginTop: '1rem',
+          padding: '1rem 2rem',
+          backgroundColor: '#00C851',
+          color: '#fff',
+          border: 'none',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontSize: '1rem'
+        }}>
+          🛒 Acheter maintenant
+        </button>
+      </a>
 
-        <a href={paymentUrl}>
-          <button style={{
-            marginTop: '1rem',
-            padding: '1rem 2rem',
-            backgroundColor: '#00C851',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '1rem'
-          }}>
-            🛒 Acheter maintenant
-          </button>
-        </a>
-
-        <MiniChat videoId={videoId} />
-      </main>
-    </>
+      {/* 💬 Mini Chat intégré ici */}
+      <MiniChat videoId={videoId} />
+    </main>
   );
 }
 
