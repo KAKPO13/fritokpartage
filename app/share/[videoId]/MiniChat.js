@@ -232,26 +232,36 @@ export default function MiniChat({ videoId }) {
         </div>
       )}
 
-      <div style={{ display: 'flex' }}>
-        <input
-          type="text"
-          value={newMessage}
-          onChange={e => setNewMessage(e.target.value)}
-          placeholder="Écris ton message..."
-          style={{ flex: 1, padding: '0.5rem' }}
-        />
-        <button onClick={sendMessage} style={{
-          padding: '0.5rem 1rem',
-          marginLeft: '0.5rem',
-          backgroundColor: '#007E33',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: 'pointer'
-        }}>
-          Envoyer
-        </button>
-      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+  <input
+    type="text"
+    value={newMessage}
+    onChange={e => setNewMessage(e.target.value)}
+    placeholder="Écris ton message..."
+    style={{
+      flex: 1,
+      padding: '0.5rem',
+      borderRadius: '4px',
+      border: '1px solid #ccc',
+      fontSize: '1rem'
+    }}
+  />
+  <button
+    onClick={sendMessage}
+    style={{
+      padding: '0.5rem 1rem',
+      backgroundColor: '#007E33',
+      color: '#fff',
+      border: 'none',
+      borderRadius: '4px',
+      fontSize: '1rem',
+      cursor: 'pointer',
+      height: '100%' // assure que le bouton prend la même hauteur que l'input
+    }}
+  >
+    Envoyer
+  </button>
+</div>
     </div>
   );
 }

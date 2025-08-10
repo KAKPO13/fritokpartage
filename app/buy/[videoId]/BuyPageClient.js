@@ -211,7 +211,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
           fontSize: '1rem'
         }}
       >
-        💳 Commande avec livraison
+        🛒 Commande avec livraison
       </button>
 
       <ToastContainer position="top-right" autoClose={5000} />
