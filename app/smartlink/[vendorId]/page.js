@@ -1,5 +1,6 @@
 import styles from '../../../styles/Smartlink.module.css';
 
+
 async function fetchVideos(vendorId) {
   const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/videos?vendorId=${vendorId}`, {
     next: { revalidate: 60 }

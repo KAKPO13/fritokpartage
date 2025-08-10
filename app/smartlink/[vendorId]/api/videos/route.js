@@ -1,4 +1,3 @@
-import styles from './page.module.css';
 
 async function fetchVideos(vendorId) {
   try {
