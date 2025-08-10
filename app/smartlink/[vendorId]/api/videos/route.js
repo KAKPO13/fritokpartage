@@ -1,3 +1,7 @@
+'use client'; // 👈 à ajouter tout en haut
+
+import styles from './page.module.css';
+
 
 async function fetchVideos(vendorId) {
   try {
