@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
 export async function generateMetadata({ params }) {
   const { vendorId } = params;
 
-  const docRef = doc(db, "vendors", vendorId);
+  const docRef = doc(db, "video_playlist", videoId);
   const docSnap = await getDoc(docRef);
 
   if (!docSnap.exists()) {
@@ -60,7 +60,7 @@ export default async function SmartlinkPage({ params, searchParams }) {
   const { vendorId } = params;
   const { ref, token } = searchParams;
 
-  const docRef = doc(db, "vendors", vendorId);
+  const docRef = doc(db, "video_playlist", videoId);
   const docSnap = await getDoc(docRef);
 
   if (!docSnap.exists()) {
