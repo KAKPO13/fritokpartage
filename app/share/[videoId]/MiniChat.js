@@ -232,7 +232,7 @@ export default function MiniChat({ videoId }) {
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end' }}>
   <input
     type="text"
     value={newMessage}
@@ -241,22 +241,22 @@ export default function MiniChat({ videoId }) {
     style={{
       flex: 1,
       padding: '0.5rem',
+      fontSize: '1rem',
       borderRadius: '4px',
-      border: '1px solid #ccc',
-      fontSize: '1rem'
+      border: '1px solid #ccc'
     }}
   />
   <button
     onClick={sendMessage}
     style={{
       padding: '0.5rem 1rem',
+      marginLeft: '0.5rem',
       backgroundColor: '#007E33',
       color: '#fff',
       border: 'none',
       borderRadius: '4px',
       fontSize: '1rem',
-      cursor: 'pointer',
-      height: '100%' // assure que le bouton prend la même hauteur que l'input
+      cursor: 'pointer'
     }}
   >
     Envoyer
