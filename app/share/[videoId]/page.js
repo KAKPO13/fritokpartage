@@ -134,7 +134,7 @@ export default async function Page({ params, searchParams }) {
           cursor: 'pointer',
           fontSize: '1rem'
         }}>
-          🛒 Acheter maintenant
+          🛒 Plus De Detail
         </button>
       </a>
 
