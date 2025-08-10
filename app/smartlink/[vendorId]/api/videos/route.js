@@ -1,35 +1,55 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
-import { NextResponse } from 'next/server';
+import styles from './page.module.css';
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
-  authDomain: "cgsp-app.firebaseapp.com",
-  projectId: "cgsp-app",
-  storageBucket: "cgsp-app.appspot.com",
-  messagingSenderId: "463987328508",
-  appId: "1:463987328508:android:829287eef68a37af739e79"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-  const vendorId = searchParams.get('vendorId');
-
-  if (!vendorId) {
-    return NextResponse.json({ success: false, error: 'vendorId requis' }, { status: 400 });
-  }
-
+async function fetchVideos(vendorId) {
   try {
-    const q = query(collection(db, 'video_playlist'), where('vendorId', '==', vendorId));
-    const querySnapshot = await getDocs(q);
-    const videos = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-    return NextResponse.json({ success: true, videos });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/videos?vendorId=${vendorId}`);
+    if (!res.ok) throw new Error('Erreur API');
+    const data = await res.json();
+    return data.videos || [];
   } catch (error) {
-    console.error('Erreur API:', error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error('Erreur fetchVideos:', error);
+    return null; // null pour distinguer erreur réseau vs liste vide
   }
 }
+
+export default async function SmartlinkPage({ params }) {
+  const { vendorId } = params;
+
+  if (!vendorId) {
+    return (
+      <div className={styles.container}>
+        <p>❌ Paramètre <code>vendorId</code> manquant.</p>
+      </div>
+    );
+  }
+
+  const videos = await fetchVideos(vendorId);
+
+  if (videos === null) {
+    return (
+      <div className={styles.container}>
+        <p>⚠️ Une erreur est survenue lors du chargement des vidéos.</p>
+      </div>
+    );
+  }
+
+  if (videos.length === 0) {
+    return (
+      <div className={styles.container}>
+        <p>📭 Aucun contenu disponible pour ce vendeur.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.container}>
+      {videos.map((video, index) => (
+        <div key={index} className={styles.videoCard}>
+          <video src={video.url} controls />
+          <p>{video.title}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
