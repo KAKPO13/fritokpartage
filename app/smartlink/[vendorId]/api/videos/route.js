@@ -1,7 +1,4 @@
-'use client'; // 👈 à ajouter tout en haut
-
-import styles from './page.module.css';
-
+'use client';
 
 async function fetchVideos(vendorId) {
   try {
@@ -11,16 +8,29 @@ async function fetchVideos(vendorId) {
     return data.videos || [];
   } catch (error) {
     console.error('Erreur fetchVideos:', error);
-    return null; // null pour distinguer erreur réseau vs liste vide
+    return null;
   }
 }
 
 export default async function SmartlinkPage({ params }) {
   const { vendorId } = params;
 
+  const containerStyle = {
+    padding: '2rem',
+    textAlign: 'center',
+    fontFamily: 'sans-serif',
+  };
+
+  const videoCardStyle = {
+    marginBottom: '2rem',
+    border: '1px solid #ccc',
+    padding: '1rem',
+    borderRadius: '8px',
+  };
+
   if (!vendorId) {
     return (
-      <div className={styles.container}>
+      <div style={containerStyle}>
         <p>❌ Paramètre <code>vendorId</code> manquant.</p>
       </div>
     );
@@ -30,7 +40,7 @@ export default async function SmartlinkPage({ params }) {
 
   if (videos === null) {
     return (
-      <div className={styles.container}>
+      <div style={containerStyle}>
         <p>⚠️ Une erreur est survenue lors du chargement des vidéos.</p>
       </div>
     );
@@ -38,21 +48,20 @@ export default async function SmartlinkPage({ params }) {
 
   if (videos.length === 0) {
     return (
-      <div className={styles.container}>
+      <div style={containerStyle}>
         <p>📭 Aucun contenu disponible pour ce vendeur.</p>
       </div>
     );
   }
 
   return (
-    <div className={styles.container}>
+    <div style={containerStyle}>
       {videos.map((video, index) => (
-        <div key={index} className={styles.videoCard}>
-          <video src={video.url} controls />
+        <div key={index} style={videoCardStyle}>
+          <video src={video.url} controls style={{ width: '100%' }} />
           <p>{video.title}</p>
         </div>
       ))}
     </div>
   );
 }
-
