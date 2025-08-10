@@ -5,24 +5,26 @@ import { getFirestore, collection, query, where, getDocs } from 'firebase/firest
 import { initializeApp } from 'firebase/app';
 
 const firebaseConfig = {
-  apiKey: 'YOUR_API_KEY',
-  authDomain: 'YOUR_AUTH_DOMAIN',
-  projectId: 'YOUR_PROJECT_ID',
-  // ... autres configs
+  apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
+  authDomain: "cgsp-app.firebaseapp.com",
+  projectId: "cgsp-app",
+  storageBucket: "cgsp-app.appspot.com",
+  messagingSenderId: "463987328508",
+  appId: "1:463987328508:android:829287eef68a37af739e79"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 async function getVideos(vendorId) {
-  const q = query(collection(db, 'video_playlist'), where('vendorId', '==', vendorId));
+  const q = query(collection(db, 'video_playlist'), where('videoId', '==', videoId));
   const querySnapshot = await getDocs(q);
   return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
 export default async function SmartlinkPage({ params }) {
-  const { vendorId } = params;
-  const videos = await getVideos(vendorId);
+  const { videoId } = params;
+  const videos = await getVideos(videoId);
 
   return (
     <div className={styles.container}>
