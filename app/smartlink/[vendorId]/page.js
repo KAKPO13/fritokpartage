@@ -1,6 +1,6 @@
 // app/smartlink/[vendorId]/page.js
 
-import styles from '../../../styles/Smartlink.module.css'; // ✅ Chemin corrigé
+import styles from '../../../styles/Smartlink.module.css';
 import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 
@@ -17,14 +17,13 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 async function getVideos(vendorId) {
-  const q = query(collection(db, 'video_playlist'), where('videoId', '==', videoId));
+  const q = query(collection(db, 'video_playlist'), where('vendorId', '==', vendorId));
   const querySnapshot = await getDocs(q);
   return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
 export default async function SmartlinkPage({ params }) {
-  const { videoId } = params;
-  const videos = await getVideos(videoId);
+  const videos = await getVideos(params.vendorId);
 
   return (
     <div className={styles.container}>
@@ -48,4 +47,5 @@ export default async function SmartlinkPage({ params }) {
     </div>
   );
 }
+
 
