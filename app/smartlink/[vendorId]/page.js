@@ -1,29 +1,21 @@
-// app/smartlink/[vendorId]/page.js
-
 import styles from '../../../styles/Smartlink.module.css';
-import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
-import { initializeApp } from 'firebase/app';
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
-  authDomain: "cgsp-app.firebaseapp.com",
-  projectId: "cgsp-app",
-  storageBucket: "cgsp-app.appspot.com",
-  messagingSenderId: "463987328508",
-  appId: "1:463987328508:android:829287eef68a37af739e79"
-};
+async function fetchVideos(vendorId) {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/videos/${vendorId}`, {
+    next: { revalidate: 60 } // Optionnel : ISR pour revalidation toutes les 60s
+  });
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+  if (!res.ok) {
+    console.error('Erreur API:', res.statusText);
+    return [];
+  }
 
-async function getVideos(vendorId) {
-  const q = query(collection(db, 'video_playlist'), where('vendorId', '==', vendorId));
-  const querySnapshot = await getDocs(q);
-  return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const data = await res.json();
+  return data.videos || [];
 }
 
 export default async function SmartlinkPage({ params }) {
-  const videos = await getVideos(params.vendorId);
+  const videos = await fetchVideos(params.vendorId);
 
   return (
     <div className={styles.container}>
@@ -47,5 +39,4 @@ export default async function SmartlinkPage({ params }) {
     </div>
   );
 }
-
 
