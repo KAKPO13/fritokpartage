@@ -1,14 +1,28 @@
-'use client';
+// app/smartlink/[vendorId]/page.js
 
-import { useState } from 'react';
-import styles from '../../styles/Smartlink.module.css';
+import styles from '../../../styles/Smartlink.module.css'; // ✅ Chemin corrigé
+import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
+import { initializeApp } from 'firebase/app';
 
-export default function SmartlinkPage({ initialVideos }) {
-  const [videos] = useState(initialVideos);
+const firebaseConfig = {
+  apiKey: 'YOUR_API_KEY',
+  authDomain: 'YOUR_AUTH_DOMAIN',
+  projectId: 'YOUR_PROJECT_ID',
+  // ... autres configs
+};
 
-  function handleBuy(video) {
-    alert(`Tu veux acheter : ${video.title}`);
-  }
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+async function getVideos(vendorId) {
+  const q = query(collection(db, 'video_playlist'), where('vendorId', '==', vendorId));
+  const querySnapshot = await getDocs(q);
+  return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+export default async function SmartlinkPage({ params }) {
+  const { vendorId } = params;
+  const videos = await getVideos(vendorId);
 
   return (
     <div className={styles.container}>
@@ -24,7 +38,7 @@ export default function SmartlinkPage({ initialVideos }) {
             <p>{video.description}</p>
             <div className={styles.actions}>
               <button className={styles.likeButton}>❤️ {video.likes || 0}</button>
-              <button className={styles.buyButton} onClick={() => handleBuy(video)}>Acheter</button>
+              <button className={styles.buyButton}>Acheter</button>
             </div>
           </div>
         ))}
@@ -32,3 +46,4 @@ export default function SmartlinkPage({ initialVideos }) {
     </div>
   );
 }
+
