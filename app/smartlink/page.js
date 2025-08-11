@@ -40,57 +40,60 @@ export default async function SmartlinkPage({ searchParams }) {
     }
   }
 
+  const data = videoData[0]; // première vidéo pour les métadonnées
+
   return (
     <>
-    <Head>
-        <title>{data.title}</title>
-        <meta name="description" content={data.description} />
-        <meta property="og:title" content={data.title} />
-        <meta property="og:description" content={data.description} />
-        <meta property="og:image" content={data.thumbnail} />
+      <Head>
+        <title>{data?.title || 'Vidéos partagées | FriTok'}</title>
+        <meta name="description" content={data?.description || 'Découvrez les vidéos partagées via FriTok.'} />
+        <meta property="og:title" content={data?.title || 'Vidéos partagées'} />
+        <meta property="og:description" content={data?.description || 'Découvrez les vidéos partagées via FriTok.'} />
+        <meta property="og:image" content={data?.thumbnail || '/default-thumbnail.jpg'} />
         <meta property="og:type" content="video.other" />
-        <meta property="og:url" content={`https://fritok.netlify.app/video/${videoId}`} />
+        <meta property="og:url" content={`https://fritok.netlify.app/video/${data?.id || 'shared'}`} />
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content={data.title} />
-        <meta name="twitter:description" content={data.description} />
-        <meta name="twitter:image" content={data.thumbnail} />
+        <meta name="twitter:title" content={data?.title || 'Vidéos partagées'} />
+        <meta name="twitter:description" content={data?.description || 'Découvrez les vidéos partagées via FriTok.'} />
+        <meta name="twitter:image" content={data?.thumbnail || '/default-thumbnail.jpg'} />
       </Head>
-    <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>🎥 Vidéos partagées</h1>
-      {ref && <p>🔗 Partagé par : <strong>{ref}</strong></p>}
-      {token && <p>🧩 Jeton de session : <code>{token}</code></p>}
 
-      {videoData.length === 0 ? (
-        <p>Aucune vidéo trouvée.</p>
-      ) : (
-        videoData.map((video) => (
-          <div key={video.id} style={{
-            marginBottom: '2rem',
-            border: '1px solid #ccc',
-            padding: '1rem',
-            borderRadius: '8px'
-          }}>
-            <video src={video.url} controls style={{ width: '100%' }} poster={video.thumbnail} />
-            <h3>{video.title}</h3>
-            <p>{video.description}</p>
-            <a href={`/buy/${video.id}?ref=${ref || 'direct'}&token=${token || 'none'}`}>
-              <button style={{
-                marginTop: '1rem',
-                padding: '0.5rem 1rem',
-                backgroundColor: '#00C851',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer'
-              }}>
-                🛒 Acheter
-              </button>
-            </a>
-          </div>
-        ))
-      )}
-    </main>
-     </>
+      <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+        <h1>🎥 Vidéos partagées</h1>
+        {ref && <p>🔗 Partagé par : <strong>{ref}</strong></p>}
+        {token && <p>🧩 Jeton de session : <code>{token}</code></p>}
+
+        {videoData.length === 0 ? (
+          <p>Aucune vidéo trouvée.</p>
+        ) : (
+          videoData.map((video) => (
+            <div key={video.id} style={{
+              marginBottom: '2rem',
+              border: '1px solid #ccc',
+              padding: '1rem',
+              borderRadius: '8px'
+            }}>
+              <video src={video.url} controls style={{ width: '100%' }} poster={video.thumbnail} />
+              <h3>{video.title}</h3>
+              <p>{video.description}</p>
+              <a href={`/buy/${video.id}?ref=${ref || 'direct'}&token=${token || 'none'}`}>
+                <button style={{
+                  marginTop: '1rem',
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#00C851',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}>
+                  🛒 Acheter
+                </button>
+              </a>
+            </div>
+          ))
+        )}
+      </main>
+    </>
   );
 }
 
