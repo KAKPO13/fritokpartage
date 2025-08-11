@@ -14,8 +14,6 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [address, setAddress] = useState('');
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
-  const [userId, setUserId] = useState('');
-  const [boutiqueId, setBoutiqueId] = useState('');
   const [price, setPrice] = useState('');
 
   useEffect(() => {
@@ -42,14 +40,15 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   }, []);
 
   const handlePayment = async () => {
+    const numericPrice = Number(price || 0);
+
     if (!latitude || !longitude || !address.trim() || !telephone.trim()) {
       toast.warn("⚠️ Veuillez remplir tous les champs requis.");
       return;
     }
 
-    const numericPrice = Number(price);
-    if (isNaN(numericPrice)) {
-      toast.error("❌ Le prix doit être un nombre valide.");
+    if (isNaN(numericPrice) || numericPrice <= 0) {
+      toast.error("❌ Le prix doit être un nombre valide supérieur à zéro.");
       return;
     }
 
@@ -75,7 +74,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       observations: observations ?? '',
       statut: "en attente",
       userId: referrer ?? '',
-      boutiqueId,
+      boutiqueId: '', // à compléter si disponible
       commandeId,
       date: new Date().toISOString()
     };
@@ -85,9 +84,10 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       toast.success(`✅ Commande enregistrée avec succès ! ID : ${commandeId}`);
       setTelephone('');
       setObservations('');
+      setPrice('');
     } catch (error) {
       console.error('❌ Erreur lors de l’enregistrement ou de la notification:', error);
-      toast.error('Erreur lors de l’enregistrement de la commande ou de la notification.');
+      toast.error('Erreur lors de l’enregistrement de la commande.');
     }
   };
 
@@ -144,18 +144,6 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
       <video src={videoUrl} controls style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }} />
       <p>{description}</p>
-      {userId && <p>👤 ID utilisateur : {userId}</p>}
-      {boutiqueId && <p>🏪 ID boutique : {boutiqueId}</p>}
-      {price && <p>💰 Prix : {price} €</p>}
-      {referrer && <p>🔗 Référent : {referrer}</p>}
-      {token && <p>🛡️ Jeton : {token}</p>}
-      {latitude && longitude && (
-        <>
-          <p>📍 Latitude : {latitude}</p>
-          <p>📍 Longitude : {longitude}</p>
-          <p>🔢 Geohash : {geohash.encode(latitude, longitude)}</p>
-        </>
-      )}
 
       <div style={{ marginTop: '1rem' }}>
         <input
@@ -163,39 +151,28 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
           placeholder="🏠 Adresse de livraison"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '0.75rem',
-            marginBottom: '1rem',
-            borderRadius: '8px',
-            border: '1px solid #ccc'
-          }}
+          style={inputStyle}
         />
         <input
           type="text"
           placeholder="📱 Numéro de téléphone"
           value={telephone}
           onChange={(e) => setTelephone(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '0.75rem',
-            marginBottom: '1rem',
-            borderRadius: '8px',
-            border: '1px solid #ccc'
-          }}
+          style={inputStyle}
+        />
+        <input
+          type="text"
+          placeholder="💰 Prix (€)"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          style={inputStyle}
         />
         <textarea
           placeholder="📝 Observations (facultatif)"
           value={observations}
           onChange={(e) => setObservations(e.target.value)}
           rows={4}
-          style={{
-            width: '100%',
-            padding: '0.75rem',
-            borderRadius: '8px',
-            border: '1px solid #ccc',
-            marginBottom: '1rem'
-          }}
+          style={{ ...inputStyle, resize: 'vertical' }}
         />
       </div>
 
@@ -219,4 +196,10 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   );
 }
 
-
+const inputStyle = {
+  width: '100%',
+  padding: '0.75rem',
+  marginBottom: '1rem',
+  borderRadius: '8px',
+  border: '1px solid #ccc'
+};
