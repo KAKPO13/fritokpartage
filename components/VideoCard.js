@@ -18,6 +18,7 @@ export default function VideoCard({ video, referrer, token }) {
       />
       <h3>{video.title}</h3>
       <p>{video.description}</p>
+      <p><strong>💰 Prix :</strong> {video.price ? `${video.price.toFixed(2)} €` : 'Non spécifié'}</p>
       <Link href={`/buy/${video.id}?ref=${referrer || 'direct'}&token=${token || 'none'}`}>
         <button style={{
           marginTop: '1rem',
@@ -34,3 +35,4 @@ export default function VideoCard({ video, referrer, token }) {
     </div>
   );
 }
+

@@ -34,10 +34,14 @@ export default async function SmartlinkPage({ searchParams }) {
   const videoData = [];
 
   for (const id of videoIds) {
-    const docRef = doc(db, 'video_playlist', id);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      videoData.push({ id, ...docSnap.data() });
+    try {
+      const docRef = doc(db, 'video_playlist', id);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        videoData.push({ id, ...docSnap.data() });
+      }
+    } catch (error) {
+      console.error(`Erreur Firestore pour la vidéo ${id}:`, error);
     }
   }
 
@@ -75,4 +79,5 @@ export default async function SmartlinkPage({ searchParams }) {
     </>
   );
 }
+
 
