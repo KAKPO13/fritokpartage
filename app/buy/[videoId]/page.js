@@ -20,30 +20,40 @@ export default async function Page({ params, searchParams }) {
   const { videoId } = params;
   const { ref, token } = searchParams;
 
-  const docRef = doc(db, "video_playlist", videoId);
-  const docSnap = await getDoc(docRef);
+  try {
+    const docRef = doc(db, "video_playlist", videoId);
+    const docSnap = await getDoc(docRef);
 
-  if (!docSnap.exists()) {
+    if (!docSnap.exists()) {
+      console.warn(`Document introuvable pour l'ID: ${videoId}`);
+      return (
+        <main style={{ textAlign: 'center', padding: '2rem' }}>
+          <h1>❌ Produit introuvable</h1>
+          <p>Aucune vidéo ou produit ne correspond à cet identifiant.</p>
+        </main>
+      );
+    }
+
+    const data = docSnap.data();
+
+    return (
+      <BuyPageClient
+        title={data.title}
+        description={data.description}
+        videoUrl={data.url}
+        thumbnail={data.thumbnail || null}
+        price={data.price || 3000}
+        referrer={ref}
+        token={token}
+      />
+    );
+  } catch (error) {
+    console.error('Erreur Firestore dans /buy/[videoId]:', error);
     return (
       <main style={{ textAlign: 'center', padding: '2rem' }}>
-        <h1>❌ Produit introuvable</h1>
-        <p>Aucune vidéo ou produit ne correspond à cet identifiant.</p>
+        <h1>🚨 Erreur serveur</h1>
+        <p>Impossible de charger les données du produit. Veuillez réessayer plus tard.</p>
       </main>
     );
   }
-
-  const data = docSnap.data();
-
-  return (
-    <BuyPageClient
-      title={data.title}
-      description={data.description}
-      videoUrl={data.url}
-      thumbnail={data.thumbnail || null}
-      price={data.price || 3000}
-      referrer={ref}
-      token={token}
-    />
-  );
 }
-
