@@ -1,6 +1,7 @@
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import React from 'react';
+import Head from 'next/head';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
@@ -40,6 +41,20 @@ export default async function SmartlinkPage({ searchParams }) {
   }
 
   return (
+    <>
+    <Head>
+        <title>{data.title}</title>
+        <meta name="description" content={data.description} />
+        <meta property="og:title" content={data.title} />
+        <meta property="og:description" content={data.description} />
+        <meta property="og:image" content={data.thumbnail} />
+        <meta property="og:type" content="video.other" />
+        <meta property="og:url" content={`https://fritok.netlify.app/video/${videoId}`} />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={data.title} />
+        <meta name="twitter:description" content={data.description} />
+        <meta name="twitter:image" content={data.thumbnail} />
+      </Head>
     <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
       <h1>🎥 Vidéos partagées</h1>
       {ref && <p>🔗 Partagé par : <strong>{ref}</strong></p>}
@@ -75,6 +90,7 @@ export default async function SmartlinkPage({ searchParams }) {
         ))
       )}
     </main>
+     </>
   );
 }
 
