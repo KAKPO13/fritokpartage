@@ -1,4 +1,4 @@
-'use client';
+// components/VideoCard.jsx
 import React from 'react';
 import Link from 'next/link';
 

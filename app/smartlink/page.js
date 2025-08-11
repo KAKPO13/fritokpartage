@@ -1,7 +1,6 @@
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
-import VideoCard from '../../components/VideoCard';
-import React from 'react';
+import VideoCard from '../components/VideoCard';
 import Head from 'next/head';
 
 const firebaseConfig = {
@@ -16,36 +15,38 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-export const dynamic = 'force-dynamic';
+export async function getServerSideProps(context) {
+  const { videos, ref, token } = context.query;
 
-export default async function SmartlinkPage({ searchParams }) {
-  const { videos, ref, token } = searchParams;
-
-  if (!videos) {
-    return (
-      <main style={{ padding: '2rem', textAlign: 'center' }}>
-        <h1>📭 Aucun contenu partagé</h1>
-        <p>Ce lien ne contient pas de vidéos à afficher.</p>
-      </main>
-    );
-  }
-
-  const videoIds = videos.split(',');
   const videoData = [];
 
-  for (const id of videoIds) {
-    try {
-      const docRef = doc(db, 'video_playlist', id);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        videoData.push({ id, ...docSnap.data() });
+  if (videos) {
+    const videoIds = videos.split(',');
+
+    for (const id of videoIds) {
+      try {
+        const docRef = doc(db, 'video_playlist', id);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          videoData.push({ id, ...docSnap.data() });
+        }
+      } catch (error) {
+        console.error(`Erreur Firestore pour ${id}:`, error);
       }
-    } catch (error) {
-      console.error(`Erreur Firestore pour la vidéo ${id}:`, error);
     }
   }
 
-  const data = videoData[0]; // première vidéo pour les métadonnées
+  return {
+    props: {
+      videoData,
+      ref: ref || null,
+      token: token || null,
+    },
+  };
+}
+
+export default function SmartlinkPage({ videoData, ref, token }) {
+  const data = videoData[0];
 
   return (
     <>
@@ -79,5 +80,4 @@ export default async function SmartlinkPage({ searchParams }) {
     </>
   );
 }
-
 
