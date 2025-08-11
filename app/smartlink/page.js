@@ -1,5 +1,6 @@
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
+import VideoCard from '@/components/VideoCard';
 import React from 'react';
 import Head from 'next/head';
 
@@ -67,29 +68,7 @@ export default async function SmartlinkPage({ searchParams }) {
           <p>Aucune vidéo trouvée.</p>
         ) : (
           videoData.map((video) => (
-            <div key={video.id} style={{
-              marginBottom: '2rem',
-              border: '1px solid #ccc',
-              padding: '1rem',
-              borderRadius: '8px'
-            }}>
-              <video src={video.url} controls style={{ width: '100%' }} poster={video.thumbnail} />
-              <h3>{video.title}</h3>
-              <p>{video.description}</p>
-              <a href={`/buy/${video.id}?ref=${ref || 'direct'}&token=${token || 'none'}`}>
-                <button style={{
-                  marginTop: '1rem',
-                  padding: '0.5rem 1rem',
-                  backgroundColor: '#00C851',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer'
-                }}>
-                  🛒 Acheter
-                </button>
-              </a>
-            </div>
+            <VideoCard key={video.id} video={video} referrer={ref} token={token} />
           ))
         )}
       </main>
