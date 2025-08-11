@@ -1,6 +1,6 @@
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
-import VideoCard from '../../../components/VideoCard';
+import VideoCard from '../../components/VideoCard';
 import React from 'react';
 import Head from 'next/head';
 
