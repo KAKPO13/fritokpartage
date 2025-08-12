@@ -6,23 +6,11 @@ import {
   query,
   where,
   onSnapshot,
-  getFirestore,
   serverTimestamp
 } from 'firebase/firestore';
-import { initializeApp } from 'firebase/app';
+import { db } from '../../firebaseConfig'; // ✅ Utilise la config centralisée
 import { motion, AnimatePresence } from 'framer-motion';
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
-  authDomain: "cgsp-app.firebaseapp.com",
-  projectId: "cgsp-app",
-  storageBucket: "cgsp-app.appspot.com",
-  messagingSenderId: "463987328508",
-  appId: "1:463987328508:android:829287eef68a37af739e79"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
 
 const bannedWords = [
   "con", "conn", "idiot", "imbécile", "abruti", "stupide", "crétin",
