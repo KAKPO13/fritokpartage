@@ -1,20 +1,8 @@
-import { doc, getDoc, getFirestore, collection, addDoc } from 'firebase/firestore';
-import { initializeApp } from 'firebase/app';
-import MiniChat from './MiniChat'; // adapte le chemin si nécessaire
+import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebaseConfig'; // ✅ adapte le chemin si nécessaire
+import MiniChat from './MiniChat';
 import React from 'react';
 import Head from 'next/head';
-
-const firebaseConfig = {
-  apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
-  authDomain: "cgsp-app.firebaseapp.com",
-  projectId: "cgsp-app",
-  storageBucket: "cgsp-app.appspot.com",
-  messagingSenderId: "463987328508",
-  appId: "1:463987328508:android:829287eef68a37af739e79"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
 
 export const dynamic = 'force-dynamic';
 
@@ -97,8 +85,8 @@ export default async function Page({ params, searchParams }) {
   const paymentUrl = `/buy/${videoId}?ref=${ref || 'direct'}&token=${token || 'none'}`;
 
   return (
-      <>
-    <Head>
+    <>
+      <Head>
         <title>{data.title}</title>
         <meta name="description" content={data.description} />
         <meta property="og:title" content={data.title} />
@@ -111,41 +99,39 @@ export default async function Page({ params, searchParams }) {
         <meta name="twitter:description" content={data.description} />
         <meta name="twitter:image" content={data.thumbnail} />
       </Head>
-    <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>{data.title}</h1>
-      <p><strong>Prix :</strong> {data.price}</p>
-      <video
-        src={data.url}
-        controls
-        style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }}
-        poster={data.thumbnail}
-      />
-      <p>{data.description}</p>
-      {ref && <p>🔗 Partagé par : {ref}</p>}
+      <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+        <h1>{data.title}</h1>
+        <p><strong>Prix :</strong> {data.price}</p>
+        <video
+          src={data.url}
+          controls
+          style={{ width: '100%', maxWidth: '600px', marginBottom: '1rem' }}
+          poster={data.thumbnail}
+        />
+        <p>{data.description}</p>
+        {ref && <p>🔗 Partagé par : {ref}</p>}
 
-      <a href={paymentUrl}>
-        <button style={{
-          marginTop: '1rem',
-          padding: '1rem 2rem',
-          backgroundColor: '#00C851',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '8px',
-          cursor: 'pointer',
-          fontSize: '1rem'
-        }}>
-          🛒 Plus De Detail
-        </button>
-      </a>
+        <a href={paymentUrl}>
+          <button style={{
+            marginTop: '1rem',
+            padding: '1rem 2rem',
+            backgroundColor: '#00C851',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '1rem'
+          }}>
+            🛒 Plus De Detail
+          </button>
+        </a>
 
-      {/* 💬 Mini Chat intégré ici */}
-      <MiniChat videoId={videoId} />
-    </main>
-     </>
+        {/* 💬 Mini Chat intégré ici */}
+        <MiniChat videoId={videoId} />
+      </main>
+    </>
   );
 }
-
-
 
 
 
