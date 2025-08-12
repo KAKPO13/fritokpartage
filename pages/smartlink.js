@@ -1,24 +1,29 @@
-import { db } from '../firebaseConfig'; // ✅ Utilise ton fichier existant
+import { db } from '../firebaseConfig';
 import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
 import VideoCard from '../components/VideoCard';
 import dynamic from 'next/dynamic';
-const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
 import Head from 'next/head';
+import { useEffect } from 'react';
 
+const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
-  authDomain: "cgsp-app.firebaseapp.com",
-  projectId: "cgsp-app",
-  storageBucket: "cgsp-app.appspot.com",
-  messagingSenderId: "463987328508",
-  appId: "1:463987328508:android:829287eef68a37af739e79"
-};
-
+async function logClick(videoId, referrer, token) {
+  try {
+    const logRef = collection(db, 'click_logs');
+    await addDoc(logRef, {
+      videoId,
+      referrer: referrer || null,
+      token: token || null,
+      timestamp: new Date().toISOString(),
+    });
+    console.log('✅ Clic enregistré')
+  } catch (error) {
+    console.error('❌ Erreur lors de l’enregistrement du clic :', error);
+  }
+}
 
 export async function getServerSideProps(context) {
   const { videos, ref, token } = context.query;
-
   const videoData = [];
 
   if (videos) {
@@ -36,7 +41,6 @@ export async function getServerSideProps(context) {
       }
     }
   }
-  
 
   return {
     props: {
@@ -49,6 +53,12 @@ export async function getServerSideProps(context) {
 
 export default function SmartlinkPage({ videoData, ref, token }) {
   const data = videoData[0];
+
+  useEffect(() => {
+    if (data?.id) {
+      logClick(data.id, ref, token);
+    }
+  }, [data?.id, ref, token]);
 
   return (
     <>
@@ -78,11 +88,11 @@ export default function SmartlinkPage({ videoData, ref, token }) {
             <VideoCard key={video.id} video={video} referrer={ref} token={token} />
           ))
         )}
-         <section style={{ marginTop: '3rem' }}>
-        <MiniChat videoId={videoData[0].id} />
-      </section>
+
+        <section style={{ marginTop: '3rem' }}>
+          <MiniChat videoId={videoData[0].id} />
+        </section>
       </main>
     </>
   );
 }
-
