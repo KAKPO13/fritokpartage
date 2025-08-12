@@ -1,7 +1,6 @@
 // firebaseConfig.js
-import { getApps, initializeApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getFunctions } from 'firebase/functions';
 
 const firebaseConfig = {
   apiKey: "AIzaSyARds0nMh9M1KBSPiCVrmCtH9IVEh4x5CI",
@@ -17,7 +16,6 @@ const firebaseConfig = {
 // ✅ Vérifie si une app Firebase existe déjà
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-// Exporter les services
-export const db = getFirestore(app);
-export const functions = getFunctions(app); // ✅ Ajout des fonctions cloud
+const db = getFirestore(app);
 
+export { db };
