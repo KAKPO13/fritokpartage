@@ -18,7 +18,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 export async function getServerSideProps(context) {
-  const { videos, ref, token } = context.query;
+  const { videos, ref, token, price } = context.query;
 
   const videoData = [];
 
@@ -43,6 +43,7 @@ export async function getServerSideProps(context) {
       videoData,
       ref: ref || null,
       token: token || null,
+      price: price || 3000
     },
   };
 }
