@@ -1,26 +1,24 @@
-import { db } from '../firebaseConfig'; // ✅ Utilise ton fichier existant
-import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc } from 'firebase/firestore';
+import { initializeApp } from 'firebase/app';
 import VideoCard from '../components/VideoCard';
 import dynamic from 'next/dynamic';
 const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
 import Head from 'next/head';
 
 
-async function logClick(videoId, referrer, token) {
-  try {
-    const logRef = collection(db, 'click_logs');
-    await addDoc(logRef, {
-      videoId,
-      referrer: referrer || null,
-      token: token || null,
-      timestamp: new Date().toISOString(),
-    });
-    console.log('✅ Clic enregistré');
-  } catch (error) {
-    console.error('❌ Erreur lors de l’enregistrement du clic :', error);
-  }
-}
+const firebaseConfig = {
+  apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
+  authDomain: "cgsp-app.firebaseapp.com",
+  projectId: "cgsp-app",
+  storageBucket: "cgsp-app.appspot.com",
+  messagingSenderId: "463987328508",
+  appId: "1:463987328508:android:829287eef68a37af739e79"
+};
 
+
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 export async function getServerSideProps(context) {
   const { videos, ref, token } = context.query;
