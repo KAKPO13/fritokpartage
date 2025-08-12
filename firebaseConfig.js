@@ -14,8 +14,8 @@ const firebaseConfig = {
   measurementId: "G-R5MKMQKBWH"
 };
 
-// Initialiser Firebase
-const app = initializeApp(firebaseConfig);
+// ✅ Vérifie si une app Firebase existe déjà
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
 // Exporter les services
 export const db = getFirestore(app);
