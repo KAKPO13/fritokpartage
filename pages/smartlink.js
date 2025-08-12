@@ -15,6 +15,8 @@ const firebaseConfig = {
   appId: "1:463987328508:android:829287eef68a37af739e79"
 };
 
+
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
@@ -38,6 +40,7 @@ export async function getServerSideProps(context) {
       }
     }
   }
+  
 
   return {
     props: {
