@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { doc, setDoc, collection } from 'firebase/firestore';
-import { db } from '../../../firebaseConfig';
+import { db } from '../../../lib/firebaseConfig';
 import geohash from 'ngeohash';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';

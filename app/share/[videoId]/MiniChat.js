@@ -8,7 +8,7 @@ import {
   onSnapshot,
   serverTimestamp
 } from 'firebase/firestore';
-import { db } from '../../firebaseConfig'; // ✅ Utilise la config centralisée
+import { db } from '@/lib/firebaseConfig'; // ✅ chemin à adapter selon ta structure
 import { motion, AnimatePresence } from 'framer-motion';
 
 

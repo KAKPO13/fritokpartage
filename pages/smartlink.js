@@ -1,5 +1,5 @@
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebaseConfig'; // ✅ Import propre depuis la config centralisée
+import { db } from '@/lib/firebaseConfig'; // ✅ chemin à adapter selon ta structureisée
 import VideoCard from '../components/VideoCard';
 import dynamic from 'next/dynamic';
 const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
