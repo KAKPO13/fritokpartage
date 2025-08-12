@@ -1,6 +1,8 @@
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import VideoCard from '../components/VideoCard';
+import dynamic from 'next/dynamic';
+const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
 import Head from 'next/head';
 
 const firebaseConfig = {
@@ -64,19 +66,43 @@ export default function SmartlinkPage({ videoData, ref, token }) {
         <meta name="twitter:image" content={data?.thumbnail || '/default-thumbnail.jpg'} />
       </Head>
 
-      <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-        <h1>🎥 Vidéos partagées</h1>
-        {ref && <p>🔗 Partagé par : <strong>{ref}</strong></p>}
-        {token && <p>🧩 Jeton de session : <code>{token}</code></p>}
+      <main style={{
+  padding: '2rem',
+  fontFamily: 'sans-serif',
+  maxWidth: '800px',
+  margin: '0 auto'
+}}>
+  <h1 style={{ fontSize: '2rem', marginBottom: '1rem' }}>🎥 Vidéos partagées</h1>
 
-        {videoData.length === 0 ? (
-          <p>Aucune vidéo trouvée.</p>
-        ) : (
-          videoData.map((video) => (
-            <VideoCard key={video.id} video={video} referrer={ref} token={token} />
-          ))
-        )}
-      </main>
+  {ref && (
+    <p style={{ marginBottom: '0.5rem' }}>
+      🔗 <strong>Partagé par :</strong> <span style={{ color: '#007E33' }}>{ref}</span>
+    </p>
+  )}
+
+  {token && (
+    <p style={{ marginBottom: '1.5rem' }}>
+      🧩 <strong>Jeton de session :</strong> <code>{token}</code>
+    </p>
+  )}
+
+  {videoData.length === 0 ? (
+    <p style={{ fontStyle: 'italic', color: '#999' }}>Aucune vidéo trouvée.</p>
+  ) : (
+    <>
+      {videoData.map((video) => (
+        <div key={video.id} style={{ marginBottom: '2rem' }}>
+          <VideoCard video={video} referrer={ref} token={token} />
+        </div>
+      ))}
+
+      <section style={{ marginTop: '3rem' }}>
+        <MiniChat videoId={videoData[0].id} />
+      </section>
+    </>
+  )}
+</main>
+
     </>
   );
 }
