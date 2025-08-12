@@ -1,24 +1,9 @@
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
-import { getApps, initializeApp } from 'firebase/app';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebaseConfig'; // ✅ Import propre depuis la config centralisée
 import VideoCard from '../components/VideoCard';
 import dynamic from 'next/dynamic';
 const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
 import Head from 'next/head';
-
-
-const firebaseConfig = {
-  apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
-  authDomain: "cgsp-app.firebaseapp.com",
-  projectId: "cgsp-app",
-  storageBucket: "cgsp-app.appspot.com",
-  messagingSenderId: "463987328508",
-  appId: "1:463987328508:android:829287eef68a37af739e79"
-};
-
-
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
 
 export async function getServerSideProps(context) {
   const { videos, ref, token } = context.query;
@@ -40,7 +25,6 @@ export async function getServerSideProps(context) {
       }
     }
   }
-  
 
   return {
     props: {
@@ -82,11 +66,10 @@ export default function SmartlinkPage({ videoData, ref, token }) {
             <VideoCard key={video.id} video={video} referrer={ref} token={token} />
           ))
         )}
-         <section style={{ marginTop: '3rem' }}>
-        <MiniChat videoId={videoData[0].id} />
-      </section>
+        <section style={{ marginTop: '3rem' }}>
+          <MiniChat videoId={videoData[0].id} />
+        </section>
       </main>
     </>
   );
 }
-
