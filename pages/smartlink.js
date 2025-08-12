@@ -1,5 +1,5 @@
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
-import { initializeApp } from 'firebase/app';
+import { db } from '../firebaseConfig'; // ✅ Utilise ton fichier existant
+import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
 import VideoCard from '../components/VideoCard';
 import dynamic from 'next/dynamic';
 const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
@@ -15,10 +15,6 @@ const firebaseConfig = {
   appId: "1:463987328508:android:829287eef68a37af739e79"
 };
 
-
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
 
 export async function getServerSideProps(context) {
   const { videos, ref, token } = context.query;
