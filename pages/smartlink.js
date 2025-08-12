@@ -1,5 +1,5 @@
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
-import { initializeApp } from 'firebase/app';
+import { getApps, initializeApp } from 'firebase/app';
 import VideoCard from '../components/VideoCard';
 import dynamic from 'next/dynamic';
 const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
