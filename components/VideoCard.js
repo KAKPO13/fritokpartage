@@ -1,7 +1,7 @@
 // components/VideoCard.jsx
 import React from 'react';
 import Link from 'next/link';
-import { db } from '../firebaseClient';
+import { db } from '../../../firebaseConfig';
 import { collection, addDoc } from 'firebase/firestore';
 
 async function trackClick(videoId, sharedBy, token) {
