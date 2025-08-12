@@ -7,7 +7,7 @@ import geohash from 'ngeohash';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
-export default function BuyPageClient({ title, description, videoUrl, thumbnail, referrer, token, price }) {
+export default function BuyPageClient({ title, description, videoUrl, thumbnail, referrer, token }) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
