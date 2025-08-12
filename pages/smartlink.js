@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
 import Head from 'next/head';
 
+
 const firebaseConfig = {
   apiKey: "AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M",
   authDomain: "cgsp-app.firebaseapp.com",
