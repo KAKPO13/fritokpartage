@@ -93,7 +93,7 @@ export default async function Page({ params, searchParams }) {
         <meta property="og:description" content={data.description} />
         <meta property="og:image" content={data.thumbnail} />
         <meta property="og:type" content="video.other" />
-        <meta property="og:url" content={`https://fritok.netlify.app/video/${videoId}`} />
+        <meta property="og:url" content={`https://fritok.net/video/${videoId}`} />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={data.title} />
         <meta name="twitter:description" content={data.description} />

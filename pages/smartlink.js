@@ -47,7 +47,7 @@ export default function SmartlinkPage({ videoData, ref, token }) {
         <meta property="og:description" content={data?.description || 'Découvrez les vidéos partagées via FriTok.'} />
         <meta property="og:image" content={data?.thumbnail || '/default-thumbnail.jpg'} />
         <meta property="og:type" content="video.other" />
-        <meta property="og:url" content={`https://fritok.netlify.app/video/${data?.id || 'shared'}`} />
+        <meta property="og:url" content={`https://fritok.net/video/${data?.id || 'shared'}`} />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={data?.title || 'Vidéos partagées'} />
         <meta name="twitter:description" content={data?.description || 'Découvrez les vidéos partagées via FriTok.'} />
