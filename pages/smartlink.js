@@ -1,7 +1,6 @@
-'use client';
-
+import { useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebaseConfig'; // ✅ chemin à adapter selon ta structureisée
+import { db } from '@/lib/firebaseConfig';
 import VideoCard from '../components/VideoCard';
 import dynamic from 'next/dynamic';
 import AddCommandeForm from '../app/capture/AddCommandeForm';
@@ -10,7 +9,6 @@ import Head from 'next/head';
 
 export async function getServerSideProps(context) {
   const { videos, ref, token } = context.query;
-
   const videoData = [];
 
   if (videos) {
@@ -39,6 +37,7 @@ export async function getServerSideProps(context) {
 }
 
 export default function SmartlinkPage({ videoData, ref, token }) {
+  const [showForm, setShowForm] = useState(false); // ✅ Ajout ici
   const data = videoData[0];
 
   return (
@@ -69,11 +68,12 @@ export default function SmartlinkPage({ videoData, ref, token }) {
             <VideoCard key={video.id} video={video} referrer={ref} token={token} />
           ))
         )}
+
         <section style={{ marginTop: '3rem' }}>
           <MiniChat videoId={videoData[0].id} />
         </section>
 
-         <button
+        <button
           onClick={() => setShowForm(!showForm)}
           style={{
             padding: '1rem 2rem',
