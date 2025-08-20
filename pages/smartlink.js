@@ -2,7 +2,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebaseConfig'; // ✅ chemin à adapter selon ta structureisée
 import VideoCard from '../components/VideoCard';
 import dynamic from 'next/dynamic';
-import AddCommandeForm from '../capture/AddCommandeForm';
+import AddCommandeForm from '../app/capture/AddCommandeForm';
 const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
 import Head from 'next/head';
 
