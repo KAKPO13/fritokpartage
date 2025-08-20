@@ -10,7 +10,7 @@ import 'react-toastify/dist/ReactToastify.css';
 
 // Supabase config
 const supabaseUrl = process.env.supabaseUrl;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_KEY;
+const supabaseKey = process.env.supabaseKey;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default function AddCommandeForm() {
