@@ -81,7 +81,7 @@ export default function AddCommandeForm() {
 
     setLoading(true);
     const hash = geohash.encode(latitude, longitude);
-    const docRef = doc(collection(db, 'commande'));
+    const docRef = doc(collection(db, 'commandes'));
     const commandeId = docRef.id;
 
     try {
