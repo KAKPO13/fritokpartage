@@ -98,7 +98,7 @@ export default function SmartlinkPage({ videoData, ref, token }) {
         
         {showModal && (
           <div className="modal">
-            <AddCommandeForm userId={ref} />
+          <AddCommandeForm userId={ref} token={token} />
           </div>
         )}
       </main>

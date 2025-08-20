@@ -13,7 +13,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-export default function AddCommandeForm({ userId }) {
+export default function AddCommandeForm({ userId, token }) {
   const [imageFile, setImageFile] = useState(null);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
@@ -93,12 +93,12 @@ export default function AddCommandeForm({ userId }) {
     try {
       const imageUrl = await uploadImageToSupabase(imageFile, commandeId);
 
-        const commande = {
+      const commande = {
         articles: [
           {
             nom_frifri: 'capture écran',
             prix_frifri: '0000',
-            ref_article: referrer ?? '',
+            ref_article: userId ?? '',
             token: token ?? ''
           }
         ],
@@ -110,8 +110,8 @@ export default function AddCommandeForm({ userId }) {
         telephone: telephone.trim(),
         observations: observations ?? '',
         statut: 'en attente',
-        userId: userId || null, // 🔗 Ajout du userId transmis via props
-        boutiqueId: '', // à compléter si disponible
+        userId: userId ?? '',
+        boutiqueId: '',
         commandeId,
         date: new Date().toISOString()
       };
@@ -119,7 +119,6 @@ export default function AddCommandeForm({ userId }) {
       await setDoc(docRef, commande);
       toast.success('✅ Commande enregistrée avec succès !');
 
-      // Reset
       setImageFile(null);
       setTelephone('');
       setObservations('');
