@@ -1,85 +1,66 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebaseConfig'; // ✅ adapte le chemin si nécessaire
+import { db } from '@/lib/firebaseConfig';
+import AddCommandeForm from '../../capture/AddCommandeForm';
 import MiniChat from './MiniChat';
-import React from 'react';
 import Head from 'next/head';
 
-export const dynamic = 'force-dynamic';
-
-export async function generateMetadata({ params }) {
-  const { videoId } = params;
-
-  const docRef = doc(db, "video_playlist", videoId);
-  const docSnap = await getDoc(docRef);
-
-  if (!docSnap.exists()) {
-    return {
-      title: "Vidéo introuvable",
-      description: "Ce lien ne correspond à aucune vidéo.",
-    };
-  }
-
-  const data = docSnap.data();
-
-  return {
-    title: data.title || "Vidéo FriTok",
-    description: data.description || "Découvrez cette vidéo partagée sur FriTok.",
-    openGraph: {
-      title: data.title,
-      description: data.description,
-      images: [
-        {
-          url: data.thumbnail,
-          width: 1200,
-          height: 630,
-        },
-      ],
-      type: "video.other",
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: data.title,
-      description: data.description,
-      images: [data.thumbnail],
-    },
-  };
-}
-
-export default async function Page({ params, searchParams }) {
+export default function Page({ params, searchParams }) {
   const { videoId } = params;
   const { ref, token } = searchParams;
 
-  const docRef = doc(db, "video_playlist", videoId);
-  const docSnap = await getDoc(docRef);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
 
-  if (!docSnap.exists()) {
+  useEffect(() => {
+    const fetchVideo = async () => {
+      const docRef = doc(db, 'video_playlist', videoId);
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        const videoData = docSnap.data();
+        setData(videoData);
+
+        if (videoId && ref && token) {
+          try {
+            await addDoc(collection(db, 'share_events'), {
+              videoId,
+              referrer: ref,
+              userId: ref,
+              token,
+              timestamp: new Date().toISOString(),
+              source: 'web',
+              imageUrl: videoData.thumbnail ?? '',
+              title: videoData.title ?? '',
+              description: videoData.description ?? '',
+              price: videoData.price ?? '',
+            });
+          } catch (error) {
+            console.error('Erreur Firestore :', error);
+          }
+        }
+      }
+
+      setLoading(false);
+    };
+
+    fetchVideo();
+  }, [videoId, ref, token]);
+
+  if (loading) {
+    return <main style={{ padding: '2rem' }}>⏳ Chargement...</main>;
+  }
+
+  if (!data) {
     return (
       <main style={{ textAlign: 'center', padding: '2rem' }}>
         <h1>🎬 Vidéo introuvable</h1>
         <p>Le lien que vous avez suivi ne correspond à aucune vidéo.</p>
       </main>
     );
-  }
-
-  const data = docSnap.data();
-
-  if (videoId && ref && token) {
-    try {
-      await addDoc(collection(db, 'share_events'), {
-        videoId,
-        referrer: ref,
-        userId: ref,
-        token,
-        timestamp: new Date().toISOString(),
-        source: 'web',
-        imageUrl: data.thumbnail ?? '',
-        title: data.title ?? '',
-        description: data.description ?? '',
-        price: data.price ?? '',
-      });
-    } catch (error) {
-      console.error('Erreur Firestore :', error);
-    }
   }
 
   const paymentUrl = `/buy/${videoId}?ref=${ref || 'direct'}&token=${token || 'none'}`;
@@ -99,6 +80,7 @@ export default async function Page({ params, searchParams }) {
         <meta name="twitter:description" content={data.description} />
         <meta name="twitter:image" content={data.thumbnail} />
       </Head>
+
       <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
         <h1>{data.title}</h1>
         <p><strong>Prix :</strong> {data.price}</p>
@@ -122,12 +104,29 @@ export default async function Page({ params, searchParams }) {
             cursor: 'pointer',
             fontSize: '1rem'
           }}>
-            🛒 Plus De Detail
+            🛒 Plus De Détail
           </button>
         </a>
 
-        {/* 💬 Mini Chat intégré ici */}
         <MiniChat videoId={videoId} />
+
+        <button
+          onClick={() => setShowForm(!showForm)}
+          style={{
+            padding: '1rem 2rem',
+            backgroundColor: '#007bff',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '1rem',
+            marginTop: '1rem'
+          }}
+        >
+          📸 Capture
+        </button>
+
+        {showForm && <AddCommandeForm />}
       </main>
     </>
   );
