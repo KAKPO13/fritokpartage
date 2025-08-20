@@ -2,6 +2,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebaseConfig'; // ✅ chemin à adapter selon ta structureisée
 import VideoCard from '../components/VideoCard';
 import dynamic from 'next/dynamic';
+import AddCommandeForm from '../../capture/AddCommandeForm';
 const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
 import Head from 'next/head';
 
@@ -69,6 +70,24 @@ export default function SmartlinkPage({ videoData, ref, token }) {
         <section style={{ marginTop: '3rem' }}>
           <MiniChat videoId={videoData[0].id} />
         </section>
+
+         <button
+          onClick={() => setShowForm(!showForm)}
+          style={{
+            padding: '1rem 2rem',
+            backgroundColor: '#007bff',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '1rem',
+            marginTop: '1rem'
+          }}
+        >
+          📸 Capture
+        </button>
+
+        {showForm && <AddCommandeForm />}
       </main>
     </>
   );
