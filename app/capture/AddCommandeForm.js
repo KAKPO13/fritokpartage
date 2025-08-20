@@ -9,8 +9,8 @@ import { createClient } from '@supabase/supabase-js';
 import 'react-toastify/dist/ReactToastify.css';
 
 // Supabase config
-const supabaseUrl = 'https://wnkgiquiljtdxjyajsxg.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indua2dpcXVpbGp0ZHhqeWFqc3hnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM0MDA3NzQsImV4cCI6MjA2ODk3Njc3NH0.BnAskPNwV127xRgguN4DMJRHGINYbiqvrCi9-HetBAs';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default function AddCommandeForm() {
@@ -58,12 +58,12 @@ export default function AddCommandeForm() {
   };
 
   const uploadImageToSupabase = async (file, commandeId) => {
-    const filePath = `commandes/${commandeId}-${Date.now()}.${file.name.split('.').pop()}`;
-    const { data, error } = await supabase.storage.from('commandes').upload(filePath, file);
+    const filePath = `imageproduit/${commandeId}-${Date.now()}.${file.name.split('.').pop()}`;
+    const { data, error } = await supabase.storage.from('imageproduit').upload(filePath, file);
 
     if (error) throw error;
 
-    const { data: publicUrlData } = supabase.storage.from('commandes').getPublicUrl(filePath);
+    const { data: publicUrlData } = supabase.storage.from('imageproduit').getPublicUrl(filePath);
     return publicUrlData.publicUrl;
   };
 
