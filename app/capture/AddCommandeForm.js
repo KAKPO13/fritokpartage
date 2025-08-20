@@ -9,9 +9,11 @@ import { createClient } from '@supabase/supabase-js';
 import 'react-toastify/dist/ReactToastify.css';
 
 // Supabase config
-const supabaseUrl = process.env.supabaseUrl;
-const supabaseKey = process.env.supabaseKey;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
 const supabase = createClient(supabaseUrl, supabaseKey);
+
 
 export default function AddCommandeForm() {
   const [imageFile, setImageFile] = useState(null);
