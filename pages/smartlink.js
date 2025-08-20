@@ -39,7 +39,6 @@ export async function getServerSideProps(context) {
 
 export default function SmartlinkPage({ videoData, ref, token }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [showModal, setShowModal] = useState(true);
   const data = videoData?.[0];
 
   return (
@@ -75,29 +74,7 @@ export default function SmartlinkPage({ videoData, ref, token }) {
           {videoData?.[0] && <MiniChat videoId={videoData[0].id} />}
         </section>
 
-        {/* ✅ Bouton toggle pour afficher/masquer le formulaire */}
-        <button
-          onClick={() => setShowModal(!showModal)}
-          style={{
-            padding: '0.75rem 1.5rem',
-            backgroundColor: showModal ? '#dc3545' : '#28a745',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            marginBottom: '1rem'
-          }}
-        >
-          {showModal ? 'Masquer le formulaire' : 'Afficher le formulaire'}
-        </button>
-
-        {showModal && (
-          <div className="modal">
-            <AddCommandeForm />
-          </div>
-        )}
-
+        {/* ✅ Bouton pour ouvrir la modale */}
         <button
           onClick={() => setIsOpen(true)}
           style={{
@@ -114,6 +91,7 @@ export default function SmartlinkPage({ videoData, ref, token }) {
           ➕ Ajouter une commande
         </button>
 
+        {/* ✅ Formulaire affiché uniquement dans la modale */}
         <Dialog open={isOpen} onClose={() => setIsOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center">
           <Dialog.Panel className="bg-white p-6 rounded shadow-xl max-w-md w-full">
             <Dialog.Title className="text-lg font-bold mb-4">Nouvelle commande</Dialog.Title>
@@ -138,4 +116,3 @@ export default function SmartlinkPage({ videoData, ref, token }) {
     </>
   );
 }
-
