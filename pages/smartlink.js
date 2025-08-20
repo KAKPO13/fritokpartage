@@ -39,7 +39,7 @@ export async function getServerSideProps(context) {
 
 export default function SmartlinkPage({ videoData, ref, token }) {
   const [isOpen, setIsOpen] = useState(false);
-  const data = videoData[0];
+  const data = videoData?.[0];
 
   return (
     <>
@@ -71,7 +71,7 @@ export default function SmartlinkPage({ videoData, ref, token }) {
         )}
 
         <section style={{ marginTop: '3rem' }}>
-          <MiniChat videoId={videoData[0].id} />
+          {videoData?.[0] && <MiniChat videoId={videoData[0].id} />}
         </section>
 
         <button
@@ -114,3 +114,4 @@ export default function SmartlinkPage({ videoData, ref, token }) {
     </>
   );
 }
+
