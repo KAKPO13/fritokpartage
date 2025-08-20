@@ -14,7 +14,6 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-
 export default function AddCommandeForm() {
   const [imageFile, setImageFile] = useState(null);
   const [latitude, setLatitude] = useState(null);
@@ -60,8 +59,12 @@ export default function AddCommandeForm() {
   };
 
   const uploadImageToSupabase = async (file, commandeId) => {
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error("Supabase n'est pas configuré correctement.");
+    }
+
     const filePath = `imageproduit/${commandeId}-${Date.now()}.${file.name.split('.').pop()}`;
-    const { data, error } = await supabase.storage.from('imageproduit').upload(filePath, file);
+    const { error } = await supabase.storage.from('imageproduit').upload(filePath, file);
 
     if (error) throw error;
 
@@ -69,7 +72,9 @@ export default function AddCommandeForm() {
     return publicUrlData.publicUrl;
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
     if (!imageFile || !address.trim() || !telephone.trim() || !latitude || !longitude) {
       toast.warn("⚠️ Tous les champs requis doivent être remplis.");
       return;
@@ -118,22 +123,24 @@ export default function AddCommandeForm() {
   };
 
   return (
-    <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h2>📦 Ajouter une commande</h2>
+    <form onSubmit={handleSubmit} style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+      <fieldset style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1rem' }}>
+        <legend><h2>📦 Nouvelle commande</h2></legend>
 
-      <input type="file" accept="image/*" onChange={handleImageUpload} style={inputStyle} />
-      {imageFile && <p>📸 Image sélectionnée : {imageFile.name}</p>}
+        <input type="file" accept="image/*" onChange={handleImageUpload} style={inputStyle} />
+        {imageFile && <p>📸 Image sélectionnée : {imageFile.name}</p>}
 
-      <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="🏠 Adresse" style={inputStyle} />
-      <input type="text" value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="📱 Téléphone" style={inputStyle} />
-      <textarea value={observations} onChange={(e) => setObservations(e.target.value)} placeholder="📝 Observations" rows={4} style={{ ...inputStyle, resize: 'vertical' }} />
+        <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="🏠 Adresse" style={inputStyle} />
+        <input type="text" value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="📱 Téléphone" style={inputStyle} />
+        <textarea value={observations} onChange={(e) => setObservations(e.target.value)} placeholder="📝 Observations" rows={4} style={{ ...inputStyle, resize: 'vertical' }} />
 
-      <button onClick={handleSubmit} style={buttonStyle} disabled={loading}>
-        {loading ? '⏳ Enregistrement...' : '✅ Enregistrer la commande'}
-      </button>
+        <button type="submit" style={{ ...buttonStyle, opacity: loading ? 0.6 : 1 }} disabled={loading}>
+          {loading ? '⏳ Enregistrement...' : '✅ Enregistrer la commande'}
+        </button>
+      </fieldset>
 
       <ToastContainer position="top-right" autoClose={5000} />
-    </div>
+    </form>
   );
 }
 
@@ -152,5 +159,6 @@ const buttonStyle = {
   border: 'none',
   borderRadius: '8px',
   cursor: 'pointer',
-  fontSize: '1rem'
+  fontSize: '1rem',
+  transition: 'opacity 0.3s ease'
 };
