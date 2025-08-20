@@ -96,7 +96,7 @@ export default function SmartlinkPage({ videoData, ref, token }) {
         >
           ➕ Ajouter une commande
         </button>
-
+{/* ✅ Formulaire affiché uniquement dans la modale */}
         <Dialog open={isOpen} onClose={() => setIsOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center">
           <Dialog.Panel className="bg-white p-6 rounded shadow-xl max-w-md w-full">
             <Dialog.Title className="text-lg font-bold mb-4">Nouvelle commande</Dialog.Title>
