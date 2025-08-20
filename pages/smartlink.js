@@ -39,8 +39,8 @@ export async function getServerSideProps(context) {
 
 export default function SmartlinkPage({ videoData, ref, token }) {
   const [isOpen, setIsOpen] = useState(false);
-  const data = videoData?.[0];
   const [showModal, setShowModal] = useState(true);
+  const data = videoData?.[0];
 
   return (
     <>
@@ -74,7 +74,24 @@ export default function SmartlinkPage({ videoData, ref, token }) {
         <section style={{ marginTop: '3rem' }}>
           {videoData?.[0] && <MiniChat videoId={videoData[0].id} />}
         </section>
-        
+
+        {/* ✅ Bouton toggle pour afficher/masquer le formulaire */}
+        <button
+          onClick={() => setShowModal(!showModal)}
+          style={{
+            padding: '0.75rem 1.5rem',
+            backgroundColor: showModal ? '#dc3545' : '#28a745',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            marginBottom: '1rem'
+          }}
+        >
+          {showModal ? 'Masquer le formulaire' : 'Afficher le formulaire'}
+        </button>
+
         {showModal && (
           <div className="modal">
             <AddCommandeForm />
