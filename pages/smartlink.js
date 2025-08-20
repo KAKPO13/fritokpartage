@@ -1,15 +1,13 @@
-import { useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebaseConfig';
+import { db } from '@/lib/firebaseConfig'; // ✅ chemin à adapter selon ta structureisée
 import VideoCard from '../components/VideoCard';
 import dynamic from 'next/dynamic';
-import AddCommandeForm from '../app/capture/AddCommandeForm';
-import { Dialog } from '@headlessui/react';
 const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
 import Head from 'next/head';
 
 export async function getServerSideProps(context) {
   const { videos, ref, token } = context.query;
+
   const videoData = [];
 
   if (videos) {
@@ -38,7 +36,6 @@ export async function getServerSideProps(context) {
 }
 
 export default function SmartlinkPage({ videoData, ref, token }) {
-  const [showForm, setShowForm] = useState(false);
   const data = videoData[0];
 
   return (
@@ -69,47 +66,9 @@ export default function SmartlinkPage({ videoData, ref, token }) {
             <VideoCard key={video.id} video={video} referrer={ref} token={token} />
           ))
         )}
-
         <section style={{ marginTop: '3rem' }}>
           <MiniChat videoId={videoData[0].id} />
         </section>
-
-        <button
-          onClick={() => setShowForm(true)}
-          style={{
-            padding: '1rem 2rem',
-            backgroundColor: '#007bff',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '1rem',
-            marginTop: '1rem'
-          }}
-        >
-          📸 Capture
-        </button>
-
-        <Dialog open={showForm} onClose={() => setShowForm(false)} className="fixed inset-0 z-50 flex items-center justify-center">
-          <Dialog.Panel className="bg-white p-6 rounded shadow-xl max-w-md w-full">
-            <Dialog.Title className="text-lg font-bold mb-4">Nouvelle commande</Dialog.Title>
-            <AddCommandeForm />
-            <button
-              onClick={() => setShowForm(false)}
-              style={{
-                marginTop: '1rem',
-                padding: '0.5rem 1rem',
-                backgroundColor: '#dc3545',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer'
-              }}
-            >
-              Fermer
-            </button>
-          </Dialog.Panel>
-        </Dialog>
       </main>
     </>
   );
