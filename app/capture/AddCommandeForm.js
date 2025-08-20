@@ -100,6 +100,7 @@ export default function AddCommandeForm({ userId, token }) {
             prix_frifri: '0000',
             ref_article: userId ?? '',
             imageArticle: imageUrl,
+            videoUrl:  '',
             token: token ?? ''
           }
         ],

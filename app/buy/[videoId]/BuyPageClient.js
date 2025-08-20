@@ -64,8 +64,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     imageUrl: thumbnail ?? '',
     prix_frifri: numericPrice,
     ref_article: referrer ?? '',
-    boutiqueId: token ?? ''
-
+    token: token ?? ''
   }
 ],
       totalPrix: numericPrice,
@@ -77,6 +76,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       observations: observations ?? '',
       statut: "en attente",
       userId: referrer ?? '',
+      boutiqueId: '', // à compléter si disponible
       commandeId,
       date: new Date().toISOString()
     };
