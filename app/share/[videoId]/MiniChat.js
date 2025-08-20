@@ -8,9 +8,8 @@ import {
   onSnapshot,
   serverTimestamp
 } from 'firebase/firestore';
-import { db } from '@/lib/firebaseConfig'; // ✅ chemin à adapter selon ta structure
+import { db } from '@/lib/firebaseConfig';
 import { motion, AnimatePresence } from 'framer-motion';
-
 
 const bannedWords = [
   "con", "conn", "idiot", "imbécile", "abruti", "stupide", "crétin",
@@ -49,17 +48,20 @@ export default function MiniChat({ videoId }) {
   const chatEndRef = useRef(null);
 
   useEffect(() => {
-    let storedName = localStorage.getItem('chat_username');
-    if (!storedName) {
-      storedName = generateRandomName();
-      localStorage.setItem('chat_username', storedName);
+    if (typeof window !== 'undefined') {
+      let storedName = localStorage.getItem('chat_username');
+      if (!storedName) {
+        storedName = generateRandomName();
+        localStorage.setItem('chat_username', storedName);
+      }
+      setUsername(storedName);
     }
-    setUsername(storedName);
   }, []);
 
   useEffect(() => {
-    const q = query(collection(db, 'chat_messages'), where('videoId', '==', videoId));
+    if (!videoId) return;
 
+    const q = query(collection(db, 'chat_messages'), where('videoId', '==', videoId));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -98,6 +100,10 @@ export default function MiniChat({ videoId }) {
     }
   };
 
+  if (!videoId) {
+    return <p>⚠️ Aucun identifiant vidéo fourni. Le chat ne peut pas s’afficher.</p>;
+  }
+
   return (
     <div style={{
       marginTop: '2rem',
@@ -112,6 +118,7 @@ export default function MiniChat({ videoId }) {
         <AnimatePresence>
           {messages.map((msg) => {
             const replies = messages.filter(m => m.replyTo === msg.id);
+            const avatarSeed = encodeURIComponent(msg.sender);
 
             return (
               <div key={msg.id} style={{ position: 'relative', marginBottom: '1rem' }}>
@@ -142,7 +149,7 @@ export default function MiniChat({ videoId }) {
                 >
                   <div style={{ display: 'flex', alignItems: 'center' }}>
                     <img
-                      src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${msg.sender}`}
+                      src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${avatarSeed}`}
                       alt="avatar"
                       style={{ width: '32px', height: '32px', borderRadius: '50%', marginRight: '0.5rem' }}
                     />
@@ -184,7 +191,7 @@ export default function MiniChat({ videoId }) {
                   >
                     <div style={{ display: 'flex', alignItems: 'center' }}>
                       <img
-                        src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${reply.sender}`}
+                        src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(reply.sender)}`}
                         alt="avatar"
                         style={{ width: '28px', height: '28px', borderRadius: '50%', marginRight: '0.5rem' }}
                       />
@@ -221,37 +228,36 @@ export default function MiniChat({ videoId }) {
       )}
 
       <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-  <input
-    type="text"
-    value={newMessage}
-    onChange={e => setNewMessage(e.target.value)}
-    placeholder="Écris ton message..."
-    style={{
-      flex: 1,
-      padding: '0.5rem',
-      fontSize: '1rem',
-      borderRadius: '4px',
-      border: '1px solid #ccc'
-    }}
-  />
-  <button
-    onClick={sendMessage}
-    style={{
-      padding: '0.5rem 1rem',
-      marginLeft: '0.5rem',
-      backgroundColor: '#007E33',
-      color: '#fff',
-      border: 'none',
-      borderRadius: '4px',
-      fontSize: '1rem',
-      cursor: 'pointer'
-    }}
-  >
-    Envoyer
-  </button>
-</div>
+        <input
+          type="text"
+          value={newMessage}
+          onChange={e => setNewMessage(e.target.value)}
+          placeholder="Écris ton message..."
+          style={{
+            flex: 1,
+            padding: '0.5rem',
+            fontSize: '1rem',
+            borderRadius: '4px',
+            border: '1px solid #ccc'
+          }}
+        />
+        <button
+          onClick={sendMessage}
+          style={{
+            padding: '0.5rem 1rem',
+            marginLeft: '0.5rem',
+            backgroundColor: '#007E33',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '1rem',
+            cursor: 'pointer'
+          }}
+        >
+          Envoyer
+        </button>
+      </div>
     </div>
   );
 }
-
 
