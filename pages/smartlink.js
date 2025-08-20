@@ -11,7 +11,24 @@ import Head from 'next/head';
 export async function getServerSideProps(context) {
   const { videos, ref, token } = context.query;
   const videoData = [];
+  let validRef = null;
 
+  // 🔍 Vérification que ref correspond à un utilisateur existant
+  if (ref) {
+    try {
+      const userRef = doc(db, 'users', ref);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        validRef = ref;
+      } else {
+        console.warn(`⚠️ Aucun utilisateur trouvé avec l'ID : ${ref}`);
+      }
+    } catch (error) {
+      console.error(`Erreur lors de la vérification du ref :`, error);
+    }
+  }
+
+  // 📹 Chargement des vidéos
   if (videos) {
     const videoIds = videos.split(',');
 
@@ -31,7 +48,7 @@ export async function getServerSideProps(context) {
   return {
     props: {
       videoData,
-      ref: ref || null,
+      ref: validRef,
       token: token || null,
     },
   };
@@ -60,7 +77,11 @@ export default function SmartlinkPage({ videoData, ref, token }) {
 
       <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
         <h1>🎥 Vidéos partagées</h1>
-        {ref && <p>🔗 Partagé par : <strong>{ref}</strong></p>}
+        {ref ? (
+          <p>🔗 Partagé par : <strong>{ref}</strong></p>
+        ) : (
+          <p>⚠️ Aucun utilisateur valide trouvé pour ce lien.</p>
+        )}
         {token && <p>🧩 Jeton de session : <code>{token}</code></p>}
 
         {videoData.length === 0 ? (
@@ -77,10 +98,9 @@ export default function SmartlinkPage({ videoData, ref, token }) {
         
         {showModal && (
           <div className="modal">
-            <AddCommandeForm />
+            <AddCommandeForm userId={ref} />
           </div>
         )}
-
       </main>
     </>
   );

@@ -11,10 +11,9 @@ import 'react-toastify/dist/ReactToastify.css';
 // Supabase config
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-export default function AddCommandeForm() {
+export default function AddCommandeForm({ userId }) {
   const [imageFile, setImageFile] = useState(null);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
@@ -95,6 +94,7 @@ export default function AddCommandeForm() {
       const imageUrl = await uploadImageToSupabase(imageFile, commandeId);
 
       const commande = {
+        userId: userId || null, // 🔗 Ajout du userId transmis via props
         imageArticle: imageUrl,
         adresse: address,
         latitude,
