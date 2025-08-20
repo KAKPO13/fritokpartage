@@ -40,7 +40,6 @@ export async function getServerSideProps(context) {
 export default function SmartlinkPage({ videoData, ref, token }) {
   const [isOpen, setIsOpen] = useState(false);
   const data = videoData?.[0];
-  const [showModal, setShowModal] = useState(true);
 
   return (
     <>
@@ -75,12 +74,6 @@ export default function SmartlinkPage({ videoData, ref, token }) {
           {videoData?.[0] && <MiniChat videoId={videoData[0].id} />}
         </section>
         
-        {showModal && (
-          <div className="modal">
-            <AddCommandeForm />
-          </div>
-        )}
-
         <button
           onClick={() => setIsOpen(true)}
           style={{
