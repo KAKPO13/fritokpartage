@@ -99,6 +99,7 @@ export default function AddCommandeForm({ userId, token }) {
             nom_frifri: 'capture écran',
             prix_frifri: '0000',
             ref_article: userId ?? '',
+            imageArticle: imageUrl,
             token: token ?? ''
           }
         ],
