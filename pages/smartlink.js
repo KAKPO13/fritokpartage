@@ -40,6 +40,7 @@ export async function getServerSideProps(context) {
 export default function SmartlinkPage({ videoData, ref, token }) {
   const [isOpen, setIsOpen] = useState(false);
   const data = videoData?.[0];
+  const [showModal, setShowModal] = useState(true);
 
   return (
     <>
@@ -74,42 +75,12 @@ export default function SmartlinkPage({ videoData, ref, token }) {
           {videoData?.[0] && <MiniChat videoId={videoData[0].id} />}
         </section>
         
-        <button
-          onClick={() => setIsOpen(true)}
-          style={{
-            padding: '1rem 2rem',
-            backgroundColor: '#007bff',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '1rem',
-            marginTop: '2rem'
-          }}
-        >
-          ➕ Ajouter une commande
-        </button>
-{/* ✅ Formulaire affiché uniquement dans la modale */}
-        <Dialog open={isOpen} onClose={() => setIsOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center">
-          <Dialog.Panel className="bg-white p-6 rounded shadow-xl max-w-md w-full">
-            <Dialog.Title className="text-lg font-bold mb-4">Nouvelle commande</Dialog.Title>
+        {showModal && (
+          <div className="modal">
             <AddCommandeForm />
-            <button
-              onClick={() => setIsOpen(false)}
-              style={{
-                marginTop: '1rem',
-                padding: '0.5rem 1rem',
-                backgroundColor: '#dc3545',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer'
-              }}
-            >
-              Fermer
-            </button>
-          </Dialog.Panel>
-        </Dialog>
+          </div>
+        )}
+
       </main>
     </>
   );
