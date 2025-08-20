@@ -1,3 +1,5 @@
+'use client';
+
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebaseConfig'; // ✅ chemin à adapter selon ta structureisée
 import VideoCard from '../components/VideoCard';
