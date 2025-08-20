@@ -93,18 +93,27 @@ export default function AddCommandeForm({ userId }) {
     try {
       const imageUrl = await uploadImageToSupabase(imageFile, commandeId);
 
-      const commande = {
-        userId: userId || null, // 🔗 Ajout du userId transmis via props
-        imageArticle: imageUrl,
-        adresse: address,
+        const commande = {
+        articles: [
+          {
+            nom_frifri: 'capture écran',
+            prix_frifri: '0000',
+            ref_article: referrer ?? '',
+            token: token ?? ''
+          }
+        ],
+        totalPrix: '0000',
         latitude,
         longitude,
         geohash: hash,
+        adresseLivraison: address,
         telephone: telephone.trim(),
-        observations: observations.trim(),
-        date: new Date().toISOString(),
+        observations: observations ?? '',
+        statut: 'en attente',
+        userId: userId || null, // 🔗 Ajout du userId transmis via props
+        boutiqueId: '', // à compléter si disponible
         commandeId,
-        statut: 'en attente'
+        date: new Date().toISOString()
       };
 
       await setDoc(docRef, commande);
