@@ -8,7 +8,6 @@ import { toast, ToastContainer } from 'react-toastify';
 import { createClient } from '@supabase/supabase-js';
 import 'react-toastify/dist/ReactToastify.css';
 
-// Supabase config
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -36,14 +35,10 @@ export default function AddCommandeForm({ userId, token }) {
           const data = await response.json();
           setAddress(data.display_name || '');
         } catch (err) {
-          console.error('Erreur adresse :', err);
           toast.error("❌ Impossible d'obtenir l'adresse.");
         }
       },
-      (error) => {
-        console.error('Erreur géolocalisation :', error);
-        toast.error("❌ Impossible d'obtenir votre position.");
-      },
+      () => toast.error("❌ Impossible d'obtenir votre position."),
       { enableHighAccuracy: true }
     );
   }, []);
@@ -62,15 +57,12 @@ export default function AddCommandeForm({ userId, token }) {
 
   const uploadImageToSupabase = async (file, commandeId) => {
     setUploading(true);
-
     const filePath = `imageproduit/${commandeId}-${Date.now()}.${file.name.split('.').pop()}`;
     const { error } = await supabase.storage.from('imageproduit').upload(filePath, file);
-
     if (error) {
       setUploading(false);
       throw error;
     }
-
     const { data: publicUrlData } = supabase.storage.from('imageproduit').getPublicUrl(filePath);
     setUploading(false);
     return publicUrlData.publicUrl;
@@ -78,14 +70,12 @@ export default function AddCommandeForm({ userId, token }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (!imageFile || !address.trim() || !telephone.trim() || !latitude || !longitude) {
       toast.warn("⚠️ Tous les champs requis doivent être remplis.");
       return;
     }
 
-    const regexTel = /^[0-9]{8,15}$/;
-    if (!regexTel.test(telephone.trim())) {
+    if (!/^[0-9]{8,15}$/.test(telephone.trim())) {
       toast.warn("⚠️ Numéro de téléphone invalide.");
       return;
     }
@@ -97,7 +87,6 @@ export default function AddCommandeForm({ userId, token }) {
 
     try {
       const imageUrl = await uploadImageToSupabase(imageFile, commandeId);
-
       const commande = {
         articles: [
           {
@@ -109,6 +98,7 @@ export default function AddCommandeForm({ userId, token }) {
             token: token ?? ''
           }
         ],
+        imageArticle: imageUrl,
         totalPrix: 0,
         latitude,
         longitude,
@@ -125,14 +115,12 @@ export default function AddCommandeForm({ userId, token }) {
 
       await setDoc(docRef, commande);
       toast.success('✅ Commande enregistrée avec succès !');
-
       setImageFile(null);
       setPreviewUrl(null);
       setTelephone('');
       setObservations('');
       setAddress('');
     } catch (error) {
-      console.error('Erreur enregistrement :', error);
       toast.error('❌ Échec de l’enregistrement.');
     } finally {
       setLoading(false);
@@ -140,74 +128,37 @@ export default function AddCommandeForm({ userId, token }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <fieldset style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1rem' }}>
-        <legend><h2>📦 Nouvelle commande par capture d'écran</h2></legend>
-         <p>🖼️ Ajouter ici la capture d'écran du produit prise l'or du live ou d'une vidéo de mon compte, pour lancer votre commande.</p>
+    <form onSubmit={handleSubmit} className="max-w-2xl mx-auto p-4 md:p-6 bg-white rounded-lg shadow-md">
+      <fieldset className="space-y-4">
+        <legend className="text-xl font-semibold text-gray-800 mb-2">📦 Nouvelle commande</legend>
 
-        <input type="file" accept="image/*" onChange={handleImageUpload} style={inputStyle} />
-        {imageFile && <p>📸 Image sélectionnée : {imageFile.name}</p>}
+        <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full border rounded px-3 py-2" />
+        {imageFile && <p className="text-sm text-gray-600">📸 Image sélectionnée : {imageFile.name}</p>}
 
         {previewUrl && (
-          <div style={{ marginBottom: '1rem' }}>
-            <p>🖼️ Aperçu :</p>
-            <img src={previewUrl} alt="Aperçu" style={{ maxWidth: '100%', borderRadius: '8px' }} />
+          <div>
+            <p className="text-sm text-gray-700 mb-1">🖼️ Aperçu :</p>
+            <img src={previewUrl} alt="Aperçu" className="w-full max-h-64 object-cover rounded" />
           </div>
         )}
 
         {uploading && (
-          <div style={{ marginBottom: '1rem' }}>
-            <p>⏳ Téléchargement de l’image en cours...</p>
-            <div className="spinner" />
+          <div className="flex items-center gap-2 text-green-600">
+            <div className="animate-spin h-5 w-5 border-4 border-green-400 border-t-transparent rounded-full"></div>
+            <span>Téléchargement en cours...</span>
           </div>
         )}
 
-        <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="🏠 Adresse" style={inputStyle} />
-        <input type="text" value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="📱 Téléphone" style={inputStyle} />
-        <textarea value={observations} onChange={(e) => setObservations(e.target.value)} placeholder="📝 Observations" rows={4} style={{ ...inputStyle, resize: 'vertical' }} />
+        <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="🏠 Adresse" className="w-full border rounded px-3 py-2" />
+        <input type="text" value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="📱 Téléphone" className="w-full border rounded px-3 py-2" />
+        <textarea value={observations} onChange={(e) => setObservations(e.target.value)} placeholder="📝 Observations" rows={4} className="w-full border rounded px-3 py-2 resize-y" />
 
-        <button type="submit" style={{ ...buttonStyle, opacity: loading ? 0.6 : 1 }} disabled={loading}>
+        <button type="submit" disabled={loading} className={`w-full py-2 px-4 rounded text-white font-semibold transition ${loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}>
           {loading ? '⏳ Enregistrement...' : '✅ Enregistrer la commande'}
         </button>
       </fieldset>
 
       <ToastContainer position="top-right" autoClose={5000} />
-
-      <style jsx>{`
-        .spinner {
-          border: 4px solid #f3f3f3;
-          border-top: 4px solid #4caf50;
-          border-radius: 50%;
-          width: 30px;
-          height: 30px;
-          animation: spin 1s linear infinite;
-          margin: auto;
-        }
-
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `}</style>
     </form>
   );
 }
-
-const inputStyle = {
-  width: '100%',
-  padding: '0.75rem',
-  marginBottom: '1rem',
-  borderRadius: '8px',
-  border: '1px solid #ccc'
-};
-
-const buttonStyle = {
-  padding: '1rem 2rem',
-  backgroundColor: '#4caf50',
-  color: '#fff',
-  border: 'none',
-  borderRadius: '8px',
-  cursor: 'pointer',
-  fontSize: '1rem',
-  transition: 'opacity 0.3s ease'
-};
