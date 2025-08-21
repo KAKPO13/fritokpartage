@@ -15,12 +15,14 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default function AddCommandeForm({ userId, token }) {
   const [imageFile, setImageFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
   const [address, setAddress] = useState('');
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     navigator.geolocation.getCurrentPosition(
@@ -54,20 +56,23 @@ export default function AddCommandeForm({ userId, token }) {
         return;
       }
       setImageFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
     }
   };
 
   const uploadImageToSupabase = async (file, commandeId) => {
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error("Supabase n'est pas configuré correctement.");
-    }
+    setUploading(true);
 
     const filePath = `imageproduit/${commandeId}-${Date.now()}.${file.name.split('.').pop()}`;
     const { error } = await supabase.storage.from('imageproduit').upload(filePath, file);
 
-    if (error) throw error;
+    if (error) {
+      setUploading(false);
+      throw error;
+    }
 
     const { data: publicUrlData } = supabase.storage.from('imageproduit').getPublicUrl(filePath);
+    setUploading(false);
     return publicUrlData.publicUrl;
   };
 
@@ -100,11 +105,11 @@ export default function AddCommandeForm({ userId, token }) {
             prix_frifri: 0,
             ref_article: userId ?? '',
             imageUrl: imageUrl,
-            videoUrl:  '',
+            videoUrl: '',
             token: token ?? ''
           }
         ],
-        prix_frifri: 0,
+        totalPrix: 0,
         latitude,
         longitude,
         geohash: hash,
@@ -122,8 +127,10 @@ export default function AddCommandeForm({ userId, token }) {
       toast.success('✅ Commande enregistrée avec succès !');
 
       setImageFile(null);
+      setPreviewUrl(null);
       setTelephone('');
       setObservations('');
+      setAddress('');
     } catch (error) {
       console.error('Erreur enregistrement :', error);
       toast.error('❌ Échec de l’enregistrement.');
@@ -140,6 +147,20 @@ export default function AddCommandeForm({ userId, token }) {
         <input type="file" accept="image/*" onChange={handleImageUpload} style={inputStyle} />
         {imageFile && <p>📸 Image sélectionnée : {imageFile.name}</p>}
 
+        {previewUrl && (
+          <div style={{ marginBottom: '1rem' }}>
+            <p>🖼️ Aperçu :</p>
+            <img src={previewUrl} alt="Aperçu" style={{ maxWidth: '100%', borderRadius: '8px' }} />
+          </div>
+        )}
+
+        {uploading && (
+          <div style={{ marginBottom: '1rem' }}>
+            <p>⏳ Téléchargement de l’image en cours...</p>
+            <div className="spinner" />
+          </div>
+        )}
+
         <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="🏠 Adresse" style={inputStyle} />
         <input type="text" value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="📱 Téléphone" style={inputStyle} />
         <textarea value={observations} onChange={(e) => setObservations(e.target.value)} placeholder="📝 Observations" rows={4} style={{ ...inputStyle, resize: 'vertical' }} />
@@ -150,6 +171,23 @@ export default function AddCommandeForm({ userId, token }) {
       </fieldset>
 
       <ToastContainer position="top-right" autoClose={5000} />
+
+      <style jsx>{`
+        .spinner {
+          border: 4px solid #f3f3f3;
+          border-top: 4px solid #4caf50;
+          border-radius: 50%;
+          width: 30px;
+          height: 30px;
+          animation: spin 1s linear infinite;
+          margin: auto;
+        }
+
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
     </form>
   );
 }
