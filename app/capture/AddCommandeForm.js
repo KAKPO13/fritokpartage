@@ -97,14 +97,14 @@ export default function AddCommandeForm({ userId, token }) {
         articles: [
           {
             nom_frifri: 'capture écran',
-            prix_frifri: '0000',
+            prix_frifri: 0,
             ref_article: userId ?? '',
             imageUrl: imageUrl,
             videoUrl:  '',
             token: token ?? ''
           }
         ],
-        totalPrix: '0000',
+        prix_frifri: 0,
         latitude,
         longitude,
         geohash: hash,
