@@ -114,7 +114,7 @@ export default function AddCommandeForm({ userId, token }) {
         longitude,
         geohash: hash,
         adresseLivraison: address,
-        telephone: telephone.trim(),
+        phone: telephone.trim(),
         observations: observations ?? '',
         statut: 'en attente',
         userId: userId ?? '',
