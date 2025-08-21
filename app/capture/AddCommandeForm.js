@@ -142,7 +142,8 @@ export default function AddCommandeForm({ userId, token }) {
   return (
     <form onSubmit={handleSubmit} style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
       <fieldset style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1rem' }}>
-        <legend><h2>📦 Nouvelle commande</h2></legend>
+        <legend><h2>📦 Nouvelle commande par capture d'écran</h2></legend>
+         <p>🖼️ Ajouter ici la capture d'écran du produit prise l'or du live ou d'une vidéo de mon compte, pour lancer votre commande.</p>
 
         <input type="file" accept="image/*" onChange={handleImageUpload} style={inputStyle} />
         {imageFile && <p>📸 Image sélectionnée : {imageFile.name}</p>}
