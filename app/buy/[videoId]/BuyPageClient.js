@@ -17,16 +17,16 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [observations, setObservations] = useState('');
   const [price, setPrice] = useState('');
 
-  // ✅ Injecte le prix brut depuis l’URL
+  // ✅ Récupère le prix brut depuis l’URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const priceParam = params.get('price');
     if (priceParam && !isNaN(parseFloat(priceParam))) {
-      setPrice(priceParam); // stocke uniquement le nombre
+      setPrice(priceParam); // stocke uniquement le nombre brut
     }
   }, []);
 
-  // ✅ Récupère la géolocalisation et l’adresse
+  // ✅ Géolocalisation + adresse
   useEffect(() => {
     const fetchLocation = async () => {
       try {
@@ -80,7 +80,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
           nom_frifri: title ?? '',
           videoUrl: videoUrl ?? '',
           imageUrl: thumbnail ?? '',
-          prix_frifri: numericPrice,
+          prix_frifri: numericPrice, // ✅ stocké comme nombre
           ref_article: referrer ?? '',
           token: token ?? ''
         }
