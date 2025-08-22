@@ -18,14 +18,15 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [price, setPrice] = useState('');
 
   // ✅ Injecte le prix depuis l’URL et verrouille le champ
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const priceParam = parseFloat(params.get('price'));
 
-    if (!isNaN(priceParam) && priceParam > 0) {
-      setPrice(priceParam.toString());
-    }
-  }, []);
+  useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const priceParam = params.get('price');
+  if (priceParam) {
+    setPrice(`${priceParam} FCFA`);
+  }
+}, []);
+
 
   useEffect(() => {
     const fetchLocation = async () => {
@@ -190,12 +191,12 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
         />
 
         <input
-          type="text"
-          placeholder="💰 Prix (FCFA)"
-          value={price}
-          readOnly // ✅ Champ verrouillé
-          style={{ ...inputStyle, backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
-        />
+  type="text"
+  value={price}
+  readOnly
+  placeholder="💰 Prix (FCFA)"
+  style={{ ...inputStyle, backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
+/>
 
         <textarea
           placeholder="📝 Observations (facultatif)"
