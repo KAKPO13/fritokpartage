@@ -22,7 +22,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     const params = new URLSearchParams(window.location.search);
     const priceParam = params.get('price');
     if (priceParam && !isNaN(parseFloat(priceParam))) {
-      setPrice(priceParam); // stocke uniquement le nombre brut
+      setPrice(priceParam); // stocke uniquement le nombre
     }
   }, []);
 
