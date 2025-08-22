@@ -1,5 +1,5 @@
 import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebaseConfig'; // ✅ adapte le chemin si nécessaire
+import { db } from '@/lib/firebaseConfig';
 import MiniChat from './MiniChat';
 import React from 'react';
 import Head from 'next/head';
@@ -48,13 +48,13 @@ export async function generateMetadata({ params }) {
       description: data.description,
       images: [data.thumbnail],
     },
-    price: formattedPrice, // 👈 Prix formaté
+    price: formattedPrice,
   };
 }
 
 export default async function Page({ params, searchParams }) {
   const { videoId } = params;
-  const { ref, token } = searchParams;
+  const { ref, token, price: priceParam } = searchParams;
 
   const docRef = doc(db, "video_playlist", videoId);
   const docSnap = await getDoc(docRef);
@@ -70,11 +70,19 @@ export default async function Page({ params, searchParams }) {
 
   const data = docSnap.data();
 
+  // 🔄 Priorité au paramètre d’URL "price", sinon Firestore
+  const rawPriceParam = parseFloat(priceParam);
+  const rawPrice = !isNaN(rawPriceParam)
+    ? rawPriceParam
+    : typeof data.price === 'number'
+      ? data.price
+      : parseFloat(data.price) || 0;
+
   const formattedPrice = new Intl.NumberFormat('fr-FR', {
     style: 'currency',
     currency: 'XOF',
     minimumFractionDigits: 0
-  }).format(data.price || 0);
+  }).format(rawPrice);
 
   if (videoId && ref && token) {
     try {
@@ -88,7 +96,7 @@ export default async function Page({ params, searchParams }) {
         imageUrl: data.thumbnail ?? '',
         title: data.title ?? '',
         description: data.description ?? '',
-        price: formattedPrice,
+        price: rawPrice, // ✅ Enregistre le prix brut (nombre)
       });
     } catch (error) {
       console.error('Erreur Firestore :', error);
@@ -103,7 +111,7 @@ export default async function Page({ params, searchParams }) {
         <title>{data.title}</title>
         <meta name="description" content={data.description} />
         <meta property="og:title" content={data.title} />
-        <meta name="product:price:amount" content={data.price} />
+        <meta name="product:price:amount" content={rawPrice} />
         <meta name="product:price:currency" content="XOF" />
         <meta name="product:formatted_price" content={formattedPrice} />
         <meta property="og:description" content={data.description} />
@@ -142,13 +150,11 @@ export default async function Page({ params, searchParams }) {
           </button>
         </a>
 
-        {/* 💬 Mini Chat intégré ici */}
         <MiniChat videoId={videoId} />
       </main>
     </>
   );
 }
-
 
 
 
