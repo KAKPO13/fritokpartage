@@ -12,6 +12,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
   const [address, setAddress] = useState('');
+  const [codePays, setCodePays] = useState('+225');
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
   const [price, setPrice] = useState('');
@@ -41,9 +42,16 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
   const handlePayment = async () => {
     const numericPrice = Number(price || 0);
+    const numeroComplet = `${codePays.trim()}${telephone.trim()}`;
+    const regexTelComplet = /^\+\d{1,4}\d{8,15}$/;
 
     if (!latitude || !longitude || !address.trim() || !telephone.trim()) {
       toast.warn("⚠️ Veuillez remplir tous les champs requis.");
+      return;
+    }
+
+    if (!regexTelComplet.test(numeroComplet)) {
+      toast.error("❌ Numéro de téléphone invalide.");
       return;
     }
 
@@ -58,25 +66,25 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
     const commande = {
       articles: [
-  {
-    nom_frifri: title ?? '',
-    videoUrl: videoUrl ?? '',
-    imageUrl: thumbnail ?? '',
-    prix_frifri: numericPrice,
-    ref_article: referrer ?? '',
-    token: token ?? ''
-  }
-],
+        {
+          nom_frifri: title ?? '',
+          videoUrl: videoUrl ?? '',
+          imageUrl: thumbnail ?? '',
+          prix_frifri: numericPrice,
+          ref_article: referrer ?? '',
+          token: token ?? ''
+        }
+      ],
       totalPrix: numericPrice,
       latitude,
       longitude,
       geohash: hash,
       adresseLivraison: address,
-      telephone: telephone.trim(),
+      telephone: numeroComplet,
       observations: observations ?? '',
       statut: "en attente",
       userId: referrer ?? '',
-      boutiqueId: '', // à compléter si disponible
+      boutiqueId: '',
       commandeId,
       date: new Date().toISOString()
     };
@@ -85,6 +93,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       await setDoc(docRef, commande);
       toast.success(`✅ Commande enregistrée avec succès ! ID : ${commandeId}`);
       setTelephone('');
+      setCodePays('+225');
       setObservations('');
       setPrice('');
     } catch (error) {
@@ -155,6 +164,13 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
           onChange={(e) => setAddress(e.target.value)}
           style={inputStyle}
         />
+
+        <select value={codePays} onChange={(e) => setCodePays(e.target.value)} style={inputStyle}>
+          <option value="+225">🇨🇮 Côte d’Ivoire (+225)</option>
+          <option value="+229">🇧🇯 Bénin (+229)</option>
+          <option value="+228">🇹🇬 Togo (+228)</option>
+        </select>
+
         <input
           type="text"
           placeholder="📱 Numéro de téléphone"
