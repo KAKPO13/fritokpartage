@@ -17,18 +17,6 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [observations, setObservations] = useState('');
   const [price, setPrice] = useState('');
 
-  // ✅ Injecte le prix depuis l’URL et verrouille le champ
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const priceParam = parseFloat(params.get('price'));
-
-    if (!isNaN(priceParam) && priceParam > 0) {
-      setPrice(priceParam.toString());
-    }
-  }, []);
-
-  
-
   useEffect(() => {
     const fetchLocation = async () => {
       try {
@@ -51,6 +39,8 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
     fetchLocation();
   }, []);
+
+  
 
   const handlePayment = async () => {
     const numericPrice = Number(price || 0);
@@ -190,15 +180,13 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
           onChange={(e) => setTelephone(e.target.value)}
           style={inputStyle}
         />
-
         <input
-  type="text"
-  value={price}
-  readOnly
-  placeholder="💰 Prix (FCFA)"
-  style={{ ...inputStyle, backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
-/>
-
+          type="text"
+          placeholder="💰 Prix (€)"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          style={inputStyle}
+        />
         <textarea
           placeholder="📝 Observations (facultatif)"
           value={observations}
