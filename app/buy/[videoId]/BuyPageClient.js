@@ -17,6 +17,16 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [observations, setObservations] = useState('');
   const [price, setPrice] = useState('');
 
+  // ✅ Injecte le prix depuis l’URL si présent
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const priceParam = parseFloat(params.get('price'));
+
+    if (!isNaN(priceParam) && priceParam > 0) {
+      setPrice(priceParam.toString());
+    }
+  }, []);
+
   useEffect(() => {
     const fetchLocation = async () => {
       try {
@@ -39,16 +49,6 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
     fetchLocation();
   }, []);
-
-  useEffect(() => {
-  const params = new URLSearchParams(window.location.search);
-  const priceParam = parseFloat(params.get('price'));
-
-  if (!isNaN(priceParam) && priceParam > 0) {
-    setPrice(priceParam.toString());
-  }
-}, []);
-
 
   const handlePayment = async () => {
     const numericPrice = Number(price || 0);
