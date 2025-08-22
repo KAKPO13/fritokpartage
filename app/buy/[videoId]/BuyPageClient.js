@@ -17,16 +17,18 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [observations, setObservations] = useState('');
   const [price, setPrice] = useState('');
 
-  // ✅ Récupère le prix brut depuis l’URL
+  // ✅ Injecte le prix depuis l’URL et verrouille le champ
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const priceParam = params.get('price');
-    if (priceParam && !isNaN(parseFloat(priceParam))) {
-      setPrice(priceParam); // stocke uniquement le nombre
+    const priceParam = parseFloat(params.get('price'));
+
+    if (!isNaN(priceParam) && priceParam > 0) {
+      setPrice(priceParam.toString());
     }
   }, []);
 
-  // ✅ Géolocalisation + adresse
+  
+
   useEffect(() => {
     const fetchLocation = async () => {
       try {
@@ -51,7 +53,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   }, []);
 
   const handlePayment = async () => {
-    const numericPrice = Number(price);
+    const numericPrice = Number(price || 0);
     const numeroComplet = `${codePays.trim()}${telephone.trim()}`;
     const regexTelComplet = /^\+\d{1,4}\d{8,15}$/;
 
@@ -80,7 +82,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
           nom_frifri: title ?? '',
           videoUrl: videoUrl ?? '',
           imageUrl: thumbnail ?? '',
-          prix_frifri: numericPrice, // ✅ stocké comme nombre
+          prix_frifri: numericPrice,
           ref_article: referrer ?? '',
           token: token ?? ''
         }
@@ -190,12 +192,12 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
         />
 
         <input
-          type="text"
-          value={price ? `${price} FCFA` : ''}
-          readOnly
-          placeholder="💰 Prix (FCFA)"
-          style={{ ...inputStyle, backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
-        />
+  type="text"
+  value={price}
+  readOnly
+  placeholder="💰 Prix (FCFA)"
+  style={{ ...inputStyle, backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
+/>
 
         <textarea
           placeholder="📝 Observations (facultatif)"
