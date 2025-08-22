@@ -19,6 +19,7 @@ export default function AddCommandeForm({ userId, token }) {
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
   const [address, setAddress] = useState('');
+  const [codePays, setCodePays] = useState('+225');
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
   const [loading, setLoading] = useState(false);
@@ -62,31 +63,32 @@ export default function AddCommandeForm({ userId, token }) {
 
   const uploadImageToSupabase = async (file, commandeId) => {
     setUploading(true);
-
     const filePath = `imageproduit/${commandeId}-${Date.now()}.${file.name.split('.').pop()}`;
-    const { error } = await supabase.storage.from('imageproduit').upload(filePath, file);
-
-    if (error) {
+    try {
+      const { error } = await supabase.storage.from('imageproduit').upload(filePath, file);
+      if (error) throw error;
+      const { data: publicUrlData } = supabase.storage.from('imageproduit').getPublicUrl(filePath);
       setUploading(false);
+      return publicUrlData.publicUrl;
+    } catch (error) {
+      setUploading(false);
+      toast.error("❌ Échec du téléchargement de l'image.");
       throw error;
     }
-
-    const { data: publicUrlData } = supabase.storage.from('imageproduit').getPublicUrl(filePath);
-    setUploading(false);
-    return publicUrlData.publicUrl;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!imageFile || !address.trim() || !telephone.trim() || !latitude || !longitude) {
+    if (!imageFile || !address.trim() || !telephone.trim() || !codePays.trim() || !latitude || !longitude) {
       toast.warn("⚠️ Tous les champs requis doivent être remplis.");
       return;
     }
 
-    const regexTel = /^[0-9]{8,15}$/;
-    if (!regexTel.test(telephone.trim())) {
-      toast.warn("⚠️ Numéro de téléphone invalide.");
+    const numeroComplet = `${codePays.trim()}${telephone.trim()}`;
+    const regexTelComplet = /^\+\d{1,4}\d{8,15}$/;
+    if (!regexTelComplet.test(numeroComplet)) {
+      toast.warn("⚠️ Numéro de téléphone complet invalide.");
       return;
     }
 
@@ -114,7 +116,7 @@ export default function AddCommandeForm({ userId, token }) {
         longitude,
         geohash: hash,
         adresseLivraison: address,
-        phone: telephone.trim(),
+        phone: numeroComplet,
         observations: observations ?? '',
         statut: 'en attente',
         userId: userId ?? '',
@@ -129,6 +131,7 @@ export default function AddCommandeForm({ userId, token }) {
       setImageFile(null);
       setPreviewUrl(null);
       setTelephone('');
+      setCodePays('+225');
       setObservations('');
       setAddress('');
     } catch (error) {
@@ -143,7 +146,7 @@ export default function AddCommandeForm({ userId, token }) {
     <form onSubmit={handleSubmit} style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
       <fieldset style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1rem' }}>
         <legend><h2>📦 Nouvelle commande par capture d'écran</h2></legend>
-         <p>🖼️ Ajouter ici la capture d'écran du produit prise l'or du live ou d'une vidéo de mon compte, pour lancer votre commande.</p>
+        <p>🖼️ Ajouter ici la capture d'écran du produit prise lors du live ou d'une vidéo de mon compte, pour lancer votre commande.</p>
 
         <input type="file" accept="image/*" onChange={handleImageUpload} style={inputStyle} />
         {imageFile && <p>📸 Image sélectionnée : {imageFile.name}</p>}
@@ -163,7 +166,13 @@ export default function AddCommandeForm({ userId, token }) {
         )}
 
         <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="🏠 Adresse" style={inputStyle} />
-        <input type="text" value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="📱 Téléphone" style={inputStyle} />
+        <select value={codePays} onChange={(e) => setCodePays(e.target.value)} style={inputStyle}>
+  <option value="+225">🇨🇮 Côte d’Ivoire (+225)</option>
+  <option value="+229">🇧🇯 Bénin (+229)</option>
+  <option value="+228">🇹🇬 Togo (+228)</option>
+</select>
+
+        <input type="text" value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="📱 Numéro de téléphone" style={inputStyle} />
         <textarea value={observations} onChange={(e) => setObservations(e.target.value)} placeholder="📝 Observations" rows={4} style={{ ...inputStyle, resize: 'vertical' }} />
 
         <button type="submit" style={{ ...buttonStyle, opacity: loading ? 0.6 : 1 }} disabled={loading}>
