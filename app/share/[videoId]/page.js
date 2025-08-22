@@ -21,6 +21,12 @@ export async function generateMetadata({ params }) {
 
   const data = docSnap.data();
 
+  const formattedPrice = new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'XOF',
+    minimumFractionDigits: 0
+  }).format(data.price || 0);
+
   return {
     title: data.title || "Vidéo FriTok",
     description: data.description || "Découvrez cette vidéo partagée sur FriTok.",
@@ -42,6 +48,7 @@ export async function generateMetadata({ params }) {
       description: data.description,
       images: [data.thumbnail],
     },
+    price: formattedPrice, // 👈 Prix formaté
   };
 }
 
@@ -63,6 +70,12 @@ export default async function Page({ params, searchParams }) {
 
   const data = docSnap.data();
 
+  const formattedPrice = new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'XOF',
+    minimumFractionDigits: 0
+  }).format(data.price || 0);
+
   if (videoId && ref && token) {
     try {
       await addDoc(collection(db, 'share_events'), {
@@ -75,7 +88,7 @@ export default async function Page({ params, searchParams }) {
         imageUrl: data.thumbnail ?? '',
         title: data.title ?? '',
         description: data.description ?? '',
-        price: data.price ?? '',
+        price: formattedPrice,
       });
     } catch (error) {
       console.error('Erreur Firestore :', error);
@@ -90,6 +103,9 @@ export default async function Page({ params, searchParams }) {
         <title>{data.title}</title>
         <meta name="description" content={data.description} />
         <meta property="og:title" content={data.title} />
+        <meta name="product:price:amount" content={data.price} />
+        <meta name="product:price:currency" content="XOF" />
+        <meta name="product:formatted_price" content={formattedPrice} />
         <meta property="og:description" content={data.description} />
         <meta property="og:image" content={data.thumbnail} />
         <meta property="og:type" content="video.other" />
@@ -101,7 +117,7 @@ export default async function Page({ params, searchParams }) {
       </Head>
       <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
         <h1>{data.title}</h1>
-        <p><strong>Prix :</strong> {data.price}</p>
+        <p><strong>Prix :</strong> {formattedPrice}</p>
         <video
           src={data.url}
           controls
@@ -122,7 +138,7 @@ export default async function Page({ params, searchParams }) {
             cursor: 'pointer',
             fontSize: '1rem'
           }}>
-            🛒 Plus De Detail
+            🛒 Plus De Détail
           </button>
         </a>
 
@@ -132,7 +148,6 @@ export default async function Page({ params, searchParams }) {
     </>
   );
 }
-
 
 
 
