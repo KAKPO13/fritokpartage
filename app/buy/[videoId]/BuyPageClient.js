@@ -7,7 +7,7 @@ import geohash from 'ngeohash';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
-export default function BuyPageClient({ title, description, videoUrl, thumbnail, referrer, refArticle, token }) {
+export default function BuyPageClient({ title, description, videoUrl, thumbnail, referrer, token }) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
@@ -16,6 +16,8 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
   const [price, setPrice] = useState('');
+  const [refArticleState, setRefArticleState] = useState('');
+
 
 
 
@@ -75,7 +77,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
           videoUrl: videoUrl ?? '',
           imageUrl: thumbnail ?? '',
           prix_frifri: numericPrice,
-          ref_article: refArticle ?? '',
+          ref_article: refArticleState ?? '',
           token: token ?? ''
         }
       ],
@@ -100,6 +102,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       setCodePays('+225');
       setObservations('');
       setPrice('');
+      setRefArticleState('');
     } catch (error) {
       console.error('❌ Erreur lors de l’enregistrement ou de la notification:', error);
       toast.error('Erreur lors de l’enregistrement de la commande.');
