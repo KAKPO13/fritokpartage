@@ -7,7 +7,7 @@ import geohash from 'ngeohash';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
-export default function BuyPageClient({ title, description, videoUrl, thumbnail, referrer, token, refArticle }) {
+export default function BuyPageClient({ title, description, videoUrl, thumbnail, referrer, token }) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
@@ -16,17 +16,6 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
   const [price, setPrice] = useState('');
-  const [refArticleState, setRefArticleState] = useState(() => {
-  if (typeof window !== 'undefined') {
-    const urlParams = new URLSearchParams(window.location.search);
-    return urlParams.get('refArticle') ?? refArticle ?? '';
-  }
-  return refArticle ?? '';
-});
-
-useEffect(() => {
-  console.log("✅ refArticleState :", refArticleState);
-}, [refArticleState]);
 
   useEffect(() => {
     const fetchLocation = async () => {
@@ -51,6 +40,7 @@ useEffect(() => {
     fetchLocation();
   }, []);
 
+  
 
   const handlePayment = async () => {
     const numericPrice = Number(price || 0);
@@ -83,7 +73,7 @@ useEffect(() => {
           videoUrl: videoUrl ?? '',
           imageUrl: thumbnail ?? '',
           prix_frifri: numericPrice,
-          ref_article: refArticle ?? '',
+          ref_article: referrer ?? '',
           token: token ?? ''
         }
       ],
@@ -108,7 +98,6 @@ useEffect(() => {
       setCodePays('+225');
       setObservations('');
       setPrice('');
-      setRefArticleState('');
     } catch (error) {
       console.error('❌ Erreur lors de l’enregistrement ou de la notification:', error);
       toast.error('Erreur lors de l’enregistrement de la commande.');
