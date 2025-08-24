@@ -84,9 +84,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
           videoUrl: videoUrl ?? '',
           imageUrl: thumbnail ?? '',
           prix_frifri: numericPrice,
-          product: {
-      ref_article: refArticle ?? ''
-    },
+          ref_article: refArticle ?? '',
           token: token ?? ''
         }
       ],
