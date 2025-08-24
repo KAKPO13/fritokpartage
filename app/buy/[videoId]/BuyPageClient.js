@@ -16,16 +16,13 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
   const [price, setPrice] = useState('');
-  useEffect(() => {
+  const [refArticleState, setRefArticleState] = useState(() => {
   if (typeof window !== 'undefined') {
     const urlParams = new URLSearchParams(window.location.search);
-    const refFromUrl = urlParams.get('refArticle');
-    if (refFromUrl) {
-      setRefArticleState(refFromUrl);
-    }
+    return urlParams.get('refArticle') ?? refArticle ?? '';
   }
-}, []);
-
+  return refArticle ?? '';
+});
 
 useEffect(() => {
   console.log("✅ refArticleState :", refArticleState);
@@ -86,7 +83,7 @@ useEffect(() => {
           videoUrl: videoUrl ?? '',
           imageUrl: thumbnail ?? '',
           prix_frifri: numericPrice,
-          ref_article: refArticleState ?? '',
+          ref_article: refArticle ?? '';
           token: token ?? ''
         }
       ],
