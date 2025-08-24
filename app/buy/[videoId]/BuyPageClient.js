@@ -83,7 +83,7 @@ useEffect(() => {
           videoUrl: videoUrl ?? '',
           imageUrl: thumbnail ?? '',
           prix_frifri: numericPrice,
-          ref_article: refArticle ?? '';
+          ref_article: refArticle ?? '',
           token: token ?? ''
         }
       ],
