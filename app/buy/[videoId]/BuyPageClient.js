@@ -7,7 +7,7 @@ import geohash from 'ngeohash';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
-export default function BuyPageClient({ title, description, videoUrl, thumbnail, referrer, token }) {
+export default function BuyPageClient({ title, description, videoUrl, thumbnail, referrer, token, refArticle }) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
@@ -16,10 +16,17 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
   const [price, setPrice] = useState('');
-  const [refArticleState, setRefArticleState] = useState('');
+  const [refArticleState, setRefArticleState] = useState(() => {
+  if (typeof window !== 'undefined') {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('refArticle') ?? refArticle ?? '';
+  }
+  return refArticle ?? '';
+});
 
-
-
+useEffect(() => {
+  console.log("✅ refArticleState :", refArticleState);
+}, [refArticleState]);
 
   useEffect(() => {
     const fetchLocation = async () => {
@@ -43,16 +50,6 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
 
     fetchLocation();
   }, []);
-
-  useEffect(() => {
-  const urlParams = new URLSearchParams(window.location.search);
-  const refFromUrl = urlParams.get('refArticle');
-  if (refFromUrl) {
-    setRefArticleState(refFromUrl);
-  }
-}, []);
-
-
 
 
   const handlePayment = async () => {
