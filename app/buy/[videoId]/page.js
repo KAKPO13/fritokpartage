@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function Page({ params, searchParams }) {
   const { videoId } = params;
-  const { ref, token } = searchParams;
+ const { ref, token, refArticle } = searchParams;
 
   try {
     const docRef = doc(db, "video_playlist", videoId);
