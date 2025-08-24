@@ -44,6 +44,15 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     fetchLocation();
   }, []);
 
+  useEffect(() => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const refFromUrl = urlParams.get('refArticle');
+  if (refFromUrl) {
+    setRefArticleState(refFromUrl);
+  }
+}, []);
+
+
 
 
   const handlePayment = async () => {
