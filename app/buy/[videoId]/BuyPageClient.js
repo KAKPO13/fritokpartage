@@ -84,7 +84,7 @@ useEffect(() => {
           videoUrl: videoUrl ?? '',
           imageUrl: thumbnail ?? '',
           prix_frifri: numericPrice,
-          ref_article: refArticleState ?? '',
+          ref_article: setRefArticleState ?? '',
           token: token ?? ''
         }
       ],
