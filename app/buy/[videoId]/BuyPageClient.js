@@ -16,9 +16,8 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
   const [price, setPrice] = useState('');
-  const refArticle = props.refArticle;
+  const [refArticleState, setRefArticleState] = useState(refArticle ?? '');
 
- 
 
 
   useEffect(() => {
@@ -48,9 +47,10 @@ useEffect(() => {
   const urlParams = new URLSearchParams(window.location.search);
   const refFromUrl = urlParams.get('refArticle');
   if (refFromUrl) {
-    setRefArticle(refFromUrl);
+    setRefArticleState(refFromUrl);
   }
 }, []);
+
  
 
   const handlePayment = async () => {
@@ -84,7 +84,7 @@ useEffect(() => {
           videoUrl: videoUrl ?? '',
           imageUrl: thumbnail ?? '',
           prix_frifri: numericPrice,
-          ref_article: refArticle ?? '',
+          ref_article: refArticleState ?? '',
           token: token ?? ''
         }
       ],
