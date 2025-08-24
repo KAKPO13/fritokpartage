@@ -42,16 +42,14 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     fetchLocation();
   }, []);
 
-   // 🔍 Récupération du paramètre refArticle depuis l'URL
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const refFromUrl = urlParams.get('refArticle');
-    if (refFromUrl) {
-      setRefArticle(refFromUrl);
-    }
-  }, []);
-
-  
+useEffect(() => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const refFromUrl = urlParams.get('refArticle');
+  if (refFromUrl) {
+    setRefArticle(refFromUrl);
+  }
+}, []);
+ 
 
   const handlePayment = async () => {
     const numericPrice = Number(price || 0);
