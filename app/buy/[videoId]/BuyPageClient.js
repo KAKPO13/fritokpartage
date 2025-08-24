@@ -7,7 +7,7 @@ import geohash from 'ngeohash';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
-export default function BuyPageClient({ title, description, videoUrl, thumbnail, token }) {
+export default function BuyPageClient({ title, description, videoUrl, thumbnail, referrer, token }) {
   const [showFullImage, setShowFullImage] = useState(false);
   const [latitude, setLatitude] = useState(null);
   const [longitude, setLongitude] = useState(null);
@@ -18,16 +18,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [price, setPrice] = useState('');
   const [refArticle, setRefArticle] = useState('');
 
-  // 🔍 Récupération du paramètre refArticle depuis l'URL
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const refFromUrl = urlParams.get('refArticle');
-    if (refFromUrl) {
-      setRefArticle(refFromUrl);
-    }
-  }, []);
 
-  // 📍 Géolocalisation
   useEffect(() => {
     const fetchLocation = async () => {
       try {
@@ -51,7 +42,17 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
     fetchLocation();
   }, []);
 
-  // 💳 Enregistrement de la commande
+   // 🔍 Récupération du paramètre refArticle depuis l'URL
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const refFromUrl = urlParams.get('refArticle');
+    if (refFromUrl) {
+      setRefArticle(refFromUrl);
+    }
+  }, []);
+
+  
+
   const handlePayment = async () => {
     const numericPrice = Number(price || 0);
     const numeroComplet = `${codePays.trim()}${telephone.trim()}`;
@@ -84,8 +85,8 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
           imageUrl: thumbnail ?? '',
           prix_frifri: numericPrice,
           product: {
-            ref_article: refArticle ?? ''
-          },
+      ref_article: refArticle ?? ''
+    },
           token: token ?? ''
         }
       ],
@@ -97,7 +98,7 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
       phone: numeroComplet,
       observations: observations ?? '',
       statut: "en attente",
-      userId: refArticle ?? '',
+      userId: referrer ?? '',
       boutiqueId: '',
       commandeId,
       date: new Date().toISOString()
