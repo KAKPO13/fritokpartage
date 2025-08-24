@@ -32,6 +32,7 @@ export default async function Page({ params, searchParams }) {
         thumbnail={data.thumbnail || null}
         price={data.price || 3000}
         referrer={ref}
+        refArticle={refArticle}
         token={token}
       />
     );
