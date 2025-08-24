@@ -16,7 +16,6 @@ export default function BuyPageClient({ title, description, videoUrl, thumbnail,
   const [telephone, setTelephone] = useState('');
   const [observations, setObservations] = useState('');
   const [price, setPrice] = useState('');
-  const [refArticle, setRefArticle] = useState('');
  
 
 
