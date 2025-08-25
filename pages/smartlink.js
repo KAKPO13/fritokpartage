@@ -7,13 +7,13 @@ import { Dialog } from '@headlessui/react';
 import AddCommandeForm from '../app/capture/AddCommandeForm';
 const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
 import Head from 'next/head';
+import Link from 'next/link'; // ✅ Import du composant Link
 
 export async function getServerSideProps(context) {
   const { videos, ref, token } = context.query;
   const videoData = [];
   let validRef = null;
 
-  // 🔍 Vérification que ref correspond à un utilisateur existant
   if (ref) {
     try {
       const userRef = doc(db, 'users', ref);
@@ -28,7 +28,6 @@ export async function getServerSideProps(context) {
     }
   }
 
-  // 📹 Chargement des vidéos
   if (videos) {
     const videoIds = videos.split(',');
 
@@ -98,11 +97,27 @@ export default function SmartlinkPage({ videoData, ref, token }) {
         
         {showModal && (
           <div className="modal">
-          <AddCommandeForm userId={ref} token={token} />
+            <AddCommandeForm userId={ref} token={token} />
           </div>
         )}
+
+        {/* ✅ Lien vers la page juridique */}
+        <section style={{ marginTop: '4rem', textAlign: 'center' }}>
+          <Link href="/legal">
+            <button style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: '#007bff',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '1rem'
+            }}>
+              📚 Centre juridique
+            </button>
+          </Link>
+        </section>
       </main>
     </>
   );
 }
-
