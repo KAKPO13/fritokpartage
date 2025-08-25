@@ -14,14 +14,22 @@ export default function LegalCenterPage() {
         <p>Bienvenue dans l’espace juridique de FriTok, votre application e-commerce dédiée à la création de vitrines interactives, au dropshipping et à la gestion de livraison.</p>
         <p>Vous trouverez ici tous les documents légaux qui encadrent l’utilisation de notre service.</p>
 
+       import Link from 'next/link';
+
         <section style={{ marginTop: '2rem' }}>
-          <h2>🔐 Politique de confidentialité</h2>
-          <ul>
+        <h2>
+            🔐 Politique de confidentialité –{' '}
+            <Link href="/politique" style={{ color: '#0070f3', textDecoration: 'underline' }}>
+            cliquez ici
+            </Link>
+        </h2>
+        <ul>
             <li>Utilisation de la caméra, du micro et de la géolocalisation</li>
             <li>Traitement du numéro de téléphone pour la livraison</li>
             <li>Droits d’accès, de modification et de suppression</li>
-          </ul>
+        </ul>
         </section>
+
 
         <section style={{ marginTop: '2rem' }}>
           <h2>📘 Conditions Générales d’Utilisation (CGU)</h2>
