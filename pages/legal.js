@@ -15,7 +15,6 @@ export default function LegalCenterPage() {
         <p>Bienvenue dans l’espace juridique de FriTok, votre application e-commerce dédiée à la création de vitrines interactives, au dropshipping et à la gestion de livraison.</p>
         <p>Vous trouverez ici tous les documents légaux qui encadrent l’utilisation de notre service.</p>
 
-       import Link from 'next/link';
 
         <section style={{ marginTop: '2rem' }}>
         <h2>
@@ -33,14 +32,20 @@ export default function LegalCenterPage() {
 
 
         <section style={{ marginTop: '2rem' }}>
-          <h2>📘 Conditions Générales d’Utilisation (CGU)</h2>
-          <ul>
+        <h2>
+            📘 Conditions Générales d’Utilisation (CGU) –{' '}
+            <Link href="/cgu" style={{ color: '#0070f3', textDecoration: 'underline' }}>
+            cliquez ici
+            </Link>
+        </h2>
+        <ul>
             <li>Création de vitrines produits</li>
             <li>Fonctionnement des recherches vocales et visuelles</li>
             <li>Communication entre livreurs et clients</li>
             <li>Comportements interdits et responsabilités</li>
-          </ul>
+        </ul>
         </section>
+
 
         <section style={{ marginTop: '2rem' }}>
           <h2>🔁 Politique de retour et de remboursement</h2>
