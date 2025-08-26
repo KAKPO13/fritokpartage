@@ -37,7 +37,7 @@ export default function LegalCenterPage() {
         <section aria-label="Conditions Générales d’Utilisation" style={{ marginTop: '2rem' }}>
           <h2>
             📘 Conditions Générales d’Utilisation (CGU) –{' '}
-            <Link href="/cgu" style={{ color: '#0070f3', textDecoration: 'underline' }}>
+            <Link href="/CGU" style={{ color: '#0070f3', textDecoration: 'underline' }}>
               cliquez ici
             </Link>
           </h2>
