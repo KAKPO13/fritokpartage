@@ -54,7 +54,7 @@ export async function generateMetadata({ params }) {
 
 export default async function Page({ params, searchParams }) {
   const { videoId } = params;
-  const { ref, token, price: priceParam } = searchParams;
+  const { ref, token, price: priceParam, userId } = searchParams;
 
   const docRef = doc(db, "video_playlist", videoId);
   const docSnap = await getDoc(docRef);
@@ -84,19 +84,19 @@ export default async function Page({ params, searchParams }) {
     minimumFractionDigits: 0
   }).format(rawPrice);
 
-  if (videoId && ref && token) {
+  if (videoId && ref && token && userId) {
     try {
       await addDoc(collection(db, 'share_events'), {
         videoId,
         referrer: ref,
-        userId: ref,
+        userId, // ✅ identifiant réel de l'utilisateur connecté
         token,
         timestamp: new Date().toISOString(),
         source: 'web',
         imageUrl: data.thumbnail ?? '',
         title: data.title ?? '',
         description: data.description ?? '',
-        price: rawPrice, // ✅ Enregistre le prix brut (nombre)
+        price: rawPrice,
       });
     } catch (error) {
       console.error('Erreur Firestore :', error);
@@ -111,7 +111,7 @@ export default async function Page({ params, searchParams }) {
         <title>{data.title}</title>
         <meta name="description" content={data.description} />
         <meta property="og:title" content={data.title} />
-        <meta name="product:price:amount" content={rawPrice} />
+        <meta name="product:price:amount" content={rawPrice.toString()} />
         <meta name="product:price:currency" content="XOF" />
         <meta name="product:formatted_price" content={formattedPrice} />
         <meta property="og:description" content={data.description} />
@@ -155,7 +155,6 @@ export default async function Page({ params, searchParams }) {
     </>
   );
 }
-
 
 
 
