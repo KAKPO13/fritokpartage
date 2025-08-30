@@ -1,5 +1,6 @@
 'use client';
 import React, { useEffect, useState, useRef } from 'react';
+import { doc, updateDoc } from 'firebase/firestore';
 import {
   collection,
   addDoc,
@@ -10,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebaseConfig';
 import { motion, AnimatePresence } from 'framer-motion';
+
 
 const bannedWords = [
   "con", "conn", "idiot", "imbécile", "abruti", "stupide", "crétin",
@@ -77,28 +79,35 @@ export default function MiniChat({ videoId }) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const sendMessage = async () => {
-    if (newMessage.trim() === '') return;
+const sendMessage = async () => {
+  if (newMessage.trim() === '') return;
 
-    if (containsBannedWords(newMessage)) {
-      alert("🚫 Ton message contient des mots interdits. Merci de rester respectueux.");
-      return;
-    }
+  if (containsBannedWords(newMessage)) {
+    alert("🚫 Ton message contient des mots interdits. Merci de rester respectueux.");
+    return;
+  }
 
-    try {
-      await addDoc(collection(db, 'chat_messages'), {
-        videoId,
-        text: newMessage,
-        timestamp: serverTimestamp(),
-        sender: username,
-        replyTo: replyTo?.id || null,
-      });
-      setNewMessage('');
-      setReplyTo(null);
-    } catch (error) {
-      console.error('Erreur envoi message :', error);
-    }
-  };
+  try {
+    const docRef = await addDoc(collection(db, 'chat_messages'), {
+      videoId,
+      text: newMessage,
+      timestamp: serverTimestamp(),
+      sender: username,
+      replyTo: replyTo?.id || null,
+    });
+
+    // 🔁 Mise à jour du champ messageId avec l'ID généré
+    await updateDoc(doc(db, 'chat_messages', docRef.id), {
+      messageId: docRef.id
+    });
+
+    setNewMessage('');
+    setReplyTo(null);
+  } catch (error) {
+    console.error('Erreur envoi message :', error);
+    alert("Une erreur est survenue lors de l’envoi du message.");
+  }
+};
 
   if (!videoId) {
     return <p>⚠️ Aucun identifiant vidéo fourni. Le chat ne peut pas s’afficher.</p>;
