@@ -2,7 +2,7 @@
 const { logInfo, logError } = require("../utils/logger");
 
 // Import du callback handler (chemin corrigé)
-const momoCallbackHandler = require("./callbacks/momoCallbackHandler");
+const momoCallbackHandler = require("../callbacks/momoCallbackHandler");
 
 // ✅ Export de la fonction Netlify
 exports.handler = async (req, res) => {
