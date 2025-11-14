@@ -1,6 +1,10 @@
 const functions = require("firebase-functions");
-const requestToPay = require("./src/momo/requestToPay");
+  // CommonJS
+const requestToPay = require("../momo/requestToPay");
 const {initiateAndTrackPayment} = require("./src/momo/initiateAndTrackPayment");
+// ✅ correct
+const initiateAndTrackPayment = require("../momo/initiateAndTrackPayment");
+
 
 
 exports.requestToPay = functions.https.onRequest(requestToPay);

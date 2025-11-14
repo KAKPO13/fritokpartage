@@ -4,8 +4,6 @@ const {requestToPay} = require("./requestToPay");
 const {getTransactionStatus} = require("./getTransactionStatus");
 const {logInfo, logError} = require("../utils/logger");
 
-// ✅ correct
-const initiateAndTrackPayment = require("../momo/initiateAndTrackPayment");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
