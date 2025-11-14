@@ -7,3 +7,18 @@
   to = "/share/:videoId"
   query = { videoId = ":videoId", ref = ":ref", token = ":token" }
   status = 200
+
+
+[build]
+  functions = "functions"   # dossier où sont tes fonctions
+  publish = "dist"          # ou "build" selon ton frontend
+
+[functions.start-live]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/start-live.js"
+
+[functions.end-live]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/end-live.js"
