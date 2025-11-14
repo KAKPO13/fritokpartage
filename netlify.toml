@@ -6,5 +6,8 @@
 [[redirects]]
   from = "/fritokpartage.html"
   to = "/share/:videoId"
+  query = { videoId = ":videoId", ref = ":ref", token = ":token" }
   status = 200
+
+
 
