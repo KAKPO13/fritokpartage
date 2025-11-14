@@ -14,5 +14,6 @@
         "npm --prefix \"functions\" run lint"
       ]
     }
-  ]
+   ]  
 }
+
