@@ -1,3 +1,5 @@
+// ✅ correct
+const initiateAndTrackPayment = require('./momo/initiateAndTrackPayment');
 const functions = require("firebase-functions");
 const {requestToPay} = require("./requestToPay");
 const {getTransactionStatus} = require("./getTransactionStatus");

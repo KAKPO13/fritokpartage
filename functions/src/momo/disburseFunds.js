@@ -1,3 +1,4 @@
+const disburseFunds = require('./momo/disburseFunds');
 const functions = require("firebase-functions");
 const axios = require("axios");
 const {getAccessToken} = require("../utils/auth");

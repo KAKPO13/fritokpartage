@@ -1,3 +1,4 @@
+const requestToPay = require('./momo/requestToPay');
 const axios = require("axios");
 const {getAccessToken} = require("../utils/auth");
 const {logInfo, logError} = require("../utils/logger");
