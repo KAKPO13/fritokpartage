@@ -3,16 +3,16 @@ const { RtcTokenBuilder, RtcRole } = require("agora-access-token");
 const { createClient } = require("@supabase/supabase-js");
 const { v4: uuidv4 } = require("uuid");
 
-// ✅ Initialisation Firebase Admin
+// Supabase client
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+// Initialisation Firebase Admin avec variables d'env
 if (!admin.apps.length) {
   admin.initializeApp({
-    credential: admin.credential.cert(require("./serviceAccountKey.json")), 
-    // ou admin.credential.applicationDefault() si tu utilises GOOGLE_APPLICATION_CREDENTIALS
+    credential: admin.credential.applicationDefault(), 
+    projectId: process.env.FIREBASE_PROJECT_ID,
   });
 }
-
-// ✅ Supabase client
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 const APP_ID = process.env.AGORA_APP_ID;
 const APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE;
@@ -29,16 +29,16 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // ✅ Vérifier Firebase token
+    // Vérifier Firebase token
     const decodedToken = await admin.auth().verifyIdToken(firebaseToken);
     const uid = decodedToken.uid;
 
-    // ✅ Générer channelName unique
+    // Générer channelName
     const channelName = "live_" + uuidv4();
 
-    // ✅ Générer Agora token
+    // Générer Agora token
     const role = RtcRole.PUBLISHER;
-    const expireTime = 3600; // 1h
+    const expireTime = 3600;
     const currentTimestamp = Math.floor(Date.now() / 1000);
     const privilegeExpireTime = currentTimestamp + expireTime;
 
@@ -51,7 +51,7 @@ exports.handler = async (event, context) => {
       privilegeExpireTime
     );
 
-    // ✅ Enregistrer dans Supabase
+    // Enregistrer dans Supabase
     const { data, error } = await supabase
       .from("live_sessions")
       .insert([
@@ -59,7 +59,7 @@ exports.handler = async (event, context) => {
           channel_name: channelName,
           host_uid: uid,
           start_time: new Date().toISOString(),
-          metadata: { status: "live" }, // champ JSONB conseillé
+          metadata: { status: "live" },
         },
       ]);
 
@@ -81,14 +81,13 @@ exports.handler = async (event, context) => {
     };
   } catch (err) {
     console.error("Backend error:", err);
-
     const isAuthError =
       err.code === "auth/argument-error" || err.code === "auth/id-token-expired";
-
     return {
       statusCode: isAuthError ? 401 : 500,
       body: JSON.stringify({ error: err.message }),
     };
   }
 };
+
 
