@@ -1,21 +1,3 @@
-const admin = require("firebase-admin");
-const { RtcTokenBuilder, RtcRole } = require("agora-access-token");
-const { createClient } = require("@supabase/supabase-js");
-const { v4: uuidv4 } = require("uuid");
-
-// Initialisation Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.applicationDefault(),
-  });
-}
-
-// Supabase client
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-
-const APP_ID = process.env.AGORA_APP_ID;
-const APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE;
-
 exports.handler = async (event, context) => {
   try {
     const body = JSON.parse(event.body);
@@ -51,7 +33,7 @@ exports.handler = async (event, context) => {
           channel_name: channelName,
           host_uid: uid,
           start_time: new Date().toISOString(),
-          metadata: { status: "live" },
+          metadata: JSON.stringify({ status: "live" }), // ✅ JSON stringifié
         },
       ]);
 
@@ -71,8 +53,9 @@ exports.handler = async (event, context) => {
       }),
     };
   } catch (err) {
+    const isAuthError = err.code === "auth/argument-error" || err.code === "auth/id-token-expired";
     return {
-      statusCode: 401,
+      statusCode: isAuthError ? 401 : 500,
       body: JSON.stringify({ error: err.message }),
     };
   }
