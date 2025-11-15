@@ -31,12 +31,7 @@ exports.handler = async (event, context) => {
       .eq("channel_name", channelName)
       .eq("host_uid", uid);
 
-    if (error) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: error.message }),
-      };
-    }
+  
 
     return {
       statusCode: 200,
