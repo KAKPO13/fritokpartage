@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require("uuid");
 
 
 // Supabase client
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URLL, process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createClient(process.env.SUPABASE_URLL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 
 // Initialisation Firebase Admin avec variables d'env
