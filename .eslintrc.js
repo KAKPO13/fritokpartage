@@ -3,8 +3,11 @@ module.exports = {
     node: true,
     es2021: true
   },
-  extends: ["eslint:recommended", "google"],
-  extends: ["next/core-web-vitals"],
+  extends: [
+    "eslint:recommended",
+    "google",
+    "next/core-web-vitals"
+  ],
   parserOptions: {
     ecmaVersion: "latest",
     sourceType: "module"
