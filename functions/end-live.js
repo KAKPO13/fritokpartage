@@ -37,6 +37,10 @@ exports.handler = async (event, context) => {
       statusCode: 200,
       body: JSON.stringify({ message: "Live terminé", updated: data }),
     };
- 
+  } catch (err) {
+    return {
+      statusCode: 401,
+      body: JSON.stringify({ error: err.message }),
+    };
   }
 };
