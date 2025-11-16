@@ -1,11 +1,12 @@
 const admin = require("firebase-admin");
 const { RtcTokenBuilder, RtcRole } = require("agora-access-token");
 const { createClient } = require("@supabase/supabase-js");
+// Supabase client
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const { v4: uuidv4 } = require("uuid");
 
 
-// Supabase client
-const supabase = createClient(process.env.SUPABASE_URLL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
 
 
 // Initialisation Firebase Admin avec variables d'env
