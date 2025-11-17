@@ -6,9 +6,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 const { v4: uuidv4 } = require("uuid");
 
 
-
-
-
 // Initialisation Firebase Admin avec variables d'env
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -79,7 +76,6 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({
         channelName,
         token: agoraToken,
-        supabaseRecord: data,
       }),
     };
   } catch (err) {
