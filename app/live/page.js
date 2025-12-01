@@ -30,7 +30,6 @@ export default function LivePage({ searchParams }) {
     async function initAgora() {
       try {
         const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-
         const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
         const uid = Math.floor(Math.random() * 10000);
 
@@ -47,7 +46,7 @@ export default function LivePage({ searchParams }) {
           }
         });
 
-        client.on("user-unpublished", (user) => {
+        client.on("user-unpublished", () => {
           if (remoteRef.current) remoteRef.current.innerHTML = "";
         });
       } catch (err) {
@@ -72,7 +71,7 @@ export default function LivePage({ searchParams }) {
     return () => unsubscribe();
   }, [channel]);
 
-  // ✅ Envoi d’un message dans Firestore
+  // ✅ Envoi d’un message
   const sendMessage = async () => {
     if (input.trim() !== "") {
       await addDoc(collection(db, "channels", channel, "messages"), {
@@ -84,34 +83,51 @@ export default function LivePage({ searchParams }) {
     }
   };
 
+  // ✅ Limiter l’affichage aux 3 derniers messages
+  const lastMessages = messages.slice(-3);
+
   return (
-    <main style={{ display: "flex", flexDirection: "row", height: "100vh" }}>
-      {/* Zone vidéo distante */}
+    <main style={{ position: "relative", width: "100%", height: "100vh", background: "black" }}>
+      {/* Vidéo distante en plein écran */}
       <div
         ref={remoteRef}
-        style={{ flex: 2, background: "black", display: "flex", alignItems: "center", justifyContent: "center" }}
-      >
-        <h2 style={{ color: "white" }}>🎥 Flux distant</h2>
-      </div>
+        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", background: "black" }}
+      ></div>
 
-      {/* Zone chat connecté à Firestore */}
-      <div style={{ flex: 1, background: "#111", color: "white", display: "flex", flexDirection: "column" }}>
-        <h2 style={{ padding: "10px" }}>💬 Chat en direct</h2>
-        <div style={{ flex: 1, overflowY: "auto", padding: "10px" }}>
-          {messages.map((msg, i) => (
-            <p key={i}>
+      {/* Chat superposé en bas */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          width: "100%",
+          background: "rgba(0,0,0,0.5)",
+          color: "white",
+          padding: "10px",
+          fontSize: "14px",
+        }}
+      >
+        {/* Messages (3 max, défilant) */}
+        <div style={{ maxHeight: "60px", overflowY: "auto" }}>
+          {lastMessages.map((msg, i) => (
+            <p key={i} style={{ margin: "2px 0" }}>
               <strong>{msg.user}:</strong> {msg.text}
             </p>
           ))}
         </div>
-        <div style={{ display: "flex", padding: "10px" }}>
+
+        {/* Champ de saisie */}
+        <div style={{ display: "flex", marginTop: "5px" }}>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            style={{ flex: 1, padding: "5px" }}
+            style={{ flex: 1, padding: "5px", borderRadius: "4px", border: "none" }}
             placeholder="Écris un message..."
           />
-          <button onClick={sendMessage} style={{ marginLeft: "5px" }}>
+          <button
+            onClick={sendMessage}
+            style={{ marginLeft: "5px", padding: "5px 10px", borderRadius: "4px", background: "#ff0050", color: "white", border: "none" }}
+          >
             Envoyer
           </button>
         </div>
