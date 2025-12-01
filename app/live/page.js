@@ -28,30 +28,28 @@ export default function LivePage({ searchParams }) {
     let client;
 
     async function initAgora() {
-      try {
-        const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-        const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
-        const uid = Math.floor(Math.random() * 10000);
+      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+      const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
+      const uid = Math.floor(Math.random() * 10000);
 
-        client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
-        await client.join(appId, channel, token, uid);
+      // ✅ Audience seulement
+      client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
+      await client.join(appId, channel, token, uid);
+      client.setClientRole("audience");
 
-        client.on("user-published", async (user, mediaType) => {
-          await client.subscribe(user, mediaType);
-          if (mediaType === "video" && remoteRef.current) {
-            user.videoTrack.play(remoteRef.current);
-          }
-          if (mediaType === "audio") {
-            user.audioTrack.play();
-          }
-        });
+      client.on("user-published", async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+        if (mediaType === "video" && remoteRef.current) {
+          user.videoTrack.play(remoteRef.current);
+        }
+        if (mediaType === "audio") {
+          user.audioTrack.play();
+        }
+      });
 
-        client.on("user-unpublished", () => {
-          if (remoteRef.current) remoteRef.current.innerHTML = "";
-        });
-      } catch (err) {
-        console.error("Erreur Agora:", err);
-      }
+      client.on("user-unpublished", () => {
+        if (remoteRef.current) remoteRef.current.innerHTML = "";
+      });
     }
 
     if (channel && token) initAgora();
@@ -75,7 +73,7 @@ export default function LivePage({ searchParams }) {
   const sendMessage = async () => {
     if (input.trim() !== "") {
       await addDoc(collection(db, "channels", channel, "messages"), {
-        user: "Moi",
+        user: "Spectateur",
         text: input,
         timestamp: new Date(),
       });
@@ -83,7 +81,7 @@ export default function LivePage({ searchParams }) {
     }
   };
 
-  // ✅ Limiter l’affichage aux 3 derniers messages
+  // ✅ Limiter à 3 derniers messages
   const lastMessages = messages.slice(-3);
 
   return (
@@ -126,7 +124,14 @@ export default function LivePage({ searchParams }) {
           />
           <button
             onClick={sendMessage}
-            style={{ marginLeft: "5px", padding: "5px 10px", borderRadius: "4px", background: "#ff0050", color: "white", border: "none" }}
+            style={{
+              marginLeft: "5px",
+              padding: "5px 10px",
+              borderRadius: "4px",
+              background: "#ff0050",
+              color: "white",
+              border: "none",
+            }}
           >
             Envoyer
           </button>
