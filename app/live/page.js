@@ -18,7 +18,7 @@ export default function LivePage({ searchParams }) {
         const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
         const uid = Math.floor(Math.random() * 10000);
 
-        // ✅ Utiliser "rtc" pour une visio classique
+        // ✅ Mode "rtc" pour une visio classique
         client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
 
         await client.join(appId, channel, token, uid);
@@ -45,6 +45,14 @@ export default function LivePage({ searchParams }) {
           if (mediaType === "audio") {
             console.log("Lecture de l’audio distant");
             user.audioTrack.play();
+          }
+        });
+
+        // ✅ Nettoyage si l’utilisateur quitte
+        client.on("user-unpublished", (user) => {
+          console.log("User unpublished:", user.uid);
+          if (remoteRef.current) {
+            remoteRef.current.innerHTML = "";
           }
         });
       } catch (err) {
