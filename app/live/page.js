@@ -253,15 +253,17 @@ return (
       @media (min-width: 1024px) {
         .live-container {
           flex-direction: row;
-          height: auto;
+          height: 100vh; /* garde la hauteur écran */
         }
         .video {
           width: 70%;
-          height: auto;
+          height: 100%; /* occupe toute la hauteur */
+          object-fit: cover; /* adapte la vidéo */
         }
         .chat-preview {
           width: 30%;
-          height: auto;
+          height: 100%;
+          overflow-y: auto;
         }
       }
     `}</style>
