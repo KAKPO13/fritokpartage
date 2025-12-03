@@ -13,6 +13,9 @@ export default function LivePage({ searchParams }) {
   const [showComments, setShowComments] = useState(false);
   const [copiedToast, setCopiedToast] = useState(false);
 
+  const [audienceCount, setAudienceCount] = useState(0);
+  const [animateCount, setAnimateCount] = useState(false);
+
   // Firebase config
   const firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -36,9 +39,24 @@ export default function LivePage({ searchParams }) {
       const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
       const uid = Math.floor(Math.random() * 10000);
 
-      client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
+      const client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
+      clientRef.current = client;
+
       await client.join(appId, channel, token, uid);
-      client.setClientRole("audience");
+      await client.setClientRole("audience");
+
+      // Set initial audience count
+      if (!mounted) return;
+      setAudienceCount(client.remoteUsers.length);
+
+      const updateCountWithAnimation = () => {
+        const newCount = client.remoteUsers.length;
+        setAudienceCount((prev) => {
+          if (prev !== newCount) setAnimateCount(true);
+          return newCount;
+        });
+      };
+
 
       client.on("user-published", async (user, mediaType) => {
         await client.subscribe(user, mediaType);
@@ -58,6 +76,13 @@ export default function LivePage({ searchParams }) {
       if (remoteRef.current) remoteRef.current.innerHTML = "";
     };
   }, [channel, token]);
+
+  // Reset animation flag après chaque déclenchement
+  useEffect(() => {
+    if (!animateCount) return;
+    const t = setTimeout(() => setAnimateCount(false), 400);
+    return () => clearTimeout(t);
+  }, [animateCount]);
 
   // Firestore messages (live)
   useEffect(() => {
@@ -206,12 +231,23 @@ return (
         align-items: center;
         gap: 8px;
       }
-      .dot {
-        width: 8px;
-        height: 8px;
-        background: white;
-        border-radius: 50%;
-      }
+     .dot {
+          width: 8px;
+          height: 8px;
+          background: white;
+          border-radius: 50%;
+        }
+        .audience-count {
+          margin-left: 10px;
+          font-size: 14px;
+          font-weight: normal;
+          color: #fff;
+          transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+        .audience-count.animate {
+          transform: translateY(-5px);
+          opacity: 0.7;
+        }
       .social-buttons {
         position: absolute;
         right: 10px;
