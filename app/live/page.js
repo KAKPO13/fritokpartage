@@ -168,6 +168,9 @@ return (
     {/* Toast */}
     {copiedToast && <div className="toast">Lien copié dans le presse‑papier</div>}
 
+     {/* ✅ Bouton flottant Acheter */}
+    <button className="buy-button">Acheter</button>
+
     {/* Styles */}
     <style jsx>{`
       .live-container {
@@ -266,6 +269,28 @@ return (
           overflow-y: auto;
         }
       }
+
+      .buy-button {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #ff6600;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 30px;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+        z-index: 10001;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        transition: background 0.3s;
+      }
+      .buy-button:hover {
+        background: #e65c00;
+      }
+        
     `}</style>
   </main>
 );
