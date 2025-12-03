@@ -2,7 +2,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, orderBy, query } from "firebase/firestore";
-import { doc, collection, addDoc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { FaShoppingCart } from "react-icons/fa";
 
 export default function LivePage({ searchParams }) {
@@ -23,7 +22,6 @@ export default function LivePage({ searchParams }) {
     messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
   };
-
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
