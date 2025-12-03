@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, orderBy, query } from "firebase/firestore";
+import { FaShoppingCart } from "react-icons/fa";
 
 export default function LivePage({ searchParams }) {
   const { channel, token } = searchParams;
@@ -169,7 +170,13 @@ return (
     {copiedToast && <div className="toast">Lien copié dans le presse‑papier</div>}
 
      {/* ✅ Bouton flottant Acheter */}
-    <button className="buy-button">Acheter</button>
+   
+
+      <button className="buy-button">
+        <FaShoppingCart style={{ marginRight: "8px" }} />
+        Acheter
+      </button>
+
 
     {/* Styles */}
     <style jsx>{`
@@ -286,6 +293,10 @@ return (
         z-index: 10001;
         box-shadow: 0 4px 8px rgba(0,0,0,0.3);
         transition: background 0.3s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px; /* espace entre icône et texte */
       }
       .buy-button:hover {
         background: #e65c00;
