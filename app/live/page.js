@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, onSnapshot, orderBy, query } from "firebase/firestore";
+import { doc, collection, addDoc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { FaShoppingCart } from "react-icons/fa";
 
 export default function LivePage({ searchParams }) {
@@ -22,7 +22,7 @@ export default function LivePage({ searchParams }) {
     messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
   };
-  
+
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
@@ -61,26 +61,37 @@ export default function LivePage({ searchParams }) {
   }, [channel, token]);
 
   // Firestore messages (live)
-  useEffect(() => {
-    if (!channel) return;
-    const q = query(collection(db, "channels", channel, "messages"), orderBy("timestamp", "asc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setMessages(snapshot.docs.map((doc) => doc.data()));
-    });
-    return () => unsubscribe();
-  }, [channel, db]);
+  // Firestore messages (live)
+useEffect(() => {
+  if (!channel) return;
 
-  // Send message
-  const sendMessage = async () => {
-    if (input.trim() === "" || !channel) return;
-    await addDoc(collection(db, "channels", channel, "messages"), {
-      user: "Spectateur",
-      text: input.trim(),
-      timestamp: new Date(),
-    });
-    setInput("");
-  };
+  // référence explicite au document du channel
+  const channelDoc = doc(db, "channels", channel);
+  const messagesCol = collection(channelDoc, "messages");
 
+  const q = query(messagesCol, orderBy("timestamp", "asc"));
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    setMessages(snapshot.docs.map((doc) => doc.data()));
+  });
+
+  return () => unsubscribe();
+}, [channel, db]);
+
+// Send message
+const sendMessage = async () => {
+  if (input.trim() === "" || !channel) return;
+
+  const channelDoc = doc(db, "channels", channel);
+  const messagesCol = collection(channelDoc, "messages");
+
+  await addDoc(messagesCol, {
+    user: "Spectateur",
+    text: input.trim(),
+    timestamp: new Date(),
+  });
+
+  setInput("");
+};
   // Share (navigator.share with clipboard fallback, no alert)
   const handleShare = async () => {
     const shareData = {
