@@ -4,6 +4,15 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { FaShoppingCart } from "react-icons/fa";
 
+import { 
+  collection, 
+  addDoc, 
+  onSnapshot, 
+  orderBy, 
+  query, 
+  serverTimestamp 
+} from "firebase/firestore";
+
 export default function LivePage({ searchParams }) {
   const { channel, token } = searchParams;
   const remoteRef = useRef(null);
@@ -59,26 +68,39 @@ export default function LivePage({ searchParams }) {
     };
   }, [channel, token]);
 
-  // Firestore messages (live)
-  useEffect(() => {
-    if (!channel) return;
-    const q = query(collection(db, "channels", channel, "messages"), orderBy("timestamp", "asc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setMessages(snapshot.docs.map((doc) => doc.data()));
-    });
-    return () => unsubscribe();
-  }, [channel, db]);
 
-  // Send message
-  const sendMessage = async () => {
-    if (input.trim() === "" || !channel) return;
+// Firestore messages (live)
+useEffect(() => {
+  if (!channel) return;
+
+  const q = query(
+    collection(db, "channels", channel, "messages"),
+    orderBy("timestamp", "asc")
+  );
+
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    setMessages(snapshot.docs.map((doc) => doc.data()));
+  });
+
+  return () => unsubscribe();
+}, [channel, db]);
+
+// Send message
+const sendMessage = async () => {
+  if (input.trim() === "" || !channel) return;
+
+  try {
     await addDoc(collection(db, "channels", channel, "messages"), {
       user: "Spectateur",
       text: input.trim(),
-      timestamp: new Date(),
+      timestamp: serverTimestamp(), // ✅ horodatage côté serveur
     });
     setInput("");
-  };
+  } catch (err) {
+    console.error("Erreur Firestore:", err);
+  }
+};
+
 
   // Share (navigator.share with clipboard fallback, no alert)
   const handleShare = async () => {
