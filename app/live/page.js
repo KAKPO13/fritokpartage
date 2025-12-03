@@ -5,7 +5,7 @@ import { getFirestore, collection, addDoc, onSnapshot, orderBy, query } from "fi
 import { FaShoppingCart } from "react-icons/fa";
 
 export default function LivePage({ searchParams }) {
-  const { channelName, token } = searchParams; // ⚡ utilise channelName au lieu de channel
+  const { channel, token } = searchParams;
   const remoteRef = useRef(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -22,6 +22,7 @@ export default function LivePage({ searchParams }) {
     messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
   };
+  
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
@@ -59,23 +60,20 @@ export default function LivePage({ searchParams }) {
     };
   }, [channel, token]);
 
-// Firestore messages (live)
+  // Firestore messages (live)
   useEffect(() => {
-    if (!channelName) return;
-    const q = query(
-      collection(db, "channels", channelName, "messages"), // ⚡ clé = channelName
-      orderBy("timestamp", "asc")
-    );
+    if (!channel) return;
+    const q = query(collection(db, "channels", channel, "messages"), orderBy("timestamp", "asc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setMessages(snapshot.docs.map((doc) => doc.data()));
     });
     return () => unsubscribe();
-  }, [channelName, db]);
+  }, [channel, db]);
 
   // Send message
   const sendMessage = async () => {
-    if (input.trim() === "" || !channelName) return;
-    await addDoc(collection(db, "channels", channelName, "messages"), {
+    if (input.trim() === "" || !channel) return;
+    await addDoc(collection(db, "channels", channel, "messages"), {
       user: "Spectateur",
       text: input.trim(),
       timestamp: new Date(),
