@@ -108,244 +108,164 @@ export default function LivePage({ searchParams }) {
 
   const lastMessages = messages.slice(-3);
 
-  return (
-    <main style={{ position: "relative", width: "100%", height: "100vh", background: "black" }}>
-      {/* Remote video */}
-      <div
-        ref={remoteRef}
-        style={{ position: "absolute", inset: 0, background: "black" }}
-      />
+return (
+  <main className="live-container">
+    {/* Remote video */}
+    <div ref={remoteRef} className="video" />
 
-      {/* LIVE badge */}
-      <div
-        style={{
-          position: "absolute",
-          top: 10,
-          left: 10,
-          background: "red",
-          color: "white",
-          padding: "5px 10px",
-          borderRadius: 20,
-          fontWeight: "bold",
-          animation: "blink 1s infinite",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}
-        aria-label="Live en cours"
-      >
-        <span style={{ display: "inline-block", width: 8, height: 8, background: "white", borderRadius: "50%" }} />
-        LIVE
+    {/* LIVE badge */}
+    <div className="live-badge" aria-label="Live en cours">
+      <span className="dot" /> LIVE
+    </div>
+
+    {/* Social buttons */}
+    <div className="social-buttons">
+      <button onClick={() => setLikes((v) => v + 1)} aria-label="Aimer">
+        ❤️ <span className="like-count">{likes}</span>
+      </button>
+      <button onClick={handleShare} aria-label="Partager">🔗</button>
+      <button onClick={() => setShowComments(true)} aria-label="Commentaires">💬</button>
+    </div>
+
+    {/* Compact chat preview */}
+    <div className="chat-preview">
+      <div>
+        {lastMessages.map((msg, i) => (
+          <p key={i}><strong>{msg.user}:</strong> {msg.text}</p>
+        ))}
       </div>
+    </div>
 
-      {/* Social buttons */}
-      <div
-        style={{
-          position: "absolute",
-          right: 10,
-          bottom: 100,
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-        }}
-      >
-        <button
-          onClick={() => setLikes((v) => v + 1)}
-          style={{
-            background: "#ff0050",
-            color: "white",
-            border: "none",
-            borderRadius: "50%",
-            width: 50,
-            height: 50,
-            fontSize: 20,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            position: "relative",
-          }}
-          aria-label="Aimer"
-        >
-          ❤️
-          <span
-            style={{
-              position: "absolute",
-              top: -10,
-              right: -10,
-              background: "rgba(0,0,0,0.6)",
-              color: "white",
-              fontSize: 12,
-              padding: "2px 6px",
-              borderRadius: 10,
-            }}
-          >
-            {likes}
-          </span>
-        </button>
-
-        <button
-          onClick={handleShare}
-          style={{
-            background: "#007bff",
-            color: "white",
-            border: "none",
-            borderRadius: "50%",
-            width: 50,
-            height: 50,
-            fontSize: 20,
-          }}
-          aria-label="Partager"
-        >
-          🔗
-        </button>
-
-        <button
-          onClick={() => setShowComments(true)}
-          style={{
-            background: "#28a745",
-            color: "white",
-            border: "none",
-            borderRadius: "50%",
-            width: 50,
-            height: 50,
-            fontSize: 20,
-          }}
-          aria-label="Commentaires"
-        >
-          💬
-        </button>
-      </div>
-
-      {/* Compact chat preview */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          width: "100%",
-          background: "rgba(0,0,0,0.5)",
-          color: "white",
-          padding: 10,
-          fontSize: 14,
-        }}
-      >
-        <div style={{ maxHeight: 60, overflowY: "auto" }}>
-          {lastMessages.map((msg, i) => (
-            <p key={i} style={{ margin: "2px 0" }}>
-              <strong>{msg.user}:</strong> {msg.text}
-            </p>
-          ))}
-        </div>
-      </div>
-
-      {/* Comments modal */}
-      {showComments && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Commentaires"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.7)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 9999,
-          }}
-          onClick={() => setShowComments(false)}
-        >
-          <div
-            style={{
-              background: "white",
-              width: "90%",
-              maxWidth: 420,
-              borderRadius: 10,
-              padding: 20,
-              color: "black",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <h3 style={{ margin: 0 }}>💬 Commentaires</h3>
-              <button
-                onClick={() => setShowComments(false)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  fontSize: 20,
-                  cursor: "pointer",
-                }}
-                aria-label="Fermer"
-              >
-                ✖
-              </button>
-            </div>
-
-            <div style={{ maxHeight: 320, overflowY: "auto", marginBottom: 12 }}>
-              {messages.length === 0 ? (
-                <p style={{ color: "#666" }}>Aucun commentaire pour le moment.</p>
-              ) : (
-                messages.map((msg, i) => (
-                  <p key={i} style={{ margin: "6px 0" }}>
-                    <strong>{msg.user}:</strong> {msg.text}
-                  </p>
-                ))
-              )}
-            </div>
-
-            <div style={{ display: "flex" }}>
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                style={{ flex: 1, padding: 8, borderRadius: 6, border: "1px solid #ddd" }}
-                placeholder="Écris un commentaire..."
-              />
-              <button
-                onClick={sendMessage}
-                style={{
-                  marginLeft: 8,
-                  padding: "8px 12px",
-                  borderRadius: 6,
-                  background: "#ff0050",
-                  color: "white",
-                  border: "none",
-                }}
-              >
-                Envoyer
-              </button>
-            </div>
+    {/* Comments modal */}
+    {showComments && (
+      <div className="modal" onClick={() => setShowComments(false)}>
+        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h3>💬 Commentaires</h3>
+            <button onClick={() => setShowComments(false)}>✖</button>
+          </div>
+          <div className="modal-body">
+            {messages.length === 0 ? (
+              <p>Aucun commentaire pour le moment.</p>
+            ) : (
+              messages.map((msg, i) => (
+                <p key={i}><strong>{msg.user}:</strong> {msg.text}</p>
+              ))
+            )}
+          </div>
+          <div className="modal-footer">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Écris un commentaire..."
+            />
+            <button onClick={sendMessage}>Envoyer</button>
           </div>
         </div>
-      )}
+      </div>
+    )}
 
-      {/* Non-blocking clipboard toast */}
-      {copiedToast && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 20,
-            right: 20,
-            background: "rgba(0,0,0,0.8)",
-            color: "white",
-            padding: "8px 12px",
-            borderRadius: 8,
-            fontSize: 14,
-            zIndex: 10000,
-          }}
-        >
-          Lien copié dans le presse‑papier
-        </div>
-      )}
+    {/* Toast */}
+    {copiedToast && <div className="toast">Lien copié dans le presse‑papier</div>}
 
-      {/* CSS animations */}
-      <style jsx>{`
-        @keyframes blink {
-          0% { opacity: 1; }
-          50% { opacity: 0.35; }
-          100% { opacity: 1; }
+    {/* Styles */}
+    <style jsx>{`
+      .live-container {
+        position: relative;
+        width: 100%;
+        height: 100vh;
+        background: black;
+        display: flex;
+        flex-direction: column;
+      }
+      .video {
+        flex: 1;
+        background: black;
+      }
+      .live-badge {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: red;
+        color: white;
+        padding: 5px 10px;
+        border-radius: 20px;
+        font-weight: bold;
+        animation: blink 1s infinite;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        background: white;
+        border-radius: 50%;
+      }
+      .social-buttons {
+        position: absolute;
+        right: 10px;
+        bottom: 100px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .chat-preview {
+        background: rgba(0,0,0,0.5);
+        color: white;
+        padding: 10px;
+        font-size: 14px;
+      }
+      .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+      }
+      .modal-content {
+        background: white;
+        width: 90%;
+        max-width: 420px;
+        border-radius: 10px;
+        padding: 20px;
+        color: black;
+      }
+      .toast {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(0,0,0,0.8);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-size: 14px;
+        z-index: 10000;
+      }
+      @keyframes blink {
+        0% { opacity: 1; }
+        50% { opacity: 0.35; }
+        100% { opacity: 1; }
+      }
+      /* ✅ Responsive desktop layout */
+      @media (min-width: 1024px) {
+        .live-container {
+          flex-direction: row;
+          height: auto;
         }
-      `}</style>
-    </main>
-  );
+        .video {
+          width: 70%;
+          height: auto;
+        }
+        .chat-preview {
+          width: 30%;
+          height: auto;
+        }
+      }
+    `}</style>
+  </main>
+);
+
 }
