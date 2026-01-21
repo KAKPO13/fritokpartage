@@ -47,7 +47,7 @@ module.exports = async function (req, res) {
     if (!amount || !currency) return res.status(400).send("Missing amount or currency");
 
     // ✅ Création paiement Flutterwave
-    const txRef = topup-${uid}-${Date.now()};
+    const txRef = `topup-${uid}-${Date.now()}`;
     const fwResp = await axios.post(
       "https://api.flutterwave.com/v3/payments",
       {
@@ -58,7 +58,7 @@ module.exports = async function (req, res) {
         customer: { email },
       },
       {
-        headers: { Authorization: Bearer ${FLUTTERWAVE_SECRET_KEY} },
+        headers: { Authorization: `Bearer ${FLUTTERWAVE_SECRET_KEY}` },
       }
     );
 
@@ -69,7 +69,7 @@ module.exports = async function (req, res) {
 
     // ✅ Mettre à jour Supabase wallet (via REST API ou RPC)
     await axios.post(
-      ${SUPABASE_URL}/rest/v1/rpc/increment_wallet,
+      `${SUPABASE_URL}/rest/v1/rpc/increment_wallet`,
       {
         uid,
         currency_code: currency,
@@ -78,7 +78,7 @@ module.exports = async function (req, res) {
       {
         headers: {
           apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY},
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
           "Content-Type": "application/json",
         },
       }
