@@ -1,50 +1,43 @@
-import { serve } from "https://deno.land/std/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import admin from "npm:firebase-admin"; // via npm: pour Deno Deploy
+const { createClient } = require("@supabase/supabase-js");
+const admin = require("firebase-admin");
 
 // Initialisation Firebase Admin
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: Deno.env.get("FIREBASE_PROJECT_ID"),
-      clientEmail: Deno.env.get("FIREBASE_CLIENT_EMAIL"),
-      privateKey: Deno.env.get("FIREBASE_PRIVATE_KEY")?.replace(/\\n/g, "\n"),
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
     }),
   });
 }
 
-serve(async (req) => {
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+exports.handler = async (event) => {
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method not allowed" };
+  }
+
   try {
-    if (req.method !== "POST") {
-      return new Response("Method not allowed", { status: 405 });
+    const signature = event.headers["verif-hash"];
+    if (signature !== process.env.FLUTTERWAVE_WEBHOOK_SECRET) {
+      return { statusCode: 401, body: "Unauthorized" };
     }
 
-    // Vérification signature Flutterwave
-    const signature = req.headers.get("verif-hash");
-    if (signature !== Deno.env.get("FLUTTERWAVE_WEBHOOK_SECRET")) {
-      return new Response("Unauthorized", { status: 401 });
-    }
-
-    const payload = await req.json();
+    const payload = JSON.parse(event.body);
     if (payload.event !== "charge.completed") {
-      return new Response("Ignored", { status: 200 });
+      return { statusCode: 200, body: "Ignored" };
     }
 
     const txRef = payload.data?.tx_ref;
     const txId = payload.data?.id;
     if (!txRef || !txId) {
-      return new Response("Missing tx_ref or id", { status: 400 });
+      return { statusCode: 400, body: "Missing tx_ref or id" };
     }
-
-   
-      const supabaseUrl = Deno.env.get("SUPABASE_URL");
-      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-      if (!supabaseUrl || !supabaseKey) {
-        throw new Error("Missing Supabase environment variables");
-      }
-
-const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Charger transaction interne
     const { data: pending } = await supabase
@@ -54,7 +47,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
       .maybeSingle();
 
     if (!pending || pending.status === "COMPLETED") {
-      return new Response("Already processed", { status: 200 });
+      return { statusCode: 200, body: "Already processed" };
     }
 
     // Vérification Flutterwave serveur
@@ -62,11 +55,10 @@ const supabase = createClient(supabaseUrl, supabaseKey);
       `https://api.flutterwave.com/v3/transactions/${txId}/verify`,
       {
         headers: {
-          Authorization: `Bearer ${Deno.env.get("FLUTTERWAVE_SECRET_KEY")}`,
+          Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
         },
       }
     );
-
     const verifyData = await verifyResp.json();
     const tx = verifyData.data;
 
@@ -77,7 +69,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
       tx.currency !== pending.currency
     ) {
       console.error("Verification failed:", tx, pending);
-      return new Response("Verification failed", { status: 400 });
+      return { statusCode: 400, body: "Verification failed" };
     }
 
     // 💾 Transaction Supabase
@@ -103,10 +95,9 @@ const supabase = createClient(supabaseUrl, supabaseKey);
       .update({ status: "COMPLETED" })
       .eq("tx_ref", txRef);
 
-    return new Response("OK", { status: 200 });
-
+    return { statusCode: 200, body: "OK" };
   } catch (err) {
     console.error("🔥 Webhook error:", err);
-    return new Response("Server error", { status: 500 });
+    return { statusCode: 500, body: "Server error" };
   }
-});
+};
