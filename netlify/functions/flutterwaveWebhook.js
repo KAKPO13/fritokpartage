@@ -1,17 +1,5 @@
 import { serve } from "https://deno.land/std/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import admin from "npm:firebase-admin"; // via npm: pour Deno Deploy
-
-// Initialisation Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: Deno.env.get("FIREBASE_PROJECT_ID"),
-      clientEmail: Deno.env.get("FIREBASE_CLIENT_EMAIL"),
-      privateKey: Deno.env.get("FIREBASE_PRIVATE_KEY")?.replace(/\\n/g, "\n"),
-    }),
-  });
-}
 
 serve(async (req) => {
   try {
@@ -19,7 +7,7 @@ serve(async (req) => {
       return new Response("Method not allowed", { status: 405 });
     }
 
-    // Vérification signature Flutterwave
+    // 🔐 Vérification signature Flutterwave
     const signature = req.headers.get("verif-hash");
     if (signature !== Deno.env.get("FLUTTERWAVE_WEBHOOK_SECRET")) {
       return new Response("Unauthorized", { status: 401 });
@@ -36,17 +24,15 @@ serve(async (req) => {
       return new Response("Missing tx_ref or id", { status: 400 });
     }
 
-   
-      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+     const supabaseUrl = Deno.env.get("SUPABASE_URL");
       const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
       if (!supabaseUrl || !supabaseKey) {
         throw new Error("Missing Supabase environment variables");
       }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Charger transaction interne
+    // 🔎 Charger transaction interne
     const { data: pending } = await supabase
       .from("pending_payments")
       .select("*")
@@ -57,7 +43,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
       return new Response("Already processed", { status: 200 });
     }
 
-    // Vérification Flutterwave serveur
+    // 🔐 Vérification Flutterwave serveur
     const verifyResp = await fetch(
       `https://api.flutterwave.com/v3/transactions/${txId}/verify`,
       {
@@ -80,7 +66,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
       return new Response("Verification failed", { status: 400 });
     }
 
-    // 💾 Transaction Supabase
+    // 💾 Transaction + wallet update atomique
     await supabase.from("transactions").insert({
       user_id: pending.user_id,
       type: "TOPUP",
@@ -91,13 +77,12 @@ const supabase = createClient(supabaseUrl, supabaseKey);
       status: "SUCCESS",
     });
 
-    // 🔄 Update Firebase balance
-    const userRef = admin.firestore().collection("users").doc(pending.user_id);
-    await userRef.update({
-      [`balances.${pending.currency}`]: admin.firestore.FieldValue.increment(pending.amount),
+    await supabase.rpc("increment_wallet", {
+      uid: pending.user_id,
+      currency_code: pending.currency,
+      amount_value: pending.amount,
     });
 
-    // ✅ Marquer paiement comme complété
     await supabase
       .from("pending_payments")
       .update({ status: "COMPLETED" })
