@@ -27,6 +27,7 @@
     "xyz": "^5.0.0"
   },
   "devDependencies": {
+    "@netlify/plugin-nextjs": "^5.15.5",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/postcss": "^4",
     "@tailwindcss/typography": "^0.5.16",

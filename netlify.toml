@@ -1,15 +1,6 @@
 [build]
- publish = ".next"
-  functions = "functions"   # dossier où sont tes fonctions
-  command = "set NEXT_DISABLE_ESLINT=1 && npm run build"
+  command = "NEXT_DISABLE_ESLINT=1 npm run build"
+  functions = "functions"
 
-
-
-[[redirects]]
-  from = "/fritokpartage.html"
-  to = "/share/:videoId"
-  query = { videoId = ":videoId", ref = ":ref", token = ":token" }
-  status = 200
-
-
-
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
