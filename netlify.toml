@@ -1,6 +1,40 @@
 [build]
-command = "npm run build"
+  command = "npm run build"
+  # Pas de publish explicite → le plugin Next.js gère .next et les fonctions
+  # Si tu veux forcer, tu peux mettre : publish = ".next"
 
+[functions]
+  # Dossier où Netlify génère les fonctions serverless
+  directory = "netlify/functions"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# 🔀 Redirections pour Next.js (SSR + routes dynamiques)
+[[redirects]]
+  from = "/_next/*"
+  to = "/.netlify/functions/nextjs"
+  status = 200
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/nextjs"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/nextjs"
+  status = 200
+
+# ⚙️ Headers pour optimiser le cache et la sécurité
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
