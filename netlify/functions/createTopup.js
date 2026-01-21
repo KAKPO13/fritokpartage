@@ -14,8 +14,8 @@ if (!admin.apps.length) {
 }
 
 // Supabase REST API
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const NEXT_PUBLIC_SUPABASE_UR = process.env.NEXT_PUBLIC_SUPABASE_UR;
+const NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
 
 // Flutterwave Secret
 const FLUTTERWAVE_SECRET_KEY = process.env.FLUTTERWAVE_SECRET_KEY;
