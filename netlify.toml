@@ -1,6 +1,6 @@
 [build]
   command = "NEXT_DISABLE_ESLINT=1 npm run build"
-  functions = "functions"
+  publish = "out"   # valeur non-root obligatoire
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
