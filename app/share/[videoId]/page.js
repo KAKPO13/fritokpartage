@@ -63,7 +63,7 @@ export default async function Page({ params, searchParams }) {
     return (
       <main style={{ textAlign: 'center', padding: '2rem' }}>
         <h1>🎬 Vidéo introuvable</h1>
-        <p>Le lien que vous avez suivi ne correspond à aucune vidéo.</p>
+        <p>Le lien que vous avez suivi ne correspond à aucune vidéo...</p>
       </main>
     );
   }

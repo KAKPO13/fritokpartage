@@ -51,7 +51,7 @@ export default function Accueil() {
         <section style={{ marginBottom: '3rem' }}>
           <h2>🛒 Pourquoi choisir FriTok ?</h2>
           <p>
-            FriTok révolutionne l’expérience d’achat en ligne en combinant technologie, simplicité et proximité. Que vous soyez vendeur ou acheteur, notre plateforme vous offre une interface intuitive et des outils puissants pour réussir.
+            révolutionne l’expérience d’achat en ligne en combinant technologie, simplicité et proximité. Que vous soyez vendeur ou acheteur, notre plateforme vous offre une interface intuitive et des outils puissants pour réussir.
           </p>
         </section>
 
