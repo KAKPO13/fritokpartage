@@ -1,22 +1,12 @@
 [build]
   command = "npm run build"
-  functions = "netlify/functions"
+
+[functions]
+  directory = "netlify/functions"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-# 🔀 Redirections pour Next.js
-[[redirects]]
-  from = "/_next/*"
-  to = "/.netlify/functions/nextjs"
-  status = 200
-
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/nextjs"
-  status = 200
-
-[[redirects]]
-  from = "/*"
-  to = "/.netlify/functions/nextjs"
-  status = 200
+# ⚙️ Redirections optionnelles (seulement si besoin spécifique)
+# Le plugin gère déjà /_next/* et /api/* automatiquement.
+# Tu peux les retirer pour éviter les conflits.
