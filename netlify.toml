@@ -1,7 +1,8 @@
 [build]
  publish = ".next"
   functions = "functions"   # dossier où sont tes fonctions
-  command = "NEXT_DISABLE_ESLINT=1 npm run build"
+  command = "set NEXT_DISABLE_ESLINT=1 && npm run build"
+
 
 
 [[redirects]]
