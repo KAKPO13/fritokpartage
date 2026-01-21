@@ -53,7 +53,7 @@ exports.handler = async function (event, context) {
         tx_ref: txRef,
         amount,
         currency,
-        redirect_url: "https://yourapp.com/payment-callback",
+        redirect_url: "https://fritok.net/payment-callback",
         customer: { email },
       },
       {

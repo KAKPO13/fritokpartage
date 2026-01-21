@@ -1,12 +1,7 @@
 [build]
   command = "npm run build"
-
-[functions]
-  directory = "netlify/functions"
+  publish = ".next"   # ou "out" si tu utilises next export
+  functions = "netlify/functions"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
-
-# ⚙️ Redirections optionnelles (seulement si besoin spécifique)
-# Le plugin gère déjà /_next/* et /api/* automatiquement.
-# Tu peux les retirer pour éviter les conflits.
