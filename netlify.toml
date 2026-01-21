@@ -1,6 +1,5 @@
 [build]
   command = "NEXT_DISABLE_ESLINT=1 npm run build"
-  publish = "out"
   functions = "functions"
 
 [[plugins]]
