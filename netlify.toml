@@ -1,6 +1,6 @@
 [build]
   command = "npm run build"
-  publish = ".next"   # ou "out" si tu utilises next export
+  publish = ".next"   # ou "out" si tu utilises `next export`
   functions = "netlify/functions"
 
 [[plugins]]
