@@ -1,5 +1,4 @@
-// createTopup.js
-const fetch = require("node-fetch"); // si Netlify, Node 18+ fetch est natif
+// netlify/functions/createTopup.js
 const admin = require("firebase-admin");
 const axios = require("axios");
 
@@ -21,30 +20,30 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 // Flutterwave Secret
 const FLUTTERWAVE_SECRET_KEY = process.env.FLUTTERWAVE_SECRET_KEY;
 
-module.exports = async function (req, res) {
+exports.handler = async function (event, context) {
   try {
-    if (req.method !== "POST") {
-      return res.status(405).send("Method not allowed");
+    if (event.httpMethod !== "POST") {
+      return { statusCode: 405, body: "Method not allowed" };
     }
 
     // ✅ Vérification Firebase token
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).send("Missing Authorization header");
+    const authHeader = event.headers.authorization;
+    if (!authHeader) return { statusCode: 401, body: "Missing Authorization header" };
 
     const idToken = authHeader.replace("Bearer ", "");
     let decodedToken;
     try {
       decodedToken = await admin.auth().verifyIdToken(idToken);
     } catch (err) {
-      return res.status(401).send("Invalid Firebase token");
+      return { statusCode: 401, body: "Invalid Firebase token" };
     }
 
     const uid = decodedToken.uid;
     const email = decodedToken.email;
 
     // ✅ Récupération payload
-    const { amount, currency } = req.body;
-    if (!amount || !currency) return res.status(400).send("Missing amount or currency");
+    const { amount, currency } = JSON.parse(event.body);
+    if (!amount || !currency) return { statusCode: 400, body: "Missing amount or currency" };
 
     // ✅ Création paiement Flutterwave
     const txRef = `topup-${uid}-${Date.now()}`;
@@ -64,7 +63,7 @@ module.exports = async function (req, res) {
 
     if (!fwResp.data?.data?.link) {
       console.error("Flutterwave error:", fwResp.data);
-      return res.status(500).send("Failed to create Flutterwave payment");
+      return { statusCode: 500, body: "Failed to create Flutterwave payment" };
     }
 
     // ✅ Mettre à jour Supabase wallet (via REST API ou RPC)
@@ -85,10 +84,13 @@ module.exports = async function (req, res) {
     );
 
     // ✅ Retour JSON
-    return res.status(200).json({ payment_url: fwResp.data.data.link, tx_ref: txRef });
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ payment_url: fwResp.data.data.link, tx_ref: txRef }),
+    };
 
   } catch (err) {
     console.error("createTopup error:", err);
-    return res.status(500).send("Internal Server Error");
+    return { statusCode: 500, body: "Internal Server Error" };
   }
 };
