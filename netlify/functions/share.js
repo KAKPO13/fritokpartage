@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import * as admin from 'firebase-admin';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEYY;
 
 if (!supabaseUrl || !supabaseServiceKey) throw new Error('Supabase URL ou Service Key manquante');
 
