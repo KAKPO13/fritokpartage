@@ -36,7 +36,7 @@ export async function generateMetadata({ params }) {
     openGraph: {
       title,
       description,
-      images: [{ url: thumbnail, width: 1200, height: 630 }],
+      images: [{ url: thumbnail }],
       type: "video.other",
     },
     twitter: {
@@ -51,7 +51,7 @@ export async function generateMetadata({ params }) {
 
 export default async function Page({ params, searchParams }) {
   const { videoId } = params;
-  const { ref, token, price: priceParam, userId } = searchParams;
+  const { ref = null, token = null, price: priceParam = null, userId = null } = searchParams || {};
 
   const docRef = doc(db, "video_playlist", videoId);
   const docSnap = await getDoc(docRef);
@@ -67,10 +67,10 @@ export default async function Page({ params, searchParams }) {
 
   const data = docSnap.data() || {};
   const title = data.title ?? "Vidéo FriTok";
-  const description = data.description ?? "Découvrez cette vidéo partagée sur FriTok.";
+  const description = data.description ?? "";
   const thumbnail = data.thumbnail ?? "/default-thumbnail.png";
   const videoUrl = data.url ?? "";
-  
+
   // 🔄 Priorité au paramètre d’URL "price", sinon Firestore
   const rawPriceParam = parseFloat(priceParam);
   const rawPrice = !isNaN(rawPriceParam)
