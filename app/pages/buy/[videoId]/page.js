@@ -5,7 +5,8 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import BuyPageClient from '../../../../components/BuyPageClient'
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebaseConfig';
+import { db } from '../../../../lib/firebaseConfig';
+
 
 export default function BuyPagePage() {
   const router = useRouter();
