@@ -82,6 +82,11 @@ export default function MiniChat({ videoId }) {
 const sendMessage = async () => {
   if (newMessage.trim() === '') return;
 
+  if (newMessage.length > 500) {
+    alert("🚫 Message trop long (max 500 caractères).");
+    return;
+  }
+
   if (containsBannedWords(newMessage)) {
     alert("🚫 Ton message contient des mots interdits. Merci de rester respectueux.");
     return;
@@ -96,7 +101,6 @@ const sendMessage = async () => {
       replyTo: replyTo?.id || null,
     });
 
-    // 🔁 Mise à jour du champ messageId avec l'ID généré
     await updateDoc(doc(db, 'chat_messages', docRef.id), {
       messageId: docRef.id
     });
@@ -108,6 +112,7 @@ const sendMessage = async () => {
     alert("Une erreur est survenue lors de l’envoi du message.");
   }
 };
+
 
   if (!videoId) {
     return <p>⚠️ Aucun identifiant vidéo fourni. Le chat ne peut pas s’afficher.</p>;
