@@ -26,6 +26,7 @@ const firestore = admin.firestore();
 
 // --- Netlify Function handler ---
 export async function handler(event) {
+  try {
   const { videoId, ref, token, userId } = event.queryStringParameters || {};
   if (!videoId) {
     return { statusCode: 400, body: '❌ videoId requis' };
@@ -70,4 +71,10 @@ export async function handler(event) {
     headers: { 'Content-Type': 'text/html' },
     body: html,
   };
+
+  } catch (err) {
+    console.error('🔥 Server error:', err);
+    return { statusCode: 500, body: 'Erreur interne: ' + err.message };
+  }
+
 }
