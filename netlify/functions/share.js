@@ -1,29 +1,56 @@
 import { createClient } from '@supabase/supabase-js';
 import * as admin from 'firebase-admin';
 
+// --- Supabase ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) throw new Error('Supabase URL ou Service Key manquante');
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error('Supabase URL ou Service Key manquante');
+}
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-if (!admin.apps.length) admin.initializeApp();
+// --- Firebase Admin / Firestore ---
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    }),
+  });
+}
+
 const firestore = admin.firestore();
 
+// --- Netlify Function handler ---
 export async function handler(event) {
   const { videoId, ref, token, userId } = event.queryStringParameters || {};
-  if (!videoId) return { statusCode: 400, body: '❌ videoId requis' };
+  if (!videoId) {
+    return { statusCode: 400, body: '❌ videoId requis' };
+  }
 
   const docSnap = await firestore.collection('video_playlist').doc(videoId).get();
-  if (!docSnap.exists) return { statusCode: 404, body: 'Vidéo introuvable' };
+  if (!docSnap.exists) {
+    return { statusCode: 404, body: 'Vidéo introuvable' };
+  }
 
   const data = docSnap.data();
 
   if (token && ref && userId) {
     await supabase
       .from('share_events')
-      .insert([{ video_id: videoId, referrer: ref, token, user_id: userId, timestamp: new Date().toISOString(), title: data.title, image_url: data.thumbnail, price: data.price || 0 }]);
+      .insert([{
+        video_id: videoId,
+        referrer: ref,
+        token,
+        user_id: userId,
+        timestamp: new Date().toISOString(),
+        title: data.title,
+        image_url: data.thumbnail,
+        price: data.price || 0,
+      }]);
   }
 
   const html = `
@@ -37,6 +64,10 @@ export async function handler(event) {
       </head>
       <body><p>Redirection...</p></body>
     </html>`;
-  
-  return { statusCode: 200, headers: { 'Content-Type': 'text/html' }, body: html };
+
+  return {
+    statusCode: 200,
+    headers: { 'Content-Type': 'text/html' },
+    body: html,
+  };
 }
