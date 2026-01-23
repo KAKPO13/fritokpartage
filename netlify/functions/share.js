@@ -6,7 +6,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-// --- Firebase Admin --- commentaire
+// --- Firebase Admin ---
 const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -21,8 +21,25 @@ const firestore = admin.firestore();
 
 export async function handler(event) {
   try {
-    const { videoId, ref, token, userId, debug } = event.queryStringParameters || {};
+    // 🔎 Lecture des paramètres de manière robuste
+    let params =
+      event.queryStringParameters ||
+      event.multiValueQueryStringParameters ||
+      {};
 
+    // Si vide, parser l'URL brute
+    if (!params.videoId && event.rawUrl) {
+      const url = new URL(event.rawUrl);
+      params.videoId = url.searchParams.get("videoId");
+      params.ref = url.searchParams.get("ref");
+      params.token = url.searchParams.get("token");
+      params.userId = url.searchParams.get("userId");
+      params.debug = url.searchParams.get("debug");
+    }
+
+    const { videoId, ref, token, userId, debug } = params;
+
+    console.log("params reçu:", params);
     console.log("videoId reçu:", videoId);
 
     if (!videoId || typeof videoId !== "string" || videoId.trim() === "") {
@@ -37,6 +54,7 @@ export async function handler(event) {
     try {
       docSnap = await firestore.collection("video_playlist").doc(videoId).get();
     } catch (err) {
+      console.error("Erreur Firestore:", err);
       return {
         statusCode: 500,
         headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -66,30 +84,17 @@ export async function handler(event) {
                <p>title: ${data.title}</p>`,
       };
     }
-    
 
-    const html = `
-      <html>
-        <head>
-          <meta charset="UTF-8" />
-          <title>${data.title || "Vidéo"}</title>
-          <meta property="og:title" content="${data.title || "Vidéo"}" />
-          <meta property="og:description" content="${data.description || "Découvrez cette vidéo sur FriTok."}" />
-          <meta property="og:image" content="${data.thumbnail || ""}" />
-          <meta http-equiv="refresh" content="0; url=/share/${videoId}?ref=${ref || "direct"}&token=${token || "none"}" />
-        </head>
-        <body>
-          <h1>✅ Vidéo trouvée</h1>
-          <p>Redirection en cours vers la page de partage...</p>
-        </body>
-      </html>`;
-
+    // ✅ Redirection HTTP standard
     return {
-      statusCode: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-      body: html,
+      statusCode: 302,
+      headers: {
+        Location: `/share/${videoId}?ref=${ref || "direct"}&token=${token || "none"}`,
+      },
+      body: "",
     };
   } catch (err) {
+    console.error("Erreur interne:", err);
     return {
       statusCode: 500,
       headers: { "Content-Type": "text/html; charset=utf-8" },
