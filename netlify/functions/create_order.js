@@ -2,8 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 import * as admin from 'firebase-admin';
 import geohash from 'ngeohash';
 
+// Supabase côté serveur
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY; // ⚠️ sans NEXT_PUBLIC
 
 if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Supabase URL ou Service Key manquante');
@@ -11,7 +12,17 @@ if (!supabaseUrl || !supabaseServiceKey) {
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-if (!admin.apps.length) admin.initializeApp();
+// Firebase Admin côté serveur
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    }),
+    databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
+  });
+}
 const firestore = admin.firestore();
 
 export async function handler(event) {
@@ -19,7 +30,7 @@ export async function handler(event) {
     const body = JSON.parse(event.body);
     const { videoId, referrer, token, details } = body;
 
-    // 🔹 Vérification de la vidéo
+    // Vérification de la vidéo
     const videoDoc = await firestore.collection('video_playlist').doc(videoId).get();
     if (!videoDoc.exists) {
       return { statusCode: 404, body: JSON.stringify({ success: false, message: 'Vidéo introuvable' }) };
@@ -27,18 +38,15 @@ export async function handler(event) {
 
     const videoData = videoDoc.data();
     const price = parseFloat(details?.price) || videoData.price || 0;
-    const commissionAmount = Math.round(price * 0.05); // 5% de commission
+    const commissionAmount = Math.round(price * 0.05);
     const orderId = `${Date.now()}_${Math.floor(Math.random() * 9999)}`;
 
-    // 🔹 Préparation des coordonnées
+    // Coordonnées
     let latitude = details?.latitude || null;
     let longitude = details?.longitude || null;
-    let geo = null;
-    if (latitude && longitude) {
-      geo = geohash.encode(latitude, longitude);
-    }
+    let geo = latitude && longitude ? geohash.encode(latitude, longitude) : null;
 
-    // 🔹 Insertion dans Supabase
+    // Insertion dans Supabase
     const { error } = await supabase.from('orders').insert([{
       order_id: orderId,
       video_id: videoId,
