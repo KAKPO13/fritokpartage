@@ -1,9 +1,12 @@
-/** @type {import('tailwindcss').Config} */
-module.exports = {
+import forms from "@tailwindcss/forms";
+import typography from "@tailwindcss/typography";
+import scrollbar from "tailwind-scrollbar";
+
+export default {
   content: [
-    "./src/**/*.{js,ts,jsx,tsx}",      // pour React
-    "./pages/**/*.{js,ts,jsx,tsx}",    // pour Next.js
-    "./components/**/*.{js,ts,jsx,tsx}" // si tu as un dossier composants
+    "./src/**/*.{js,ts,jsx,tsx}",
+    "./pages/**/*.{js,ts,jsx,tsx}",
+    "./components/**/*.{js,ts,jsx,tsx}"
   ],
   theme: {
     extend: {
@@ -16,10 +19,5 @@ module.exports = {
       },
     },
   },
-  plugins: [
-    require("@tailwindcss/forms"),
-    require("@tailwindcss/typography"),
-    require("tailwind-scrollbar"),
-  ],
+  plugins: [forms, typography, scrollbar],
 }
-
