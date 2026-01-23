@@ -1,22 +1,29 @@
 const { createClient } = require("@supabase/supabase-js");
 const admin = require("firebase-admin");
 
-// Initialisation Firebase Admin
+// --- Firebase Admin ---
+const privateKey = process.env.NEXT_PUBLIC_FIREBASE_PRIVATE_KEY;
+if (!privateKey) throw new Error("❌ FIREBASE_PRIVATE_KEY manquant");
+
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      clientEmail: process.env.NEXT_PUBLIC_FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.NEXT_PUBLIC_FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "",
+      clientEmail: process.env.NEXT_PUBLIC_FIREBASE_CLIENT_EMAIL || "",
+      privateKey: privateKey.replace(/\\n/g, "\n"),
     }),
   });
 }
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY
-);
+// --- Supabase ---
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error("❌ Supabase URL ou Service Key manquante");
+}
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+// --- Netlify Function handler ---
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method not allowed" };
@@ -28,7 +35,18 @@ exports.handler = async (event) => {
       return { statusCode: 401, body: "Unauthorized" };
     }
 
-    const payload = JSON.parse(event.body);
+    if (!event.body) {
+      return { statusCode: 400, body: "❌ Body manquant" };
+    }
+
+    let payload;
+    try {
+      payload = JSON.parse(event.body);
+    } catch (parseErr) {
+      console.error("❌ JSON parse error:", parseErr);
+      return { statusCode: 400, body: "Invalid JSON body" };
+    }
+
     if (payload.event !== "charge.completed") {
       return { statusCode: 200, body: "Ignored" };
     }
@@ -98,6 +116,6 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: "OK" };
   } catch (err) {
     console.error("🔥 Webhook error:", err);
-    return { statusCode: 500, body: "Server error" };
+    return { statusCode: 500, body: "Server error: " + err.message };
   }
 };
