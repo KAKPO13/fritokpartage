@@ -14,7 +14,7 @@ import { adminDb } from '@/lib/firebaseAdmin';
 // 🔹 Composants
 import VideoCard from '../components/VideoCard';
 import AddCommandeForm from '../app/capture/AddCommandeForm';
-const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
+const MiniChat = dynamic(() => import('../components/MiniChat'), { ssr: false });
 
 // ============================================================
 // 🔹 Partie serveur : récupération des données Firestore via Admin SDK
