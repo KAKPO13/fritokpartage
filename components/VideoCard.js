@@ -1,7 +1,7 @@
 // components/VideoCard.jsx
 import React from 'react';
 import Link from 'next/link';
-import { db } from '@/lib/firebaseConfig'; // ✅ chemin à adapter selon ta structure
+import { db } from '@/lib/firebaseClient'; // ✅ correction : client SDK
 import { collection, addDoc } from 'firebase/firestore';
 
 async function logClick(videoId, referrer, token) {
@@ -59,4 +59,3 @@ export default function VideoCard({ video, referrer, token }) {
     </div>
   );
 }
-

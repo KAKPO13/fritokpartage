@@ -9,7 +9,7 @@ import {
   onSnapshot,
   serverTimestamp
 } from 'firebase/firestore';
-import { db } from '@/lib/firebaseConfig';
+import { db } from '@/lib/firebaseClient';
 import { motion, AnimatePresence } from 'framer-motion';
 
 

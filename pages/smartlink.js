@@ -1,24 +1,34 @@
+// pages/smartlink.js
 import { useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebaseConfig';
-import VideoCard from '../components/VideoCard';
 import dynamic from 'next/dynamic';
+import Head from 'next/head';
+import Link from 'next/link';
 import { Dialog } from '@headlessui/react';
+
+// 🔹 Firebase côté client
+import { db } from '@/lib/firebaseClient';
+
+// 🔹 Firebase côté serveur
+import { adminDb } from '@/lib/firebaseAdmin';
+
+// 🔹 Composants
+import VideoCard from '../components/VideoCard';
 import AddCommandeForm from '../app/capture/AddCommandeForm';
 const MiniChat = dynamic(() => import('../app/share/[videoId]/MiniChat'), { ssr: false });
-import Head from 'next/head';
-import Link from 'next/link'; // ✅ Import du composant Link
 
+// ============================================================
+// 🔹 Partie serveur : récupération des données Firestore via Admin SDK
+// ============================================================
 export async function getServerSideProps(context) {
   const { videos, ref, token } = context.query;
   const videoData = [];
   let validRef = null;
 
+  // Vérification utilisateur via Firebase Admin
   if (ref) {
     try {
-      const userRef = doc(db, 'users', ref);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
+      const userSnap = await adminDb.collection('users').doc(ref).get();
+      if (userSnap.exists) {
         validRef = ref;
       } else {
         console.warn(`⚠️ Aucun utilisateur trouvé avec l'ID : ${ref}`);
@@ -28,14 +38,13 @@ export async function getServerSideProps(context) {
     }
   }
 
+  // Récupération des vidéos via Firebase Admin
   if (videos) {
     const videoIds = videos.split(',');
-
     for (const id of videoIds) {
       try {
-        const docRef = doc(db, 'video_playlist', id);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
+        const docSnap = await adminDb.collection('video_playlist').doc(id).get();
+        if (docSnap.exists) {
           videoData.push({ id, ...docSnap.data() });
         }
       } catch (error) {
@@ -53,10 +62,13 @@ export async function getServerSideProps(context) {
   };
 }
 
+// ============================================================
+// 🔹 Partie client : rendu React
+// ============================================================
 export default function SmartlinkPage({ videoData, ref, token }) {
   const [isOpen, setIsOpen] = useState(false);
-  const data = videoData?.[0];
   const [showModal, setShowModal] = useState(true);
+  const data = videoData?.[0];
 
   return (
     <>

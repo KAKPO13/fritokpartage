@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { db } from '@/lib/firebaseConfig';
+import { db } from '@/lib/firebaseClient'; // ✅ correction
 import { collection, doc, setDoc } from 'firebase/firestore';
 import geohash from 'ngeohash';
 import { toast, ToastContainer } from 'react-toastify';
@@ -12,6 +12,7 @@ import 'react-toastify/dist/ReactToastify.css';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
+
 
 export default function AddCommandeForm({ userId, token }) {
   const [imageFile, setImageFile] = useState(null);
