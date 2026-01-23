@@ -66,6 +66,7 @@ export async function handler(event) {
                <p>title: ${data.title}</p>`,
       };
     }
+    
 
     const html = `
       <html>
@@ -75,7 +76,7 @@ export async function handler(event) {
           <meta property="og:title" content="${data.title || "Vidéo"}" />
           <meta property="og:description" content="${data.description || "Découvrez cette vidéo sur FriTok."}" />
           <meta property="og:image" content="${data.thumbnail || ""}" />
-          <meta http-equiv="refresh" content="0; url=/share/${videoId}?ref=${ref || "direct"}&token=${token || "none"}" />
+          <meta http-equiv="refresh" content="0; url=/partage/${videoId}?ref=${ref || "direct"}&token=${token || "none"}" />
         </head>
         <body>
           <h1>✅ Vidéo trouvée</h1>
