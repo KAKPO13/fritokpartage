@@ -11,14 +11,14 @@ if (!supabaseServiceKey) throw new Error("❌ SUPABASE_SERVICE_ROLE_KEY manquant
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // --- Firebase Admin ---
-const privateKey = process.env.NEXT_PUBLIC_FIREBASE_PRIVATE_KEY;
+const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 if (!privateKey) throw new Error("❌ FIREBASE_PRIVATE_KEY manquant");
 
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
       projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "",
-      clientEmail: process.env.NEXT_PUBLIC_FIREBASE_CLIENT_EMAIL || "",
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL || "",
       privateKey: privateKey.replace(/\\n/g, "\n"),
     }),
   });
