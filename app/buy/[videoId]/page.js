@@ -3,19 +3,24 @@
 
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
-import BuyPageClient from '../../../components/BuyPageClient'
+import BuyPageClient from '../../../components/BuyPageClient';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../../lib/firebaseClient';
-
 
 export default function BuyPagePage() {
   const router = useRouter();
   const { videoId } = router.query;
+
   const [videoData, setVideoData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   useEffect(() => {
-    if (!videoId) return;
+    if (!videoId || typeof videoId !== 'string') {
+      setLoading(false);
+      setErrorMsg('❌ Paramètre videoId invalide');
+      return;
+    }
 
     const fetchVideo = async () => {
       try {
@@ -29,6 +34,7 @@ export default function BuyPagePage() {
         }
       } catch (error) {
         console.error('Erreur récupération vidéo:', error);
+        setErrorMsg('⚠️ Erreur Firestore: ' + error.message);
         setVideoData(null);
       } finally {
         setLoading(false);
@@ -39,7 +45,19 @@ export default function BuyPagePage() {
   }, [videoId]);
 
   if (loading) {
-    return <p style={{ padding: '2rem' }}>⏳ Chargement...</p>;
+    return (
+      <main style={{ padding: '2rem', textAlign: 'center' }}>
+        <p>⏳ Chargement de la vidéo...</p>
+      </main>
+    );
+  }
+
+  if (errorMsg) {
+    return (
+      <main style={{ padding: '2rem', textAlign: 'center' }}>
+        <h1>{errorMsg}</h1>
+      </main>
+    );
   }
 
   if (!videoData) {

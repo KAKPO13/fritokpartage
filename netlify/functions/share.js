@@ -22,11 +22,14 @@ const firestore = admin.firestore();
 export async function handler(event) {
   try {
     const { videoId, ref, token, userId, debug } = event.queryStringParameters || {};
-    if (!videoId) {
+
+    console.log("videoId reçu:", videoId);
+
+    if (!videoId || typeof videoId !== "string" || videoId.trim() === "") {
       return {
         statusCode: 400,
         headers: { "Content-Type": "text/html; charset=utf-8" },
-        body: "<h1>❌ Paramètre videoId requis</h1>",
+        body: `<h1>❌ Paramètre videoId invalide</h1><p>Reçu: ${JSON.stringify(videoId)}</p>`,
       };
     }
 
@@ -45,13 +48,12 @@ export async function handler(event) {
       return {
         statusCode: 404,
         headers: { "Content-Type": "text/html; charset=utf-8" },
-        body: "<h1>🎬 Vidéo introuvable</h1><p>Le document n'existe pas dans Firestore.</p>",
+        body: `<h1>🎬 Vidéo introuvable</h1><p>videoId: ${videoId}</p>`,
       };
     }
 
     const data = docSnap.data() || {};
 
-    // Mode debug : afficher les infos sans redirection
     if (debug === "true") {
       return {
         statusCode: 200,
@@ -65,7 +67,6 @@ export async function handler(event) {
       };
     }
 
-    // Sinon, page avec redirection
     const html = `
       <html>
         <head>

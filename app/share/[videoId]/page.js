@@ -2,10 +2,8 @@ import BuyPageClient from '@/components/BuyPageClient';
 import MiniChat from '@/components/MiniChat';
 import { adminDb } from '@/lib/firebaseAdmin';
 
-// ✅ Force le rendu dynamique (pas de cache statique)
 export const dynamic = 'force-dynamic';
 
-// ✅ Métadonnées SEO / Open Graph
 export async function generateMetadata({ params }) {
   const { videoId } = params;
   try {
@@ -22,16 +20,30 @@ export async function generateMetadata({ params }) {
         description: data.description || 'Découvrez cette vidéo sur FriTok.',
         images: [{ url: data.thumbnail || '' }],
       },
+      twitter: {
+        card: 'summary_large_image',
+        title: data.title || 'Vidéo | FriTok',
+        description: data.description || 'Découvrez cette vidéo sur FriTok.',
+        images: [data.thumbnail || ''],
+      },
     };
   } catch (err) {
     return { title: 'Erreur Firestore | FriTok' };
   }
 }
 
-// ✅ Page principale
 export default async function Page({ params, searchParams }) {
   const { videoId } = params;
   const { ref = null, token = null } = searchParams || {};
+
+  if (!videoId || typeof videoId !== 'string') {
+    return (
+      <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+        <h1>❌ Paramètre videoId invalide</h1>
+        <p>Reçu: {JSON.stringify(videoId)}</p>
+      </main>
+    );
+  }
 
   let docSnap;
   try {
@@ -55,8 +67,9 @@ export default async function Page({ params, searchParams }) {
   }
 
   const data = docSnap.data();
-  const price =
-    typeof data.price === 'number' ? data.price : parseFloat(data.price) || 0;
+  const price = Number.isFinite(data.price)
+    ? data.price
+    : parseFloat(data.price) || 0;
 
   return (
     <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
@@ -73,6 +86,7 @@ export default async function Page({ params, searchParams }) {
         src={data.url}
         controls
         poster={data.thumbnail}
+        aria-label={`Vidéo ${data.title}`}
         style={{ width: '100%', maxWidth: '600px', borderRadius: '8px' }}
       />
 
