@@ -6,7 +6,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-// --- Firebase Admin ---
+// --- Firebase Admin --- commentaire
 const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 if (!admin.apps.length) {
   admin.initializeApp({
