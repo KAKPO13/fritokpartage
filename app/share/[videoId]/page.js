@@ -5,6 +5,8 @@ import { adminDb } from '@/lib/firebaseAdmin';
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }) {
+  console.log("params reçu:", params); 
+  console.log("searchParams reçu:", searchParams);
   const { videoId } = params;
   try {
     const docSnap = await adminDb.collection('video_playlist').doc(videoId).get();
