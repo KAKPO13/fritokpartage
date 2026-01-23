@@ -1,7 +1,6 @@
 import BuyPageClient from '@/components/BuyPageClient';
 import MiniChat from '@/components/MiniChat';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebaseConfig';
+import { adminDb } from '@/lib/firebaseAdmin'; // ✅ correction
 
 export const dynamic = 'force-dynamic';
 
@@ -9,10 +8,10 @@ export default async function Page({ params, searchParams }) {
   const { videoId } = params;
   const { ref = null, token = null } = searchParams || {};
 
-  const docRef = doc(db, 'video_playlist', videoId);
-  const docSnap = await getDoc(docRef);
+  const docRef = adminDb.collection('video_playlist').doc(videoId);
+  const docSnap = await docRef.get();
 
-  if (!docSnap.exists()) return <h1>🎬 Vidéo introuvable</h1>;
+  if (!docSnap.exists) return <h1>🎬 Vidéo introuvable</h1>;
 
   const data = docSnap.data();
   const price = typeof data.price === 'number' ? data.price : parseFloat(data.price) || 0;
@@ -24,7 +23,7 @@ export default async function Page({ params, searchParams }) {
       <video src={data.url} controls poster={data.thumbnail} style={{ width: '100%', maxWidth: '600px' }} />
       <p>{data.description}</p>
       <BuyPageClient
-        title={data.product.name}
+        title={data.product?.name}
         videoUrl={data.url}
         thumbnail={data.thumbnail}
         description={data.description}
