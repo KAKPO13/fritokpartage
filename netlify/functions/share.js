@@ -31,16 +31,37 @@ export async function handler(event) {
   try {
     const { videoId, ref, token, userId } = event.queryStringParameters || {};
     if (!videoId) {
-      return { statusCode: 400, body: "❌ videoId requis" };
+      return {
+        statusCode: 400,
+        headers: { "Content-Type": "text/html" },
+        body: "<h1>❌ Paramètre videoId requis</h1>",
+      };
     }
 
-    const docSnap = await firestore.collection("video_playlist").doc(videoId).get();
+    let docSnap;
+    try {
+      docSnap = await firestore.collection("video_playlist").doc(videoId).get();
+    } catch (err) {
+      console.error("🔥 Erreur Firestore:", err);
+      return {
+        statusCode: 500,
+        headers: { "Content-Type": "text/html" },
+        body: `<h1>⚠️ Vidéo trouvée mais erreur de lecture Firestore</h1>
+               <p>Détails: ${err.message}</p>`,
+      };
+    }
+
     if (!docSnap.exists) {
-      return { statusCode: 404, body: "Vidéo introuvable" };
+      return {
+        statusCode: 404,
+        headers: { "Content-Type": "text/html" },
+        body: "<h1>🎬 Vidéo introuvable</h1><p>Le document n'existe pas dans Firestore.</p>",
+      };
     }
 
     const data = docSnap.data() || {};
 
+    // Log event dans Supabase si paramètres présents
     if (token && ref && userId) {
       await supabase.from("share_events").insert([{
         video_id: videoId,
@@ -54,6 +75,7 @@ export async function handler(event) {
       }]);
     }
 
+    // Page HTML avec redirection
     const html = `
       <html>
         <head>
@@ -63,7 +85,10 @@ export async function handler(event) {
           <meta property="og:image" content="${data.thumbnail || ""}" />
           <meta http-equiv="refresh" content="0; url=/share/${videoId}?ref=${ref || "direct"}&token=${token || "none"}" />
         </head>
-        <body><p>Redirection...</p></body>
+        <body>
+          <h1>✅ Vidéo trouvée</h1>
+          <p>Redirection en cours vers la page de partage...</p>
+        </body>
       </html>`;
 
     return {
@@ -73,6 +98,10 @@ export async function handler(event) {
     };
   } catch (err) {
     console.error("🔥 Server error:", err);
-    return { statusCode: 500, body: "Erreur interne: " + err.message };
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "text/html" },
+      body: `<h1>❌ Erreur interne</h1><p>${err.message}</p>`,
+    };
   }
 }
