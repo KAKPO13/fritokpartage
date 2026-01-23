@@ -6,51 +6,19 @@ export const dynamic = 'force-dynamic';
 
 // ✅ Métadonnées SEO / Open Graph
 export async function generateMetadata({ params }) {
-  console.log("params reçu:", params); // OK
-  // ❌ searchParams n'est pas dispo ici
-
-  const { videoId } = params;
-  try {
-    const docSnap = await adminDb.collection('video_playlist').doc(videoId).get();
-    if (!docSnap.exists) {
-      return { title: 'Vidéo introuvable | FriTok' };
-    }
-    const data = docSnap.data();
-    return {
-      title: data.title || 'Vidéo | FriTok',
-      description: data.description || 'Découvrez cette vidéo sur FriTok.',
-      openGraph: {
-        title: data.title || 'Vidéo | FriTok',
-        description: data.description || 'Découvrez cette vidéo sur FriTok.',
-        images: [{ url: data.thumbnail || '' }],
-      },
-      twitter: {
-        card: 'summary_large_image',
-        title: data.title || 'Vidéo | FriTok',
-        description: data.description || 'Découvrez cette vidéo sur FriTok.',
-        images: [data.thumbnail || ''],
-      },
-    };
-  } catch (err) {
-    return { title: 'Erreur Firestore | FriTok' };
-  }
+  console.log("videoId reçu:", params?.videoId); // ✅ log direct
+  return { title: "FriTok" };
 }
 
-// ✅ Page principale
 export default async function Page({ params, searchParams }) {
-  console.log("params reçu:", params);
-  console.log("searchParams reçu:", searchParams);
+  console.log("params reçu:", JSON.stringify(params));       // ✅ affiche l’objet brut
+  console.log("searchParams reçu:", JSON.stringify(searchParams)); // ✅ affiche ref et token
 
-  const { videoId } = params;
+  const { videoId } = params || {};
   const { ref = null, token = null } = searchParams || {};
 
-  if (!videoId || typeof videoId !== 'string') {
-    return (
-      <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-        <h1>❌ Paramètre videoId invalide</h1>
-        <p>Reçu: {JSON.stringify(videoId)}</p>
-      </main>
-    );
+  if (!videoId) {
+    return <h1>❌ Paramètre videoId invalide</h1>;
   }
 
   let docSnap;
