@@ -4,7 +4,7 @@ import { adminDb } from '@/lib/firebaseAdmin';
 
 export const dynamic = 'force-dynamic';
 
-// ✅ Métadonnées SEO / Open Graph commentaire
+// ✅ Métadonnées SEO / Open Graph
 export async function generateMetadata({ params }) {
   console.log("videoId reçu:", params?.videoId); // ✅ log direct
   return { title: "FriTok" };
