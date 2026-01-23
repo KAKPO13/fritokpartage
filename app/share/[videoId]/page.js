@@ -4,9 +4,11 @@ import { adminDb } from '@/lib/firebaseAdmin';
 
 export const dynamic = 'force-dynamic';
 
+// ✅ Métadonnées SEO / Open Graph
 export async function generateMetadata({ params }) {
-  console.log("params reçu:", params); 
-  console.log("searchParams reçu:", searchParams);
+  console.log("params reçu:", params); // OK
+  // ❌ searchParams n'est pas dispo ici
+
   const { videoId } = params;
   try {
     const docSnap = await adminDb.collection('video_playlist').doc(videoId).get();
@@ -34,7 +36,11 @@ export async function generateMetadata({ params }) {
   }
 }
 
+// ✅ Page principale
 export default async function Page({ params, searchParams }) {
+  console.log("params reçu:", params);
+  console.log("searchParams reçu:", searchParams);
+
   const { videoId } = params;
   const { ref = null, token = null } = searchParams || {};
 
