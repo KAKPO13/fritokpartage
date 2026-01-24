@@ -27,15 +27,19 @@ export async function handler(event) {
       event.multiValueQueryStringParameters ||
       {};
 
-    if ((!params || Object.keys(params).length === 0) && event.rawUrl) {
+    // Si videoId n'est pas dans query, récupérer depuis pathParameters
+    if (!params.videoId && event.pathParameters) {
+      params.videoId = event.pathParameters.videoId;
+    }
+
+    // Si toujours vide, parser l'URL brute
+    if ((!params.videoId || params.videoId === "undefined") && event.rawUrl) {
       const url = new URL(event.rawUrl);
-      params = {
-        videoId: url.searchParams.get("videoId"),
-        ref: url.searchParams.get("ref"),
-        token: url.searchParams.get("token"),
-        userId: url.searchParams.get("userId"),
-        debug: url.searchParams.get("debug"),
-      };
+      params.videoId = url.searchParams.get("videoId");
+      params.ref = url.searchParams.get("ref");
+      params.token = url.searchParams.get("token");
+      params.userId = url.searchParams.get("userId");
+      params.debug = url.searchParams.get("debug");
     }
 
     const { videoId, ref, token, userId, debug } = params;
