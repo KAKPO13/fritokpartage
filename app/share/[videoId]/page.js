@@ -80,4 +80,5 @@ export default async function Page({ params, searchParams }) {
       <MiniChat videoId={videoId} />
     </main>
   );
+  
 }
