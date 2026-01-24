@@ -11,3 +11,10 @@
   port = 3000
   targetPort = 3000
   framework = "next"
+
+# ✅ Redirections pour gérer les routes dynamiques
+[[redirects]]
+  from = "/share/:videoId"
+  to = "/.netlify/functions/share"
+  status = 200
+  force = true

@@ -21,20 +21,21 @@ const firestore = admin.firestore();
 
 export async function handler(event) {
   try {
-    // 🔎 Lecture des paramètres de manière robuste
+    // 🔎 Lecture des paramètres avec fallback
     let params =
       event.queryStringParameters ||
       event.multiValueQueryStringParameters ||
       {};
 
-    // Si vide, parser l'URL brute
-    if (!params.videoId && event.rawUrl) {
+    if ((!params || Object.keys(params).length === 0) && event.rawUrl) {
       const url = new URL(event.rawUrl);
-      params.videoId = url.searchParams.get("videoId");
-      params.ref = url.searchParams.get("ref");
-      params.token = url.searchParams.get("token");
-      params.userId = url.searchParams.get("userId");
-      params.debug = url.searchParams.get("debug");
+      params = {
+        videoId: url.searchParams.get("videoId"),
+        ref: url.searchParams.get("ref"),
+        token: url.searchParams.get("token"),
+        userId: url.searchParams.get("userId"),
+        debug: url.searchParams.get("debug"),
+      };
     }
 
     const { videoId, ref, token, userId, debug } = params;
@@ -85,13 +86,33 @@ export async function handler(event) {
       };
     }
 
-    // ✅ Redirection HTTP standard
+    // ✅ Partie HTML avec balises OG + lien de secours
+    const html = `
+      <html>
+        <head>
+          <meta charset="UTF-8" />
+          <title>${data.title || "Vidéo"}</title>
+          <meta property="og:title" content="${data.title || "Vidéo"}" />
+          <meta property="og:description" content="${data.description || "Découvrez cette vidéo sur FriTok."}" />
+          <meta property="og:image" content="${data.thumbnail || ""}" />
+        </head>
+        <body>
+          <h1>✅ Vidéo trouvée</h1>
+          <p>Redirection en cours vers la page de partage...</p>
+          <p><a href="/share/${videoId}?ref=${ref || "direct"}&token=${token || "none"}">
+            Cliquez ici si la redirection ne fonctionne pas
+          </a></p>
+        </body>
+      </html>`;
+
+    // ✅ Redirection HTTP standard + fallback HTML
     return {
       statusCode: 302,
       headers: {
         Location: `/share/${videoId}?ref=${ref || "direct"}&token=${token || "none"}`,
+        "Content-Type": "text/html; charset=utf-8",
       },
-      body: "",
+      body: html,
     };
   } catch (err) {
     console.error("Erreur interne:", err);
