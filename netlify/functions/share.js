@@ -21,30 +21,8 @@ const firestore = admin.firestore();
 
 export async function handler(event) {
   try {
-    // 🔎 Lecture des paramètres avec fallback
-    let params =
-      event.queryStringParameters ||
-      event.multiValueQueryStringParameters ||
-      {};
+    const { videoId, ref, token, userId, debug } = event.queryStringParameters || {};
 
-    // Si videoId n'est pas dans query, récupérer depuis pathParameters
-    if (!params.videoId && event.pathParameters) {
-      params.videoId = event.pathParameters.videoId;
-    }
-
-    // Si toujours vide, parser l'URL brute
-    if ((!params.videoId || params.videoId === "undefined") && event.rawUrl) {
-      const url = new URL(event.rawUrl);
-      params.videoId = url.searchParams.get("videoId");
-      params.ref = url.searchParams.get("ref");
-      params.token = url.searchParams.get("token");
-      params.userId = url.searchParams.get("userId");
-      params.debug = url.searchParams.get("debug");
-    }
-
-    const { videoId, ref, token, userId, debug } = params;
-
-    console.log("params reçu:", params);
     console.log("videoId reçu:", videoId);
 
     if (!videoId || typeof videoId !== "string" || videoId.trim() === "") {
@@ -59,7 +37,6 @@ export async function handler(event) {
     try {
       docSnap = await firestore.collection("video_playlist").doc(videoId).get();
     } catch (err) {
-      console.error("Erreur Firestore:", err);
       return {
         statusCode: 500,
         headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -89,8 +66,8 @@ export async function handler(event) {
                <p>title: ${data.title}</p>`,
       };
     }
+    
 
-    // ✅ Partie HTML avec balises OG + lien de secours
     const html = `
       <html>
         <head>
@@ -99,27 +76,20 @@ export async function handler(event) {
           <meta property="og:title" content="${data.title || "Vidéo"}" />
           <meta property="og:description" content="${data.description || "Découvrez cette vidéo sur FriTok."}" />
           <meta property="og:image" content="${data.thumbnail || ""}" />
+          <meta http-equiv="refresh" content="0; url=/share/${videoId}?ref=${ref || "direct"}&token=${token || "none"}" />
         </head>
         <body>
           <h1>✅ Vidéo trouvée</h1>
           <p>Redirection en cours vers la page de partage...</p>
-          <p><a href="/share/${videoId}?ref=${ref || "direct"}&token=${token || "none"}">
-            Cliquez ici si la redirection ne fonctionne pas
-          </a></p>
         </body>
       </html>`;
 
-    // ✅ Redirection HTTP standard + fallback HTML
     return {
-      statusCode: 302,
-      headers: {
-        Location: `/share/${videoId}?ref=${ref || "direct"}&token=${token || "none"}`,
-        "Content-Type": "text/html; charset=utf-8",
-      },
+      statusCode: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
       body: html,
     };
   } catch (err) {
-    console.error("Erreur interne:", err);
     return {
       statusCode: 500,
       headers: { "Content-Type": "text/html; charset=utf-8" },
