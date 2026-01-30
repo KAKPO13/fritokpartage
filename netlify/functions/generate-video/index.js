@@ -5,7 +5,7 @@ import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 
-// ⚡ Variables d'environnement Supabase (à définir dans Netlify → Site settings → Environment variables)
+// ⚡ Variables d'environnement Supabase
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -54,10 +54,18 @@ export async function handler(event) {
     });
     fs.writeFileSync(txtFile, txtContent);
 
+    // ⚡ FFmpeg arguments corrigés (inputs d'abord, puis filtres/codecs)
     const ffmpegArgs = [
       "-f", "concat",
       "-safe", "0",
-      "-i", txtFile,
+      "-i", txtFile
+    ];
+
+    if (musicPath) {
+      ffmpegArgs.push("-i", musicPath);
+    }
+
+    ffmpegArgs.push(
       "-vf",
       `
       zoompan=z='min(zoom+0.0005,1.5)':d=75,
@@ -69,14 +77,11 @@ export async function handler(event) {
       alpha='if(lt(t,0.5),0,if(lt(t,2),(t-0.5)/1.5,1))'
       `.replace(/\s+/g, ''),
       "-c:v", "libx264",
-      "-pix_fmt", "yuv420p"
-    ];
-
-    if (musicPath) {
-      ffmpegArgs.push("-i", musicPath, "-shortest");
-    }
-
-    ffmpegArgs.push(videoPath);
+      "-pix_fmt", "yuv420p",
+      "-c:a", "aac",
+      "-shortest",
+      videoPath
+    );
 
     await new Promise((resolve, reject) => {
       execFile(ffmpegPath, ffmpegArgs, (err, stdout, stderr) => {
@@ -96,7 +101,6 @@ export async function handler(event) {
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
-        "-strict", "-2",
         finalVideoPath
       ], (err) => err ? reject(err) : resolve());
     });
@@ -150,4 +154,3 @@ export async function handler(event) {
     };
   }
 }
-
