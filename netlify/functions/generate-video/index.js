@@ -13,6 +13,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // ⚡ Chemin vers FFmpeg fourni par @ffmpeg-installer/ffmpeg
 const ffmpegPath = ffmpegInstaller.path;
 
+// ⚡ Chemin vers la police incluse dans ton projet
+const fontPath = path.join(process.cwd(), "netlify/functions/fonts/DejaVuSans-Bold.ttf");
+
 export async function handler(event) {
   try {
     const { images, title, price, musicUrl } = JSON.parse(event.body);
@@ -54,7 +57,7 @@ export async function handler(event) {
     });
     fs.writeFileSync(txtFile, txtContent);
 
-    // ⚡ FFmpeg arguments corrigés (inputs d'abord, puis filtres/codecs)
+    // ⚡ FFmpeg arguments corrigés avec police incluse
     const ffmpegArgs = [
       "-f", "concat",
       "-safe", "0",
@@ -70,7 +73,7 @@ export async function handler(event) {
       `
       zoompan=z='min(zoom+0.0005,1.5)':d=75,
       fade=t=in:st=0:d=${fadeDuration},
-      drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:
+      drawtext=fontfile=${fontPath}:
       text='${title} - ${price}':
       fontsize=48:fontcolor=white:
       x=(w-text_w)/2:y=h-100:
