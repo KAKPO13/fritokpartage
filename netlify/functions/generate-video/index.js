@@ -3,11 +3,15 @@ import fs from "fs";
 import path from "path";
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 
-// ⚡ Variables d'environnement Supabase
+// ⚡ Variables d'environnement Supabase (à définir dans Netlify → Site settings → Environment variables)
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ⚡ Chemin vers FFmpeg fourni par @ffmpeg-installer/ffmpeg
+const ffmpegPath = ffmpegInstaller.path;
 
 export async function handler(event) {
   try {
@@ -21,7 +25,6 @@ export async function handler(event) {
     const videoPath = path.join(tmpDir, "output_full.mp4");
     const finalVideoPath = path.join(tmpDir, "output_15s.mp4");
     const thumbnailPath = path.join(tmpDir, "thumb.jpg");
-    const ffmpegPath = path.join(process.cwd(), "netlify/functions/generate-video/ffmpeg");
 
     // 1️⃣ Télécharger toutes les images
     const imageFiles = [];
@@ -42,24 +45,20 @@ export async function handler(event) {
     }
 
     // 3️⃣ Générer la vidéo complète avec transitions et texte animé
-    // On utilise un fichier texte intermédiaire pour concat + crossfade
     const txtFile = path.join(tmpDir, "file_list.txt");
-    const fadeDuration = 1; // secondes
+    const fadeDuration = 1;
     let txtContent = "";
     imageFiles.forEach((f, i) => {
       txtContent += `file '${f}'\nduration 3\n`;
-      // la dernière image doit répéter sa durée pour FFmpeg concat safe
       if (i === imageFiles.length - 1) txtContent += `file '${f}'\n`;
     });
     fs.writeFileSync(txtFile, txtContent);
 
-    // FFmpeg arguments
     const ffmpegArgs = [
       "-f", "concat",
       "-safe", "0",
       "-i", txtFile,
       "-vf",
-      // zoom/pan + texte animé + crossfade
       `
       zoompan=z='min(zoom+0.0005,1.5)':d=75,
       fade=t=in:st=0:d=${fadeDuration},
@@ -67,13 +66,12 @@ export async function handler(event) {
       text='${title} - ${price}':
       fontsize=48:fontcolor=white:
       x=(w-text_w)/2:y=h-100:
-      alpha='if(lt(t,0.5),0,if(lt(t,2), (t-0.5)/1.5, 1))'
+      alpha='if(lt(t,0.5),0,if(lt(t,2),(t-0.5)/1.5,1))'
       `.replace(/\s+/g, ''),
       "-c:v", "libx264",
       "-pix_fmt", "yuv420p"
     ];
 
-    // Ajouter musique si présente
     if (musicPath) {
       ffmpegArgs.push("-i", musicPath, "-shortest");
     }
@@ -103,7 +101,7 @@ export async function handler(event) {
       ], (err) => err ? reject(err) : resolve());
     });
 
-    // 5️⃣ Créer une miniature (première frame)
+    // 5️⃣ Créer une miniature
     await new Promise((resolve, reject) => {
       execFile(ffmpegPath, [
         "-i", finalVideoPath,
@@ -130,8 +128,14 @@ export async function handler(event) {
     if (errThumb) throw errThumb;
 
     // 8️⃣ Récupérer les URLs publiques
-    const videoUrl = supabase.storage.from("videos").getPublicUrl(videoFileName).data.publicUrl;
-    const thumbUrl = supabase.storage.from("videos").getPublicUrl(thumbFileName).data.publicUrl;
+    const { data: { publicUrl: videoUrl } } = supabase.storage.from("videos").getPublicUrl(videoFileName);
+    const { data: { publicUrl: thumbUrl } } = supabase.storage.from("videos").getPublicUrl(thumbFileName);
+
+    // 9️⃣ Nettoyage des fichiers temporaires
+    [videoPath, finalVideoPath, thumbnailPath, ...imageFiles].forEach(f => {
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    });
+    if (musicPath && fs.existsSync(musicPath)) fs.unlinkSync(musicPath);
 
     return {
       statusCode: 200,
