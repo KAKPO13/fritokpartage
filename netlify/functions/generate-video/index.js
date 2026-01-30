@@ -39,12 +39,35 @@ export async function handler(event) {
       imageFiles.push(imgPath);
     }
 
-    // 2️⃣ Télécharger musique si fournie
+    // 2️⃣ Télécharger musique ou vidéo et gérer les trois cas
     let musicPath = null;
     if (musicUrl) {
-      musicPath = path.join(tmpDir, "music.mp3");
       const response = await axios.get(musicUrl, { responseType: "arraybuffer" });
-      fs.writeFileSync(musicPath, response.data);
+      const contentType = response.headers["content-type"];
+
+      if (contentType && contentType.startsWith("audio/")) {
+        // Cas 1 : fichier audio direct
+        musicPath = path.join(tmpDir, "music.mp3");
+        fs.writeFileSync(musicPath, response.data);
+      } else if (contentType && contentType.startsWith("video/")) {
+        // Cas 2 : fichier vidéo → extraire l’audio
+        const rawVideoPath = path.join(tmpDir, "raw_video.mp4");
+        fs.writeFileSync(rawVideoPath, response.data);
+
+        musicPath = path.join(tmpDir, "music.mp3");
+        await new Promise((resolve, reject) => {
+          execFile(ffmpegPath, [
+            "-i", rawVideoPath,
+            "-q:a", "0",
+            "-map", "a",
+            musicPath
+          ], (err) => err ? reject(err) : resolve());
+        });
+      } else {
+        // Cas 3 : invalide → ignorer
+        console.warn("Le fichier fourni n'est ni audio ni vidéo, ignoré :", contentType);
+        musicPath = null;
+      }
     }
 
     // 3️⃣ Générer la vidéo complète avec transitions et texte animé
@@ -57,7 +80,6 @@ export async function handler(event) {
     });
     fs.writeFileSync(txtFile, txtContent);
 
-    // ⚡ FFmpeg arguments corrigés avec police incluse
     const ffmpegArgs = [
       "-f", "concat",
       "-safe", "0",
@@ -157,3 +179,4 @@ export async function handler(event) {
     };
   }
 }
+
