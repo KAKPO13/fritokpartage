@@ -49,6 +49,7 @@ exports.handler = async (event) => {
         amount: amount,
         currency: currency,
         redirect_url: "https://fritok.net/payment-callback", // URL de retour après paiement
+        payment_options: "card,mobilemoney,ussd,banktransfer",
         customer: {
           email: decodedToken.email,
           name: decodedToken.name || "User FriTok",
