@@ -48,18 +48,19 @@ exports.handler = async (event) => {
         tx_ref: tx_ref,
         amount: amount,
         currency: currency,
-        redirect_url: "https://fritok.net/payment-callback", // URL de retour après paiement
+        redirect_url: "https://fritok.net/payment-callback",
         payment_options: "card,mobilemoney,ussd,banktransfer",
         customer: {
           email: decodedToken.email,
           name: decodedToken.name || "User FriTok",
+          phonenumber: "+2250700000000" // numéro ivoirien pour Mobile Money
         },
         customizations: {
           title: "FriTok Wallet",
           description: `Recharge de ${amount} ${currency}`,
           logo: "https://fritok.com/logo.png",
         },
-      }),
+      })
     });
 
     const data = await response.json();
