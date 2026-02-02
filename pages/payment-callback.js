@@ -3,132 +3,150 @@ import { useRouter } from 'next/router';
 
 export default function PaymentCallback() {
   const router = useRouter();
-  const [status, setStatus] = useState('loading'); // loading, success, error, cancelled
-  const [details, setDetails] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [statusType, setStatusType] = useState('info'); // 'info', 'success', 'error'
+  const [message, setMessage] = useState("Initialisation de la vérification...");
 
   useEffect(() => {
     if (!router.isReady) return;
 
-    const { tx_ref, transaction_id, status: fwStatus } = router.query;
+    const { tx_ref, transaction_id, status } = router.query;
 
-    // 1. Si l'utilisateur a annulé le paiement sur l'interface Flutterwave
-    if (fwStatus === 'cancelled') {
-      setStatus('cancelled');
+    if (status === 'cancelled') {
+      setMessage("Vous avez annulé la transaction.");
+      setStatusType('error');
+      setLoading(false);
       return;
     }
 
-    // 2. Vérification auprès de ton API Backend
-    const verifyTransaction = async () => {
-      try {
-        const response = await fetch(`/api/verify-payment?tx_ref=${tx_ref}&transaction_id=${transaction_id}`);
-        const data = await response.json();
-
-        if (response.ok && data.status === 'successful') {
-          setDetails(data);
-          setStatus('success');
-        } else {
-          setStatus('error');
-        }
-      } catch (error) {
-        console.error("Erreur de vérification:", error);
-        setStatus('error');
-      }
-    };
-
     if (tx_ref) {
-      verifyTransaction();
+      verifyPayment(tx_ref, transaction_id);
+    } else {
+      setMessage("Référence de transaction introuvable.");
+      setStatusType('error');
+      setLoading(false);
     }
   }, [router.isReady, router.query]);
 
+  const verifyPayment = async (ref, id) => {
+    try {
+      setLoading(true);
+      setMessage("Vérification sécurisée auprès de Flutterwave...");
+
+      // Appel backend avec fetch
+      const res = await fetch(`/api/verify-payment?tx_ref=${ref}&transaction_id=${id}`);
+      const data = await res.json();
+
+      if (data.status === "successful") {
+        setMessage(`Paiement réussi ! ${data.amount} ${data.currency} ont été ajoutés à votre solde.`);
+        setStatusType('success');
+      } else {
+        setMessage("Le paiement n'a pas pu être validé. Statut : " + (data.status || "inconnu"));
+        setStatusType('error');
+      }
+    } catch (error) {
+      console.error("Erreur Callback:", error);
+      setMessage("Une erreur est survenue lors de la validation du paiement.");
+      setStatusType('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="callback-container">
-      <div className="status-card">
-        {status === 'loading' && (
-          <div className="loader-box">
-            <div className="spinner"></div>
-            <p>Vérification de votre paiement en cours...</p>
-          </div>
-        )}
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <div style={styles.iconBox}>
+          {loading ? (
+            <div className="spinner" style={styles.spinner}></div>
+          ) : statusType === 'success' ? (
+            <span style={{ fontSize: '50px' }}>✅</span>
+          ) : (
+            <span style={{ fontSize: '50px' }}>❌</span>
+          )}
+        </div>
 
-        {status === 'success' && (
-          <div className="result-box success">
-            <div className="icon">✅</div>
-            <h1>Paiement Réussi !</h1>
-            <p>Votre compte a été crédité avec succès.</p>
-            {details && (
-              <div className="details">
-                <span>Montant : <strong>{details.amount} {details.currency}</strong></span>
-                <br />
-                <span>Réf : {tx_ref}</span>
-              </div>
-            )}
-            <button onClick={() => router.push('/dashboard')}>Accéder à mon Wallet</button>
-          </div>
-        )}
+        <h1 style={styles.title}>
+          {loading ? "Vérification en cours" : statusType === 'success' ? "Succès !" : "Oups !"}
+        </h1>
+        
+        <p style={{ ...styles.message, color: statusType === 'error' ? '#d9534f' : '#333' }}>
+          {message}
+        </p>
 
-        {status === 'cancelled' && (
-          <div className="result-box warning">
-            <div className="icon">⚠️</div>
-            <h1>Paiement Annulé</h1>
-            <p>Vous avez interrompu la transaction.</p>
-            <button onClick={() => router.push('/recharge')}>Réessayer</button>
-          </div>
-        )}
-
-        {status === 'error' && (
-          <div className="result-box error">
-            <div className="icon">❌</div>
-            <h1>Échec de la transaction</h1>
-            <p>Nous n'avons pas pu confirmer votre paiement. Si vous avez été débité, contactez le support.</p>
-            <button onClick={() => router.push('/support')}>Contacter le support</button>
-          </div>
+        {!loading && (
+          <button 
+            onClick={() => router.push('/dashboard')} 
+            style={styles.button}
+            onMouseOver={(e) => e.target.style.backgroundColor = '#0056b3'}
+            onMouseOut={(e) => e.target.style.backgroundColor = '#007bff'}
+          >
+            Retour au Dashboard
+          </button>
         )}
       </div>
 
       <style jsx>{`
-        .callback-container {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          min-height: 100vh;
-          background: #f4f7f6;
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
         }
-        .status-card {
-          background: white;
-          padding: 2rem;
-          border-radius: 15px;
-          box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-          text-align: center;
-          max-width: 400px;
-          width: 90%;
-        }
-        .icon { font-size: 3rem; margin-bottom: 1rem; }
-        h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #333; }
-        p { color: #666; margin-bottom: 1.5rem; }
-        .details { background: #f9f9f9; padding: 10px; border-radius: 8px; margin-bottom: 1.5rem; font-size: 0.9rem; }
-        button {
-          background: #0070f3;
-          color: white;
-          border: none;
-          padding: 12px 24px;
-          border-radius: 8px;
-          font-weight: bold;
-          cursor: pointer;
-          transition: background 0.3s;
-        }
-        button:hover { background: #005bc1; }
         .spinner {
           border: 4px solid #f3f3f3;
-          border-top: 4px solid #0070f3;
+          border-top: 4px solid #007bff;
           border-radius: 50%;
           width: 40px;
           height: 40px;
           animation: spin 1s linear infinite;
-          margin: 0 auto 1rem;
         }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
 }
+
+// Styles basiques intégrés
+const styles = {
+  container: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: '100vh',
+    backgroundColor: '#f8f9fa',
+    padding: '20px'
+  },
+  card: {
+    backgroundColor: '#ffffff',
+    padding: '40px',
+    borderRadius: '12px',
+    boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+    maxWidth: '450px',
+    width: '100%',
+    textAlign: 'center'
+  },
+  iconBox: {
+    display: 'flex',
+    justifyContent: 'center',
+    marginBottom: '20px'
+  },
+  title: {
+    fontSize: '24px',
+    marginBottom: '15px',
+    color: '#2c3e50'
+  },
+  message: {
+    fontSize: '16px',
+    lineHeight: '1.5',
+    marginBottom: '30px'
+  },
+  button: {
+    backgroundColor: '#007bff',
+    color: 'white',
+    border: 'none',
+    padding: '12px 25px',
+    borderRadius: '6px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s'
+  }
+};
