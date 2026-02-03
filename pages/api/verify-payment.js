@@ -1,4 +1,13 @@
-// pages/api/verify-payment.js (ESM)
+// pages/api/verify-payment.js
+import admin from "firebase-admin";
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.applicationDefault(),
+  });
+}
+const db = admin.firestore();
+
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });
@@ -10,36 +19,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Vérification locale via REST Supabase
-    const resp = await fetch(
-      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/pending_payments?tx_ref=eq.${tx_ref}&select=*`,
-      {
-        headers: {
-          apikey: process.env.NEXT_PUBLIC_SUPABASE_KEY,
-          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-        },
-      }
-    );
-
-    if (!resp.ok) {
-      return res.status(500).json({ error: "Erreur Supabase", status: resp.status });
-    }
-
-    const existingPayment = await resp.json();
-    if (!existingPayment || existingPayment.length === 0) {
-      return res.status(404).json({ error: "Transaction introuvable dans la base de données" });
-    }
-
-    const payment = existingPayment[0];
-    if (payment.status === "successful") {
-      return res.status(200).json({
-        status: "successful",
-        amount: payment.amount,
-        currency: payment.currency,
-      });
-    }
-
-    // 2. Vérification externe Flutterwave
+    // 1. Vérification externe Flutterwave
     const fwResp = await fetch(
       `https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${tx_ref}`,
       {
@@ -55,54 +35,49 @@ export default async function handler(req, res) {
 
     if (fwData.status === "success" && fwData.data.status === "successful") {
       const transaction = fwData.data;
-      const paidAmount = Math.round(parseFloat(transaction.amount) * 100); // en centimes
-      const expectedAmount = Math.round(parseFloat(payment.amount) * 100);
+      const { amount, currency, customer, id: flutterwaveId } = transaction;
 
-      if (paidAmount >= expectedAmount && transaction.currency === payment.currency) {
-        // 3. Mise à jour atomique via RPC unique
-        const rpcResp = await fetch(
-          `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/verify_and_increment`,
-          {
-            method: "POST",
-            headers: {
-              apikey: process.env.NEXT_PUBLIC_SUPABASE_KEY,
-              Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              p_user_id: payment.user_id,
-              p_amount: paidAmount / 100, // retour en unité
-              p_tx_ref: tx_ref,
-              p_flutterwave_id: transaction.id,
-              p_currency: transaction.currency,
-            }),
-          }
-        );
+      // ⚠️ Ici, il faut déterminer comment retrouver ton userId Firestore
+      // Exemple : si tu stockes l'email comme clé secondaire
+      const userEmail = customer.email;
+      const userSnap = await db.collection("users").where("email", "==", userEmail).limit(1).get();
 
-        if (!rpcResp.ok) {
-          return res.status(500).json({ error: "Erreur RPC Supabase", status: rpcResp.status });
-        }
-
-        return res.status(200).json({
-          status: "successful",
-          amount: paidAmount / 100,
-          currency: transaction.currency,
-        });
-      } else {
-        return res.status(400).json({ error: "Fraude détectée : Montant ou devise incorrect" });
+      if (userSnap.empty) {
+        return res.status(404).json({ error: "Utilisateur introuvable dans Firestore" });
       }
+
+      const userDoc = userSnap.docs[0];
+      const userId = userDoc.id;
+
+      // 2. Mise à jour du wallet Firestore
+      await db.collection("users").doc(userId).update({
+        [`wallet.${currency}`]: admin.firestore.FieldValue.increment(amount),
+      });
+
+      // 3. Log transaction
+      await db.collection("wallet_transactions").add({
+        userId,
+        tx_ref,
+        flutterwaveId,
+        currency,
+        amount,
+        status: "success",
+        createdAt: admin.firestore.Timestamp.now(),
+      });
+
+      return res.status(200).json({
+        status: "successful",
+        amount,
+        currency,
+      });
     } else {
       const currentFwStatus = fwData.data?.status || "failed";
 
-      // Mise à jour du statut en base
-      await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/pending_payments?tx_ref=eq.${tx_ref}`, {
-        method: "PATCH",
-        headers: {
-          apikey: process.env.NEXT_PUBLIC_SUPABASE_KEY,
-          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ status: currentFwStatus, updated_at: new Date().toISOString() }),
+      // Log transaction échouée
+      await db.collection("wallet_transactions").add({
+        tx_ref,
+        status: currentFwStatus,
+        createdAt: admin.firestore.Timestamp.now(),
       });
 
       return res.status(200).json({ status: currentFwStatus });
