@@ -37,7 +37,6 @@ exports.handler = async (event) => {
       status: "PENDING"
     });
 
-    // C'EST ICI QUE LE BUG SE CACHAIT :
     // Si une erreur survient, on l'affiche dans les logs et on arrête tout.
     if (supabaseError) {
       console.error("ERREUR CRITIQUE SUPABASE:", supabaseError);

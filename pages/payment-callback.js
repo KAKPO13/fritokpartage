@@ -10,7 +10,7 @@ export default function PaymentCallback() {
   useEffect(() => {
     if (!router.isReady) return;
 
-    const { tx_ref, transaction_id, status } = router.query;
+    const { tx_ref, status } = router.query;
 
     if (status === 'cancelled') {
       setMessage("Vous avez annulé la transaction.");
@@ -20,7 +20,7 @@ export default function PaymentCallback() {
     }
 
     if (tx_ref) {
-      verifyPayment(tx_ref, transaction_id);
+      verifyPayment(tx_ref);
     } else {
       setMessage("Référence de transaction introuvable.");
       setStatusType('error');
@@ -28,18 +28,24 @@ export default function PaymentCallback() {
     }
   }, [router.isReady, router.query]);
 
-  const verifyPayment = async (ref, id) => {
+  const verifyPayment = async (ref) => {
     try {
       setLoading(true);
-      setMessage("Vérification sécurisée auprès de Flutterwave...");
+      setMessage("Vérification sécurisée auprès du serveur...");
 
-      // Appel backend avec fetch
-      const res = await fetch(`/api/verify-payment?tx_ref=${ref}&transaction_id=${id}`);
+      const res = await fetch(`/api/verify-payment?tx_ref=${ref}`);
+      if (!res.ok) {
+        throw new Error(`Erreur serveur (${res.status})`);
+      }
+
       const data = await res.json();
 
       if (data.status === "successful") {
         setMessage(`Paiement réussi ! ${data.amount} ${data.currency} ont été ajoutés à votre solde.`);
         setStatusType('success');
+      } else if (data.status === "pending") {
+        setMessage("Le paiement est encore en attente de confirmation.");
+        setStatusType('info');
       } else {
         setMessage("Le paiement n'a pas pu être validé. Statut : " + (data.status || "inconnu"));
         setStatusType('error');
@@ -61,13 +67,15 @@ export default function PaymentCallback() {
             <div className="spinner" style={styles.spinner}></div>
           ) : statusType === 'success' ? (
             <span style={{ fontSize: '50px' }}>✅</span>
+          ) : statusType === 'info' ? (
+            <span style={{ fontSize: '50px' }}>⏳</span>
           ) : (
             <span style={{ fontSize: '50px' }}>❌</span>
           )}
         </div>
 
         <h1 style={styles.title}>
-          {loading ? "Vérification en cours" : statusType === 'success' ? "Succès !" : "Oups !"}
+          {loading ? "Vérification en cours" : statusType === 'success' ? "Succès !" : statusType === 'info' ? "En attente..." : "Oups !"}
         </h1>
         
         <p style={{ ...styles.message, color: statusType === 'error' ? '#d9534f' : '#333' }}>
@@ -78,6 +86,7 @@ export default function PaymentCallback() {
           <button 
             onClick={() => router.push('/dashboard')} 
             style={styles.button}
+            disabled={loading}
             onMouseOver={(e) => e.target.style.backgroundColor = '#0056b3'}
             onMouseOut={(e) => e.target.style.backgroundColor = '#007bff'}
           >
@@ -148,5 +157,6 @@ const styles = {
     fontWeight: '600',
     cursor: 'pointer',
     transition: 'background-color 0.2s'
-  }
+  },
+  spinner: {}
 };
