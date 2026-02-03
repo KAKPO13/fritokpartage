@@ -1,7 +1,6 @@
-// pages/api/verify-payment.js (ESM)
+// pages/api/verify-payment.js
 import admin from "firebase-admin";
 
-// Initialisation Firebase Admin (évite les doublons)
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -47,9 +46,8 @@ export default async function handler(req, res) {
     if (fwData.status === "success" && fwData.data.status === "successful") {
       const { amount, currency, id: flutterwaveId } = fwData.data;
 
-      // 3. Récupérer l'utilisateur via tx_ref dans Firestore
+      // 3. Récupérer l'utilisateur via tx_ref
       const paymentSnap = await db.collection("pending_payments").doc(tx_ref).get();
-
       if (!paymentSnap.exists) {
         console.error("[VerifyPayment] ❌ Transaction introuvable pour tx_ref:", tx_ref);
         return res.status(404).json({ error: "Transaction introuvable" });
