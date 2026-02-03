@@ -28,14 +28,25 @@ exports.handler = async (event) => {
     const { amount, currency } = JSON.parse(event.body);
     const tx_ref = `FRITOK-${uuidv4()}`;
 
-    // 2. Enregistrement Supabase
-    await supabase.from("pending_payments").insert({
+    // 2. Enregistrement Supabase (CORRIGÉ)
+    const { error: supabaseError } = await supabase.from("pending_payments").insert({
       user_id: userId,
       amount: amount,
       currency: currency,
       tx_ref: tx_ref,
       status: "PENDING"
     });
+
+    // C'EST ICI QUE LE BUG SE CACHAIT :
+    // Si une erreur survient, on l'affiche dans les logs et on arrête tout.
+    if (supabaseError) {
+      console.error("ERREUR CRITIQUE SUPABASE:", supabaseError);
+      throw new Error(`Erreur sauvegarde DB: ${supabaseError.message}`);
+    }
+
+    // 3. Appel API Flutterwave (Standard Checkout)
+    // ... suite du code ...
+
 
     // 3. Appel API Flutterwave (Standard Checkout)
     const response = await fetch("https://api.flutterwave.com/v3/payments", {
