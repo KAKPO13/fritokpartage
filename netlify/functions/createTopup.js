@@ -1,4 +1,4 @@
-const { createClient } = require("@supabase/supabase-js");
+// netlify/functions/init-payment.js
 const admin = require("firebase-admin");
 const fetch = require("node-fetch");
 const { v4: uuidv4 } = require("uuid");
@@ -13,10 +13,12 @@ if (!admin.apps.length) {
   });
 }
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const db = admin.firestore();
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method Not Allowed" };
+  }
 
   try {
     // 1. Authentification Firebase
@@ -28,24 +30,15 @@ exports.handler = async (event) => {
     const { amount, currency } = JSON.parse(event.body);
     const tx_ref = `FRITOK-${uuidv4()}`;
 
-    // 2. Enregistrement Supabase (CORRIGÉ)
-    const { error: supabaseError } = await supabase.from("pending_payments").insert({
-      user_id: userId,
-      amount: amount,
-      currency: currency,
-      tx_ref: tx_ref,
-      status: "PENDING"
+    // 2. Enregistrement Firestore
+    await db.collection("pending_payments").doc(tx_ref).set({
+      userId,
+      amount,
+      currency,
+      tx_ref,
+      status: "PENDING",
+      createdAt: admin.firestore.Timestamp.now(),
     });
-
-    // Si une erreur survient, on l'affiche dans les logs et on arrête tout.
-    if (supabaseError) {
-      console.error("ERREUR CRITIQUE SUPABASE:", supabaseError);
-      throw new Error(`Erreur sauvegarde DB: ${supabaseError.message}`);
-    }
-
-    // 3. Appel API Flutterwave (Standard Checkout)
-    // ... suite du code ...
-
 
     // 3. Appel API Flutterwave (Standard Checkout)
     const response = await fetch("https://api.flutterwave.com/v3/payments", {
@@ -55,30 +48,32 @@ exports.handler = async (event) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        tx_ref: tx_ref,
-        amount: amount,
-        currency: currency,
+        tx_ref,
+        amount,
+        currency,
         redirect_url: "https://fritok.net/payment-callback",
         payment_options: "card,mobilemoney,ussd,banktransfer",
         customer: {
           email: decodedToken.email,
           name: decodedToken.name || "User FriTok",
-          phonenumber: "+2250700000000" // numéro ivoirien pour Mobile Money
+          phonenumber: "+2250700000000", // numéro ivoirien pour Mobile Money
         },
         customizations: {
           title: "FriTok Wallet",
           description: `Recharge de ${amount} ${currency}`,
           logo: "https://fritok.com/logo.png",
         },
-      })
+      }),
     });
 
     const data = await response.json();
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ payment_url: data.data.link }),
+      body: JSON.stringify({ payment_url: data.data.link, tx_ref }),
     };
   } catch (err) {
+    console.error("[InitPayment] ❌ Erreur interne:", err);
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };

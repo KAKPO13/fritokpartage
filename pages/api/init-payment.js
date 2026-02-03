@@ -20,7 +20,10 @@ export default async function handler(req, res) {
 
   try {
     const { userId, amount, currency } = req.body;
+
+    // Validation des paramètres
     if (!userId || !amount || !currency) {
+      console.error("[InitPayment] ❌ Paramètres manquants");
       return res.status(400).json({ error: "Paramètres manquants" });
     }
 
@@ -32,9 +35,12 @@ export default async function handler(req, res) {
       userId,
       amount,
       currency,
+      tx_ref,
       status: "pending",
       createdAt: admin.firestore.Timestamp.now(),
     });
+
+    console.log(`[InitPayment] ✅ Paiement initialisé pour userId=${userId}, tx_ref=${tx_ref}`);
 
     // 3. Retourner tx_ref au frontend (pour initier Flutterwave)
     return res.status(200).json({ tx_ref, amount, currency });
