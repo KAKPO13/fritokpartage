@@ -1,13 +1,16 @@
 // pages/api/verify-payment.js (ESM)
 import admin from "firebase-admin";
 
-// Initialisation Firebase Admin (évite les doublons)
 if (!admin.apps.length) {
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
   admin.initializeApp({
-    credential: admin.credential.applicationDefault(),
+    credential: admin.credential.cert(serviceAccount),
   });
 }
+
 const db = admin.firestore();
+
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
