@@ -53,7 +53,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: "Transaction introuvable" });
       }
 
-      const { userId } = paymentSnap.data();
+      const { userId, destinataireId, destinataireNom, destinataireTelephone } = paymentSnap.data();
 
       // 4. Mise à jour du wallet Firestore
       console.log(`[VerifyPayment] 🔄 Mise à jour wallet ${currency} pour userId=${userId}, +${amount}`);
@@ -61,7 +61,7 @@ export default async function handler(req, res) {
         [`wallet.${currency}`]: admin.firestore.FieldValue.increment(amount),
       });
 
-      // 5. Log transaction
+      // 5. Log transaction dans wallet_transactions
       await db.collection("wallet_transactions").add({
         userId,
         tx_ref,
@@ -72,13 +72,30 @@ export default async function handler(req, res) {
         createdAt: admin.firestore.Timestamp.now(),
       });
 
-      // 6. Mettre à jour le statut du paiement
+      // 6. Ajouter la transaction dans TransfetMoney pour historique complet
+      await db.collection("TransfetMoney").add({
+        date: new Date().toISOString().split("T")[0], // YYYY-MM-DD
+        destinataireNom: destinataireNom || "N/A",
+        destinataireTelephone: destinataireTelephone || "N/A",
+        profilePictureUrl: "", // si tu veux l’ajouter plus tard
+        expediteurEmail: "", // si disponible
+        expediteurId: userId,
+        destinataireId: destinataireId || userId, // si pas de destinataire, on met userId
+        frais: 0,
+        montantEnvoye: amount,
+        montantRecu: amount,
+        timestamp: Date.now(),
+        transactionId: tx_ref,
+        currency,
+      });
+
+      // 7. Mettre à jour le statut du paiement
       await db.collection("pending_payments").doc(tx_ref).update({
         status: "successful",
         updatedAt: admin.firestore.Timestamp.now(),
       });
 
-      console.log("[VerifyPayment] ✅ Paiement validé et wallet mis à jour");
+      console.log("[VerifyPayment] ✅ Paiement validé, wallet et historique TransfetMoney mis à jour");
       return res.status(200).json({ status: "successful", amount, currency });
     } else {
       const currentFwStatus = fwData.data?.status || "failed";
