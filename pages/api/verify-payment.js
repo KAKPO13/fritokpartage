@@ -80,7 +80,7 @@ export default async function handler(req, res) {
         profilePictureUrl: "", // si tu veux l’ajouter plus tard
         expediteurEmail: "", // si disponible
         expediteurId: userId,
-      
+        destinataireId: destinataireId || userId, // si pas de destinataire, on met userId
         frais: 0,
         montantEnvoye: amount,
         montantRecu: amount,
