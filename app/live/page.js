@@ -3,15 +3,20 @@ import React, { useEffect, useRef, useState } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { FaShoppingCart } from "react-icons/fa";
+import { useSearchParams } from "next/navigation";
 
 export default function LivePage({ searchParams }) {
-  const { channel, token } = searchParams;
+  const params = useSearchParams();
+  const channel = searchParams?.channel || params.get("channel");
+  const token = searchParams?.token || params.get("token");
+  console.log("Channel:", channel, "Token:", token);
   const remoteRef = useRef(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [likes, setLikes] = useState(0);
   const [showComments, setShowComments] = useState(false);
   const [copiedToast, setCopiedToast] = useState(false);
+  
 
   // Firebase config
   const firebaseConfig = {
