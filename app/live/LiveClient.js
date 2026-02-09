@@ -2,7 +2,6 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import { initializeApp } from "firebase/app";
-import { serverTimestamp } from "firebase/firestore";
 import { getFirestore, collection, addDoc, onSnapshot, orderBy, query, where, serverTimestamp } from "firebase/firestore";
 import { FaShoppingCart } from "react-icons/fa";
 import { useSearchParams } from "next/navigation";
