@@ -2,7 +2,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, onSnapshot, orderBy, query } from "firebase/firestore";
+import { getFirestore, collection, addDoc, onSnapshot, orderBy, query, serverTimestamp } from "firebase/firestore";
 import { FaShoppingCart } from "react-icons/fa";
 import { useSearchParams } from "next/navigation";
 
@@ -76,23 +76,27 @@ export default function LiveClient() {
     };
   }, [channel, token]);
 
-  // Firestore messages (live)
+  // Firestore commentaires
   useEffect(() => {
     if (!channel) return;
-    const q = query(collection(db, "channels", channel, "messages"), orderBy("timestamp", "asc"));
+    const q = query(
+      collection(db, "live_commentaires", channel),
+      orderBy("timestamp", "asc")
+    );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setMessages(snapshot.docs.map((doc) => doc.data()));
+      console.log("Commentaires Firestore:", snapshot.docs.map((doc) => doc.data()));
     });
     return () => unsubscribe();
   }, [channel, db]);
 
-  // Send message
+  // Envoi d’un commentaire
   const sendMessage = async () => {
     if (input.trim() === "" || !channel) return;
-    await addDoc(collection(db, "channels", channel, "messages"), {
-      user: "Spectateur",
+    await addDoc(collection(db, "live_commentaires", channel), {
+      sender: "Anonyme",
       text: input.trim(),
-      timestamp: new Date(),
+      timestamp: serverTimestamp(),
     });
     setInput("");
   };
@@ -136,7 +140,7 @@ export default function LiveClient() {
       </div>
       <div className="chat-preview">
         {lastMessages.map((msg, i) => (
-          <p key={i}><strong>{msg.user}:</strong> {msg.text}</p>
+          <p key={i}><strong>{msg.sender}:</strong> {msg.text}</p>
         ))}
       </div>
       {showComments && (
@@ -148,7 +152,7 @@ export default function LiveClient() {
             </div>
             <div className="modal-body">
               {messages.length === 0 ? <p>Aucun commentaire.</p> : messages.map((msg, i) => (
-                <p key={i}><strong>{msg.user}:</strong> {msg.text}</p>
+                <p key={i}><strong>{msg.sender}:</strong> {msg.text}</p>
               ))}
             </div>
             <div className="modal-footer">
@@ -159,9 +163,7 @@ export default function LiveClient() {
         </div>
       )}
       {copiedToast && <div className="toast">Lien copié dans le presse‑papier</div>}
-       {/* ✅ Bouton flottant Acheter */}
-         
-      
+
             <button className="buy-button">
               <FaShoppingCart style={{ marginRight: "8px" }} />
               Acheter
