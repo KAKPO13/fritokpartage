@@ -2,6 +2,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import { initializeApp } from "firebase/app";
+import { serverTimestamp } from "firebase/firestore";
 import { getFirestore, collection, addDoc, onSnapshot, orderBy, query, where, serverTimestamp } from "firebase/firestore";
 import { FaShoppingCart } from "react-icons/fa";
 import { useSearchParams } from "next/navigation";
@@ -94,12 +95,12 @@ export default function LiveClient() {
   // Envoi d’un commentaire
   const sendMessage = async () => {
     if (input.trim() === "" || !channel) return;
-    await addDoc(collection(db, "live_comments"), {
-      channelId: channel,
-      sender: "Anonyme",
-      text: input.trim(),
-      timestamp: serverTimestamp(),
-    });
+        await addDoc(collection(db, "live_comments"), {
+        channelId: channel,
+        sender: "Anonyme",
+        text: input.trim(),
+        timestamp: serverTimestamp(), // ✅ vrai Timestamp Firestore
+        });
     setInput("");
   };
 
