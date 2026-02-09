@@ -33,7 +33,7 @@ export default function LivePage({ searchParams }) {
 
     async function initAgora() {
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-      const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
+      const appId = process.env.AGORA_APP_ID;
       const uid = Math.floor(Math.random() * 10000);
 
       client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
