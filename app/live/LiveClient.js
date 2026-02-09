@@ -39,30 +39,54 @@ export default function LiveClient() {
     let client;
 
     async function initAgora() {
-      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-      const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
-      const uid = Math.floor(Math.random() * 10000);
+  const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+  const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
+  const uid = Math.floor(Math.random() * 10000);
 
-      console.log("Agora appId:", appId, "channel:", channel, "token:", token);
+  console.log("Agora appId:", appId, "channel:", channel);
 
-      try {
-        client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
-        await client.join(appId, channel, token, uid);
-        client.setClientRole("audience");
+  try {
+    // 1️⃣ Création du client
+    client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
 
-        client.on("user-published", async (user, mediaType) => {
-          await client.subscribe(user, mediaType);
-          if (mediaType === "video" && remoteRef.current) user.videoTrack.play(remoteRef.current);
-          if (mediaType === "audio") user.audioTrack.play();
+    // 2️⃣ Configuration du LOW stream (AVANT join)
+    client.setLowStreamParameter({
+      width: 640,
+      height: 360,
+      framerate: 15,
+      bitrate: 400,
+    });
+
+    // 3️⃣ Rôle audience
+    await client.setClientRole("audience");
+
+    // 4️⃣ Rejoindre le canal
+    await client.join(appId, channel, token, uid);
+
+    // 5️⃣ Gestion des flux
+    client.on("user-published", async (user, mediaType) => {
+      await client.subscribe(user, mediaType);
+
+      if (mediaType === "video" && remoteRef.current) {
+        user.videoTrack.play(remoteRef.current, {
+          fit: "cover",
         });
-
-        client.on("user-unpublished", () => {
-          if (remoteRef.current) remoteRef.current.innerHTML = "";
-        });
-      } catch (err) {
-        console.error("Erreur Agora join:", err);
       }
-    }
+
+      if (mediaType === "audio") {
+        user.audioTrack.play();
+      }
+    });
+
+    client.on("user-unpublished", () => {
+      if (remoteRef.current) remoteRef.current.innerHTML = "";
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur Agora:", err);
+  }
+}
+
 
     if (channel && token) {
       initAgora();
@@ -188,10 +212,12 @@ export default function LiveClient() {
               display: flex;
               flex-direction: column;
             }
-            .video {
-              flex: 1;
-              background: black;
+           .video video {
+              width: 100%;
+              height: 100%;
+              object-fit: cover;
             }
+
             .live-badge {
               position: absolute;
               top: 10px;
