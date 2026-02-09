@@ -2,10 +2,9 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, onSnapshot, orderBy, query } from "firebase/firestore";
+import { getFirestore, collection, addDoc, onSnapshot, orderBy, query, where, serverTimestamp } from "firebase/firestore";
 import { FaShoppingCart } from "react-icons/fa";
 import { useSearchParams } from "next/navigation";
-import { serverTimestamp } from "firebase/firestore";
 
 export default function LiveClient() {
   const params = useSearchParams();
@@ -77,35 +76,32 @@ export default function LiveClient() {
     };
   }, [channel, token]);
 
-  // Firestore messages (live)
+  // Firestore commentaires (collection racine live_comments)
+  useEffect(() => {
+    if (!channel) return;
+    const q = query(
+      collection(db, "live_comments"),
+      where("channelId", "==", channel),
+      orderBy("timestamp", "asc")
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setMessages(snapshot.docs.map((doc) => doc.data()));
+      console.log("Commentaires Firestore:", snapshot.docs.map((doc) => doc.data()));
+    });
+    return () => unsubscribe();
+  }, [channel, db]);
 
-
-// Écoute des commentaires
-useEffect(() => {
-  if (!channel) return;
-  const q = query(
-    collection(db, "live_commentaires", channel, "messages"),
-    orderBy("timestamp", "asc")
-  );
-  const unsubscribe = onSnapshot(q, (snapshot) => {
-    setMessages(snapshot.docs.map((doc) => doc.data()));
-    console.log("Commentaires Firestore:", snapshot.docs.map((doc) => doc.data()));
-  });
-  return () => unsubscribe();
-}, [channel, db]);
-
-// Envoi d’un commentaire
-const sendMessage = async () => {
-  if (input.trim() === "" || !channel) return;
-  await addDoc(collection(db, "live_commentaires", channel, "messages"), {
-    sender: "Anonyme",
-    text: input.trim(),
-    timestamp: serverTimestamp(),
-  });
-  setInput("");
-};
-
-
+  // Envoi d’un commentaire
+  const sendMessage = async () => {
+    if (input.trim() === "" || !channel) return;
+    await addDoc(collection(db, "live_comments"), {
+      channelId: channel,
+      sender: "Anonyme",
+      text: input.trim(),
+      timestamp: serverTimestamp(),
+    });
+    setInput("");
+  };
 
   // Share
   const handleShare = async () => {
@@ -145,38 +141,32 @@ const sendMessage = async () => {
         <button onClick={() => setShowComments(true)}>💬</button>
       </div>
       <div className="chat-preview">
-  {lastMessages.map((msg, i) => (
-    <p key={i}><strong>{msg.sender}:</strong> {msg.text}</p>
-  ))}
-</div>
+        {lastMessages.map((msg, i) => (
+          <p key={i}><strong>{msg.sender}:</strong> {msg.text}</p>
+        ))}
+      </div>
+      {showComments && (
+        <div className="modal" onClick={() => setShowComments(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>💬 Commentaires</h3>
+              <button onClick={() => setShowComments(false)}>✖</button>
+            </div>
+            <div className="modal-body">
+              {messages.length === 0 ? <p>Aucun commentaire.</p> : messages.map((msg, i) => (
+                <p key={i}><strong>{msg.sender}:</strong> {msg.text}</p>
+              ))}
+            </div>
+            <div className="modal-footer">
+              <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Écris un commentaire..." />
+              <button onClick={sendMessage}>Envoyer</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {copiedToast && <div className="toast">Lien copié dans le presse‑papier</div>}
+      <button className="buy-button"><FaShoppingCart /> Acheter</button>
 
-{showComments && (
-  <div className="modal" onClick={() => setShowComments(false)}>
-    <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-      <div className="modal-header">
-        <h3>💬 Commentaires</h3>
-        <button onClick={() => setShowComments(false)}>✖</button>
-      </div>
-      <div className="modal-body">
-        {messages.length === 0 ? (
-          <p>Aucun commentaire.</p>
-        ) : (
-          messages.map((msg, i) => (
-            <p key={i}><strong>{msg.sender}:</strong> {msg.text}</p>
-          ))
-        )}
-      </div>
-      <div className="modal-footer">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Écris un commentaire..."
-        />
-        <button onClick={sendMessage}>Envoyer</button>
-      </div>
-    </div>
-  </div>
-)}
 
       {copiedToast && <div className="toast">Lien copié dans le presse‑papier</div>}
        {/* ✅ Bouton flottant Acheter */}
