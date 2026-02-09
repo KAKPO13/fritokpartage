@@ -84,7 +84,7 @@ export default function LiveClient() {
 useEffect(() => {
   if (!channel) return;
   const q = query(
-    collection(db, "live_commentaires", channel),
+    collection(db, "live_commentaires", channel, "messages"),
     orderBy("timestamp", "asc")
   );
   const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -97,13 +97,14 @@ useEffect(() => {
 // Envoi d’un commentaire
 const sendMessage = async () => {
   if (input.trim() === "" || !channel) return;
-  await addDoc(collection(db, "live_commentaires", channel), {
+  await addDoc(collection(db, "live_commentaires", channel, "messages"), {
     sender: "Anonyme",
     text: input.trim(),
     timestamp: serverTimestamp(),
   });
   setInput("");
 };
+
 
 
   // Share
