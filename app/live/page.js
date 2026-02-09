@@ -39,7 +39,7 @@ export default function LivePage({ searchParams }) {
       // 🔍 Ajoute ce log ici
       console.log("Agora appId:", appId, "channel:", channel, "token:", token);
 
-
+      try {
       client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
       await client.join(appId, channel, token, uid);
       client.setClientRole("audience");
@@ -53,6 +53,9 @@ export default function LivePage({ searchParams }) {
       client.on("user-unpublished", () => {
         if (remoteRef.current) remoteRef.current.innerHTML = "";
       });
+      } catch (err) { 
+        console.error("Erreur Agora join:", err); // ✅ log de l’erreur 
+        }
     }
 
     if (channel && token) initAgora();
