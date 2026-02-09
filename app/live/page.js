@@ -36,6 +36,10 @@ export default function LivePage({ searchParams }) {
       const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
       const uid = Math.floor(Math.random() * 10000);
 
+      // 🔍 Ajoute ce log ici
+      console.log("Agora appId:", appId, "channel:", channel, "token:", token);
+
+
       client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
       await client.join(appId, channel, token, uid);
       client.setClientRole("audience");
