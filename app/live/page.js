@@ -28,20 +28,19 @@ export default function LivePage({ searchParams }) {
 
   // Agora init (audience)
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    let client;
+  if (typeof window === "undefined") return;
+  let client;
 
-    async function initAgora() {
-      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-      const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
-      const uid = Math.floor(Math.random() * 10000);
+  async function initAgora() {
+    const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+    const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
+    const uid = Math.floor(Math.random() * 10000);
 
-      // 🔍 Ajoute ce log ici
-      console.log("Agora appId:", appId, "channel:", channel, "token:", token);
+    console.log("Agora appId:", appId, "channel:", channel, "token:", token);
 
-      try {
+    try {
       client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
-      await client.join(appId, channel, token, uid);
+      await client.join(appId, channel, token, uid);   // ✅ entouré d’un try/catch
       client.setClientRole("audience");
 
       client.on("user-published", async (user, mediaType) => {
@@ -53,18 +52,22 @@ export default function LivePage({ searchParams }) {
       client.on("user-unpublished", () => {
         if (remoteRef.current) remoteRef.current.innerHTML = "";
       });
-      } catch (err) { 
-        console.error("Erreur Agora join:", err); // ✅ log de l’erreur 
-        }
+    } catch (err) {
+      console.error("Erreur Agora join:", err); // ✅ log de l’erreur
     }
+  }
 
-    if (channel && token) initAgora();
+  if (channel && token) {
+    initAgora();
+  } else {
+    console.warn("⚠️ channel ou token manquant:", channel, token);
+  }
 
-    return () => {
-      if (client) client.leave();
-      if (remoteRef.current) remoteRef.current.innerHTML = "";
-    };
-  }, [channel, token]);
+  return () => {
+    if (client) client.leave();
+    if (remoteRef.current) remoteRef.current.innerHTML = "";
+  };
+}, [channel, token]);
 
   // Firestore messages (live)
   useEffect(() => {
