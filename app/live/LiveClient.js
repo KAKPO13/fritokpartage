@@ -1,10 +1,15 @@
-// app/live/LiveClient.js
 "use client";
 import React, { useEffect, useRef, useState } from "react";
-import { initializeApp } from "firebase/app";
 import { getFirestore, collection, onSnapshot, orderBy, query, where, serverTimestamp, doc } from "firebase/firestore";
 import { FaShoppingCart } from "react-icons/fa";
 import { useSearchParams } from "next/navigation";
+import { getAuth } from "firebase/auth";
+import { app } from "@/lib/firebase"; // ✅ UNE SEULE SOURCE
+
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+
 
 export default function LiveClient() {
   const params = useSearchParams();
@@ -161,29 +166,46 @@ export default function LiveClient() {
   const handleBuy = async () => {
   console.log("BUY CLICKED");
 
-  console.log("Produit actif:", activeProduct);
+  if (!activeProduct) {
+    alert("Produit introuvable");
+    return;
+  }
 
-  const userId = auth.currentUser?.uid;
-  console.log("User:", userId);
+  const user = auth.currentUser;
+
+  if (!user) {
+    alert("Connecte-toi pour acheter");
+    return;
+  }
 
   try {
     const res = await fetch("/api/flutterwave/init-payment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId,
-        amount: activeProduct?.price,
+        userId: user.uid,
+        amount: activeProduct.price,
         currency: "XOF",
       }),
     });
 
-    const text = await res.text();
-    console.log("SERVER RESPONSE:", text);
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error(data);
+      alert("Erreur paiement");
+      return;
+    }
+
+    // 🔥 REDIRECTION FLUTTERWAVE
+    window.location.href = data.link;
 
   } catch (err) {
     console.error(err);
+    alert("Erreur réseau");
   }
 };
+
 
 
   return (
