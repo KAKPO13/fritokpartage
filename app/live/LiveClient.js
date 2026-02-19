@@ -1,4 +1,5 @@
 "use client";
+
 import React, { useEffect, useRef, useState } from "react";
 import {
   collection,
@@ -12,12 +13,6 @@ import {
 import { FaShoppingCart } from "react-icons/fa";
 import { useSearchParams } from "next/navigation";
 import { db, auth } from "../../lib/firebaseClient"; // ✅ propre
-
-
-
-const auth = getAuth(app);
-const db = getFirestore(app);
-
 
 
 export default function LiveClient() {
@@ -44,8 +39,7 @@ export default function LiveClient() {
     messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
   };
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+ 
 
   // 🎥 Agora live audience
   useEffect(() => {
