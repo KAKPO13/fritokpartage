@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from "react";
-import { auth, db } from "../lib/firebaseClient";
+import { auth, db } from "../../lib/firebaseClient";
 import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
@@ -11,11 +11,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Auto-login si déjà connecté
   useEffect(() => {
-    const user = auth.currentUser;
-    if (user && user.emailVerified) {
-      redirectUser(user.uid);
-    }
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      if (user && user.emailVerified) {
+        await redirectUser(user.uid);
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   const redirectUser = async (uid) => {
@@ -26,14 +29,12 @@ export default function LoginPage() {
     const role = data.role || "Client";
     const kyc = data.kyc_status || "pending";
 
-    // Charger wallet dans localStorage
     localStorage.setItem("wallet", JSON.stringify(data.wallet || {}));
 
-    // Redirection
-    if (role === "Vendeur" && kyc !== "approved") router.push("/kyc");
-    else if (role === "Vendeur") router.push("/vendeur/home");
-    else if (role === "Livreur") router.push("/livreur/home");
-    else router.push("/client/home");
+    if (role === "Vendeur" && kyc !== "approved") router.replace("/kyc");
+    else if (role === "Vendeur") router.replace("/vendeur/home");
+    else if (role === "Livreur") router.replace("/livreur/home");
+    else router.replace("/client/home");
   };
 
   const handleLogin = async () => {
@@ -59,7 +60,6 @@ export default function LoginPage() {
   const handleGoogleLogin = async () => {
     setLoading(true);
     const provider = new GoogleAuthProvider();
-
     try {
       const cred = await signInWithPopup(auth, provider);
       const user = cred.user;
@@ -76,7 +76,6 @@ export default function LoginPage() {
       console.error(e);
       alert("Erreur Google Sign-In : " + e.message);
     }
-
     setLoading(false);
   };
 
@@ -108,7 +107,7 @@ export default function LoginPage() {
         {loading ? "Connexion..." : "Se connecter avec Google"}
       </button>
       <p style={{ marginTop: 20 }}>
-        Pas de compte ? <a href="/register_page">Inscrivez-vous</a>
+        Pas de compte ? <a href="/register">Inscrivez-vous</a>
       </p>
     </div>
   );
