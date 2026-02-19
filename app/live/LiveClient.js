@@ -20,6 +20,7 @@ export default function LiveClient() {
   const params = useSearchParams();
   const channel = params.get("channel");
   const token = params.get("token");
+  
 
   const remoteRef = useRef(null);
   const [messages, setMessages] = useState([]);
@@ -30,6 +31,7 @@ export default function LiveClient() {
   const [products, setProducts] = useState([]);
   const [activeProduct, setActiveProduct] = useState(null);
   const [wallet, setWallet] = useState({});
+  const [user, setUser] = useState(null);
 
   const router = useRouter();
 
