@@ -1,10 +1,19 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
-import { getFirestore, collection, onSnapshot, orderBy, query, where, serverTimestamp, doc } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+  serverTimestamp,
+  addDoc
+} from "firebase/firestore";
 import { FaShoppingCart } from "react-icons/fa";
 import { useSearchParams } from "next/navigation";
-import { getAuth } from "firebase/auth";
-import { app } from "@/lib/firebase"; // ✅ UNE SEULE SOURCE
+import { db, auth } from "../../lib/firebaseClient"; // ✅ propre
+
+
 
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -135,7 +144,7 @@ export default function LiveClient() {
   // Send comment
   const sendMessage = async () => {
     if (!input.trim() || !channel) return;
-    await db.collection("live_comments").add({
+    await addDoc(collection(db, "live_comments"), {
       channelId: channel,
       sender: "Anonyme",
       text: input.trim(),
