@@ -183,43 +183,52 @@ const handleBuy = async () => {
     return;
   }
 
+  // 🔥 sécurise les champs
+  const amount =
+    activeProduct.price ||
+    activeProduct.product?.price ||
+    activeProduct.amount;
+
+  if (!amount) {
+    alert("Prix introuvable sur le produit");
+    console.log("PRODUCT STRUCTURE:", activeProduct);
+    return;
+  }
+
+  const payload = {
+    userId: user.uid,
+    email: user.email,
+    username: user.displayName || "Client",
+    productId: activeProduct.id,
+    amount: Number(amount),
+    currency: "XOF",
+  };
+
+  console.log("PAYLOAD:", payload);
+
   try {
     const res = await fetch("/api/flutterwave/init-payment", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        userId: user.uid,
-        email: user.email,
-        username: user.displayName || "Client",
-        productId: activeProduct.id,
-        amount: activeProduct.price,
-        currency: activeProduct.currency || "XOF",
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
 
     const data = await res.json();
-    console.log("API response:", data);
+    console.log("API RESPONSE:", data);
 
     if (!res.ok) {
       alert(data.error || "Erreur paiement");
       return;
     }
 
-    if (!data.link) {
-      alert("Lien Flutterwave introuvable");
-      return;
-    }
-
-    // 🔥 Redirection vers Flutterwave
     window.location.href = data.link;
 
-  } catch (error) {
-    console.error("❌ Payment error:", error);
+  } catch (err) {
+    console.error(err);
     alert("Erreur paiement");
   }
 };
+
 
 
   return (
