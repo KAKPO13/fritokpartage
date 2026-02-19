@@ -180,7 +180,7 @@ const handleBuy = async () => {
 
   if (!user) {
     alert("Connecte-toi pour acheter");
-    router.push("/login_page"); // 🔑 redirection vers la page de login
+    router.push("/login"); // 🔑 redirection vers la page de login
     return;
   }
 
