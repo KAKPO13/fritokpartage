@@ -207,7 +207,7 @@ const handleBuy = async () => {
   console.log("PAYLOAD:", payload);
 
   try {
-    const res = await fetch("/api/flutterwave/init-payment", {
+    const response = await fetch("/api/flutterwave", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
