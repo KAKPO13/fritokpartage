@@ -13,6 +13,7 @@ import {
 import { FaShoppingCart } from "react-icons/fa";
 import { useSearchParams } from "next/navigation";
 import { db, auth } from "../../lib/firebaseClient"; // ✅ propre
+import { useRouter } from "next/navigation";
 
 
 export default function LiveClient() {
@@ -165,8 +166,9 @@ export default function LiveClient() {
 
   const lastMessages = messages.slice(-3);
 
-  // 💳 Init payment via API route
-  const handleBuy = async () => {
+const router = useRouter();
+
+const handleBuy = async () => {
   console.log("BUY CLICKED");
 
   if (!activeProduct) {
@@ -178,6 +180,7 @@ export default function LiveClient() {
 
   if (!user) {
     alert("Connecte-toi pour acheter");
+    router.push("/login_page"); // 🔑 redirection vers la page de login
     return;
   }
 
