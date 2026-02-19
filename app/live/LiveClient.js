@@ -198,26 +198,27 @@ const handleBuy = async () => {
     return;
   }
 
-  // 🔥 sécurise les champs
-  const amount =
-    activeProduct.price ||
-    activeProduct.product?.price ||
-    activeProduct.amount;
+// 🔥 sécurise les champs
+const amount =
+  activeProduct.price ||
+  activeProduct.product?.price ||
+  activeProduct.amount;
 
-  if (!amount) {
-    alert("Prix introuvable sur le produit");
-    console.log("PRODUCT STRUCTURE:", activeProduct);
-    return;
-  }
+if (!amount) {
+  alert("Prix introuvable sur le produit");
+  console.log("PRODUCT STRUCTURE:", activeProduct);
+  return;
+}
 
-  const payload = {
-    userId: user.uid,
-    email: user.email,
-    username: user.displayName || "Client",
-    productId: activeProduct.id,
-    amount: Number(amount),
-    currency: "XOF",
-  };
+const payload = {
+  userId: user.uid,
+  email: user.email,
+  username: user.displayName || "Client",
+  productId: activeProduct.refArticle, // ✅ utiliser refArticle comme identifiant
+  amount: Number(amount),
+  currency: "XOF",
+};
+
 
   console.log("PAYLOAD:", payload);
 
