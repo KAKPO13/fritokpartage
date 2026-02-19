@@ -159,22 +159,32 @@ export default function LiveClient() {
 
   // 💳 Init payment via API route
   const handleBuy = async () => {
-    if (!activeProduct) return;
-    const userId = localStorage.getItem("userId");
+  console.log("BUY CLICKED");
+
+  console.log("Produit actif:", activeProduct);
+
+  const userId = auth.currentUser?.uid;
+  console.log("User:", userId);
+
+  try {
     const res = await fetch("/api/flutterwave/init-payment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         userId,
-        amount: activeProduct.price,
-        currency: activeProduct.currency || "XOF",
+        amount: activeProduct?.price,
+        currency: "XOF",
       }),
     });
-    const data = await res.json();
-    if (data.payment_url) {
-      window.open(data.payment_url, "_blank");
-    }
-  };
+
+    const text = await res.text();
+    console.log("SERVER RESPONSE:", text);
+
+  } catch (err) {
+    console.error(err);
+  }
+};
+
 
   return (
     <main className="live-container">
