@@ -58,41 +58,58 @@ export default function LiveClient() {
 
  
 
-  // 🎥 Agora live audience
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    let client;
-    async function initAgora() {
-      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-      const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
-      const uid = Math.floor(Math.random() * 10000);
+// 🎥 Agora live audience
+useEffect(() => {
+  if (typeof window === "undefined") return;
+  let client;
+  async function initAgora() {
+    const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+    const appId = process.env.NEXT_PUBLIC_AGORA_APP_ID;
+    const uid = Math.floor(Math.random() * 10000);
 
-      try {
-        client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
-        await client.join(appId, channel, token, uid);
-        client.setClientRole("audience");
+    try {
+      client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
 
-        client.on("user-published", async (user, mediaType) => {
-          await client.subscribe(user, mediaType);
-          if (mediaType === "video" && remoteRef.current) user.videoTrack.play(remoteRef.current);
-          if (mediaType === "audio") user.audioTrack.play();
-        });
+      // 🔔 Gestion de l’autoplay bloqué
+      AgoraRTC.onAutoplayFailed = () => {
+        const btn = document.createElement("button");
+        btn.innerText = "Activer le son";
+        btn.onclick = () => {
+          AgoraRTC.resumeAudio();
+          AgoraRTC.resumeVideo();
+        };
+        document.body.appendChild(btn);
+      };
 
-        client.on("user-unpublished", () => {
-          if (remoteRef.current) remoteRef.current.innerHTML = "";
-        });
-      } catch (err) {
-        console.error("Erreur Agora join:", err);
-      }
+      await client.join(appId, channel, token, uid);
+      client.setClientRole("audience");
+
+      client.on("user-published", async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+        if (mediaType === "video" && remoteRef.current) {
+          user.videoTrack.play(remoteRef.current);
+        }
+        if (mediaType === "audio") {
+          user.audioTrack.play();
+        }
+      });
+
+      client.on("user-unpublished", () => {
+        if (remoteRef.current) remoteRef.current.innerHTML = "";
+      });
+    } catch (err) {
+      console.error("Erreur Agora join:", err);
     }
+  }
 
-    if (channel && token) initAgora();
+  if (channel && token) initAgora();
 
-    return () => {
-      if (client) client.leave();
-      if (remoteRef.current) remoteRef.current.innerHTML = "";
-    };
-  }, [channel, token]);
+  return () => {
+    if (client) client.leave();
+    if (remoteRef.current) remoteRef.current.innerHTML = "";
+  };
+}, [channel, token]);
+
 
   // 💬 Firestore comments
   useEffect(() => {
