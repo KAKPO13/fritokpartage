@@ -169,7 +169,7 @@ export default function LiveClient() {
 const router = useRouter();
 
 const handleBuy = async () => {
-  console.log("BUY CLICKED");
+  console.log("🛒 BUY CLICKED");
 
   if (!activeProduct) {
     alert("Produit introuvable");
@@ -179,39 +179,47 @@ const handleBuy = async () => {
   const user = auth.currentUser;
 
   if (!user) {
-    alert("Connecte-toi pour acheter");
-    router.push("/login"); // 🔑 redirection vers la page de login
+    router.push("/login");
     return;
   }
 
   try {
     const res = await fetch("/api/flutterwave/init-payment", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         userId: user.uid,
+        email: user.email,
+        username: user.displayName || "Client",
+        productId: activeProduct.id,
         amount: activeProduct.price,
-        currency: "XOF",
+        currency: activeProduct.currency || "XOF",
       }),
     });
 
     const data = await res.json();
+    console.log("API response:", data);
 
     if (!res.ok) {
-      console.error(data);
-      alert("Erreur paiement");
+      alert(data.error || "Erreur paiement");
       return;
     }
 
-    // 🔥 REDIRECTION FLUTTERWAVE
+    if (!data.link) {
+      alert("Lien Flutterwave introuvable");
+      return;
+    }
+
+    // 🔥 Redirection vers Flutterwave
     window.location.href = data.link;
 
-  } catch (err) {
-    console.error(err);
-    alert("Erreur réseau");
+  } catch (error) {
+    console.error("❌ Payment error:", error);
+    alert("Erreur paiement");
   }
 };
-
 
 
   return (
