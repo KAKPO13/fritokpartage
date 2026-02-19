@@ -207,26 +207,27 @@ const handleBuy = async () => {
   console.log("PAYLOAD:", payload);
 
   try {
-    const response = await fetch("/api/flutterwave", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+  const response = await fetch("/api/flutterwave", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 
-    const data = await res.json();
-    console.log("API RESPONSE:", data);
+  const data = await response.json();
+  console.log("API RESPONSE:", data);
 
-    if (!res.ok) {
-      alert(data.error || "Erreur paiement");
-      return;
-    }
-
-    window.location.href = data.link;
-
-  } catch (err) {
-    console.error(err);
-    alert("Erreur paiement");
+  if (!response.ok) {
+    alert(data.error || "Erreur paiement");
+    return;
   }
+
+  // IMPORTANT : ton backend renvoie payment_url
+  window.location.href = data.payment_url;
+
+} catch (err) {
+  console.error(err);
+  alert("Erreur paiement");
+}
 };
 
 
