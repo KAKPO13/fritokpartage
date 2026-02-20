@@ -1,8 +1,8 @@
-const admin = require("firebase-admin");
-const fetch = require("node-fetch");
+import admin from "firebase-admin";
+import fetch from "node-fetch";
 
 if (!admin.apps.length) {
-  const serviceAccount = require("../../serviceAccountKey.json");
+  const serviceAccount = JSON.parse(process.env.FIREBASE_ADMIN_JSON);
 
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
@@ -11,12 +11,17 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405 };
-  }
-
+export const handler = async (event) => {
   try {
+    const authHeader = event.headers.authorization;
+    if (!authHeader) {
+      return { statusCode: 401, body: "Unauthorized" };
+    }
+
+    const idToken = authHeader.split("Bearer ")[1];
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    const userId = decoded.uid;
+
     const { productId } = JSON.parse(event.body);
 
     if (!productId) {
@@ -40,14 +45,27 @@ exports.handler = async (event) => {
       };
     }
 
-    const productData = snap.docs[0].data();
-    const product = productData.product;
+    const product = productSnap.docs[0].data();
 
-    const txRef = "FRITOK-" + Date.now();
+    // 🔥 Anti double paiement
+    const existingTx = await db
+      .collection("wallet_transactions")
+      .where("userId", "==", userId)
+      .where("productId", "==", productId)
+      .where("status", "==", "pending")
+      .limit(1)
+      .get();
 
-    // 🔥 Enregistrer pending payment
-    await db.collection("pending_payments").doc(txRef).set({
-      tx_ref: txRef,
+    if (!existingTx.empty) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Paiement déjà en cours" }),
+      };
+    }
+
+    // 🔥 Création transaction
+    const txRef = await db.collection("wallet_transactions").add({
+      userId,
       productId,
       amount: product.price,
       currency: "XOF",
@@ -55,33 +73,36 @@ exports.handler = async (event) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 💳 Flutterwave paiement
-    const payment = await fetch("https://api.flutterwave.com/v3/payments", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        tx_ref: txRef,
-        amount: product.price,
-        currency: "XOF",
-        redirect_url: "https://fritok.net/wallet",
-        customer: {
-          email: "client@email.com",
+    // 🔥 Flutterwave call
+    const flutterRes = await fetch(
+      "https://api.flutterwave.com/v3/payments",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET}`,
+          "Content-Type": "application/json",
         },
-        customizations: {
-          title: product.name,
-        },
-      }),
-    });
+        body: JSON.stringify({
+          tx_ref: txRef.id,
+          amount: product.price,
+          currency: "XOF",
+          redirect_url: `${process.env.SITE_URL}/wallet`,
+          customer: {
+            email: decoded.email,
+          },
+          customizations: {
+            title: product.name,
+          },
+        }),
+      }
+    );
 
-    const paymentData = await payment.json();
+    const flutterData = await flutterRes.json();
 
     return {
       statusCode: 200,
       body: JSON.stringify({
-        payment_url: paymentData.data.link,
+        payment_url: flutterData.data.link,
       }),
     };
   } catch (error) {
