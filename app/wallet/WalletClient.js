@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { collection, query, where, orderBy, onSnapshot } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { useAuth } from "@/lib/useAuth";
+import { db, useAuth } from "../../lib/firebaseClient";
+
 
 export default function WalletClient() {
   const { user } = useAuth();
