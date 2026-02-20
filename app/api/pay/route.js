@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import axios from "axios";
-import { db } from "@/lib/firebaseAdmin";
+import { adminDb } from "@/lib/firebaseAdmin";
 
 export async function POST(req) {
   try {
@@ -13,7 +13,7 @@ export async function POST(req) {
     const tx_ref = `FRITOK-${crypto.randomUUID()}`;
 
     // Enregistrer pending
-    await db.collection("pending_payments").doc(tx_ref).set({
+    await adminDb.collection("pending_payments").doc(tx_ref).set({
       userId,
       amount: Number(amount),
       currency,

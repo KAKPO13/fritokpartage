@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
-import { db, auth } from "@/lib/firebaseClient";
+import { adminDb, adminAuth } from "@/lib/firebaseClient";
 
 export default function WalletPage() {
 
@@ -10,11 +10,11 @@ export default function WalletPage() {
 
   useEffect(() => {
 
-    const unsubAuth = auth.onAuthStateChanged(user => {
+    const unsubAuth = adminAuth.onAuthStateChanged(user => {
       if (!user) return;
 
       const unsubWallet = onSnapshot(
-        doc(db, "wallets", user.uid),
+        doc(adminDb, "wallets", user.uid),
         (snap) => {
           if (snap.exists()) {
             setWallet(snap.data().balances);

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebaseAdmin";
+import { adminDb } from "@/lib/firebaseAdmin";
 
 export async function POST(req) {
 
@@ -23,7 +23,7 @@ export async function POST(req) {
 
   const txRef = data.tx_ref;
 
-  const pendingRef = db.collection("pending_payments").doc(txRef);
+  const pendingRef = adminDb.collection("pending_payments").doc(txRef);
   const pendingSnap = await pendingRef.get();
 
   if (!pendingSnap.exists) {
@@ -39,7 +39,7 @@ export async function POST(req) {
     return NextResponse.json({ error: "Montant invalide" }, { status: 400 });
   }
 
-  const walletRef = db.collection("wallets").doc(pending.userId);
+  const walletRef = adminDb.collection("wallets").doc(pending.userId);
   const transactionRef = db.collection("transactions").doc(txRef);
 
   await db.runTransaction(async (t) => {
@@ -67,7 +67,7 @@ export async function POST(req) {
       createdAt: new Date()
     });
 
-    t.set(db.collection("ledger").doc(), {
+    t.set(adminDb.collection("ledger").doc(), {
       userId: pending.userId,
       currency: data.currency,
       amount: data.amount,
