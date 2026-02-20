@@ -202,67 +202,26 @@ useEffect(() => {
   const lastMessages = messages.slice(-3);
 
 const handleBuy = async () => {
-  console.log("🛒 BUY CLICKED");
+  if (!user || !activeProduct) return;
 
-  const user = auth.currentUser; // ✅ déclaré en premier
+  const response = await fetch("/api/pay", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userId: user.uid,
+      email: user.email,
+      productId: activeProduct.refArticle,
+    }),
+  });
 
-  if (!user) {
-    alert("Utilisateur non connecté");
-    router.push("/login");
+  const data = await response.json();
+
+  if (!response.ok) {
+    alert(data.error);
     return;
   }
 
-  if (!activeProduct) {
-    alert("Produit introuvable");
-    return;
-  }
-
-// 🔥 sécurise les champs
-const amount =
-  activeProduct.price ||
-  activeProduct.product?.price ||
-  activeProduct.amount;
-
-if (!amount) {
-  alert("Prix introuvable sur le produit");
-  console.log("PRODUCT STRUCTURE:", activeProduct);
-  return;
-}
-
-const payload = {
-  userId: user.uid,
-  email: user.email,
-  username: user.displayName || "Client",
-  productId: activeProduct.refArticle, // ✅ utiliser refArticle comme identifiant
-  amount: Number(amount),
-  currency: "XOF",
-};
-
-
-  console.log("PAYLOAD:", payload);
-
-  try {
-    const response = await fetch("/api/flutterwave", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await response.json();
-    console.log("API RESPONSE:", data);
-
-    if (!response.ok) {
-      alert(data.error || "Erreur paiement");
-      return;
-    }
-
-   // IMPORTANT : ton backend renvoie payment_url
   window.location.href = data.payment_url;
-
-  } catch (error) {
-    console.error("Payment error:", error);
-    alert("Erreur réseau");
-  }
 };
 
 
