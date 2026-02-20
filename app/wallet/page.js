@@ -7,23 +7,31 @@ import { auth, db } from "@/lib/firebaseClient"
 export default function WalletPage() {
   const [wallet, setWallet] = useState(null)
 
-  useEffect(() => {
-    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
-      if (!user) return
+ useEffect(() => {
+  if (!user) return;
 
-      const userRef = doc(db, "users", user.uid)
+  const q = query(
+    collection(db, "wallet_transactions"),
+    where("userId", "==", user.uid),
+    orderBy("timestamp", "desc")
+  );
 
-      const unsubscribeSnapshot = onSnapshot(userRef, (snap) => {
-        if (snap.exists()) {
-          setWallet(snap.data().wallet)
-        }
-      })
+  const unsubscribe = onSnapshot(q, snapshot => {
+    const balances = {};
 
-      return () => unsubscribeSnapshot()
-    })
+    snapshot.docs.forEach(docSnap => {
+      const tx = docSnap.data();
+      if (tx.status === "successful") {
+        balances[tx.currency] =
+          (balances[tx.currency] || 0) + tx.montantRecu;
+      }
+    });
 
-    return () => unsubscribeAuth()
-  }, [])
+    setWallet(balances);
+  });
+
+  return () => unsubscribe();
+}, [user]);
 
   if (!wallet) return <div>Loading...</div>
 

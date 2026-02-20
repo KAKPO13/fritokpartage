@@ -201,30 +201,54 @@ useEffect(() => {
 
   const lastMessages = messages.slice(-3);
 
+const [loadingPayment, setLoadingPayment] = useState(false);
+
 const handleBuy = async () => {
-  if (!user || !activeProduct) return;
-
-  const response = await fetch("/api/pay", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      userId: user.uid,
-      email: user.email,
-      productId: activeProduct.refArticle,
-    }),
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    alert(data.error);
+  if (!user) {
+    alert("Connexion requise");
     return;
   }
 
-  window.location.href = data.payment_url;
+  if (!activeProduct?.productId) {
+    alert("Produit invalide");
+    return;
+  }
 
+  if (loadingPayment) return; // 🛡 Anti double clic
+  setLoadingPayment(true);
+
+  try {
+    // 🔐 1️⃣ Token Firebase sécurisé
+    const idToken = await user.getIdToken();
+
+    // 💳 2️⃣ Appel Netlify function sécurisée
+    const response = await fetch("/.netlify/functions/pay", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        productId: activeProduct.productId,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Erreur paiement");
+    }
+
+    // 🚀 3️⃣ Redirection Flutterwave
+    window.location.href = data.paymentLink;
+
+  } catch (error) {
+    console.error("Erreur paiement:", error);
+    alert(error.message);
+  } finally {
+    setLoadingPayment(false);
+  }
 };
-
 
   return (
     <main className="live-container">
@@ -285,8 +309,17 @@ const handleBuy = async () => {
 
       {/* 💳 Buy button */}
       {activeProduct && (
-        <button className="buy-button" onClick={handleBuy}>
-          <FaShoppingCart /> Acheter {activeProduct.name} • {activeProduct.price} FCFA
+        <button
+          className="buy-button"
+          onClick={handleBuy}
+          disabled={loadingPayment}
+        >
+          {loadingPayment ? "Traitement..." : (
+            <>
+              <FaShoppingCart />
+              Acheter {activeProduct.name} • {activeProduct.price} FCFA
+            </>
+          )}
         </button>
       )}
 

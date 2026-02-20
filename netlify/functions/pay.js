@@ -1,6 +1,5 @@
 const admin = require("firebase-admin")
 const fetch = require("node-fetch")
-const crypto = require("crypto")
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -20,16 +19,23 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { userId, email, productId } = JSON.parse(event.body)
+    const { productId } = JSON.parse(event.body)
 
-    if (!userId || !email || !productId) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing required fields" }),
-      }
+    if (!productId) {
+      return { statusCode: 400, body: "Missing productId" }
     }
 
-    // 🔎 Recherche produit via product.productId
+    // 🔐 Vérifier utilisateur via Firebase token
+    const token = event.headers.authorization?.split("Bearer ")[1]
+    if (!token) {
+      return { statusCode: 401 }
+    }
+
+    const decoded = await admin.auth().verifyIdToken(token)
+    const userId = decoded.uid
+    const email = decoded.email
+
+    // 🔎 Chercher produit via productId
     const snapshot = await db
       .collection("video_playlist")
       .where("product.productId", "==", productId)
@@ -37,30 +43,24 @@ exports.handler = async (event) => {
       .get()
 
     if (snapshot.empty) {
-      return {
-        statusCode: 404,
-        body: JSON.stringify({ error: "Product not found" }),
-      }
+      return { statusCode: 404 }
     }
 
-    const doc = snapshot.docs[0]
-    const product = doc.data().product
+    const product = snapshot.docs[0].data().product
 
-    // 🔐 Génération tx_ref sécurisé
-    const tx_ref = "FRITOK-" + crypto.randomUUID()
+    const tx_ref = "TX-" + Date.now()
 
-    // 💾 Sauvegarde pending payment AVANT appel Flutterwave
+    // 💾 Créer pending payment
     await db.collection("pending_payments").doc(tx_ref).set({
       userId,
-      email,
-      productId,
       amount: product.price,
       currency: "XOF",
       status: "pending",
+      tx_ref,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     })
 
-    // 💳 Création paiement Flutterwave
+    // 💳 Flutterwave
     const payment = await fetch("https://api.flutterwave.com/v3/payments", {
       method: "POST",
       headers: {
@@ -72,21 +72,12 @@ exports.handler = async (event) => {
         amount: product.price,
         currency: "XOF",
         redirect_url: "https://fritok.net/wallet",
-        customer: {
-          email,
-        },
-        customizations: {
-          title: product.name,
-          description: product.description,
-        },
+        customer: { email },
+        customizations: { title: product.name },
       }),
     })
 
     const paymentData = await payment.json()
-
-    if (!paymentData?.data?.link) {
-      throw new Error("Flutterwave error")
-    }
 
     return {
       statusCode: 200,
@@ -94,12 +85,9 @@ exports.handler = async (event) => {
         paymentLink: paymentData.data.link,
       }),
     }
+
   } catch (error) {
     console.error(error)
-
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "Server error" }),
-    }
+    return { statusCode: 500 }
   }
 }
