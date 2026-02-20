@@ -1,40 +1,38 @@
-"use client";
+"use client"
 
-import { useEffect, useState } from "react";
-import { doc, onSnapshot } from "firebase/firestore";
-import { adminDb, adminAuth } from "@/lib/firebaseClient";
+import { useEffect, useState } from "react"
+import { doc, onSnapshot } from "firebase/firestore"
+import { auth, db } from "@/lib/firebaseClient"
 
 export default function WalletPage() {
-
-  const [wallet, setWallet] = useState({});
+  const [wallet, setWallet] = useState(null)
 
   useEffect(() => {
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      if (!user) return
 
-    const unsubAuth = adminAuth.onAuthStateChanged(user => {
-      if (!user) return;
+      const userRef = doc(db, "users", user.uid)
 
-      const unsubWallet = onSnapshot(
-        doc(adminDb, "wallets", user.uid),
-        (snap) => {
-          if (snap.exists()) {
-            setWallet(snap.data().balances);
-          }
+      const unsubscribeSnapshot = onSnapshot(userRef, (snap) => {
+        if (snap.exists()) {
+          setWallet(snap.data().wallet)
         }
-      );
+      })
 
-      return unsubWallet;
-    });
+      return () => unsubscribeSnapshot()
+    })
 
-    return () => unsubAuth();
+    return () => unsubscribeAuth()
+  }, [])
 
-  }, []);
+  if (!wallet) return <div>Loading...</div>
 
   return (
-    <div style={{ padding: 30 }}>
-      <h1>Mon Wallet</h1>
-      {Object.entries(wallet).map(([cur, val]) => (
-        <p key={cur}>{cur} : {val}</p>
-      ))}
+    <div>
+      <h1>Wallet</h1>
+      <p>XOF: {wallet.XOF}</p>
+      <p>GHS: {wallet.GHS}</p>
+      <p>NGN: {wallet.NGN}</p>
     </div>
-  );
+  )
 }
