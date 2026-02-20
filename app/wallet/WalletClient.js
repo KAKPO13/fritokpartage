@@ -2,20 +2,30 @@
 
 import { useEffect, useState } from "react";
 import { collection, query, where, orderBy, onSnapshot } from "firebase/firestore";
-import { db, useAuth } from "../../lib/firebaseClient";
-
+import { onAuthStateChanged } from "firebase/auth";
+import { db, auth } from "../../lib/firebaseClient";
 
 export default function WalletClient() {
-  const { user } = useAuth();
+  const [user, setUser] = useState(null);
   const [wallet, setWallet] = useState({});
 
+  // 🔐 Auth listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser || null);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // 💰 Wallet listener
   useEffect(() => {
     if (!user) return;
 
     const q = query(
       collection(db, "wallet_transactions"),
       where("userId", "==", user.uid),
-      orderBy("timestamp", "desc")
+      orderBy("createdAt", "desc")
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -24,9 +34,9 @@ export default function WalletClient() {
       snapshot.docs.forEach((doc) => {
         const tx = doc.data();
 
-        if (tx.status === "successful") {
+        if (tx.status === "success") {
           balances[tx.currency] =
-            (balances[tx.currency] || 0) + tx.montantRecu;
+            (balances[tx.currency] || 0) + tx.amount;
         }
       });
 
