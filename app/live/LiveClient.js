@@ -222,6 +222,7 @@ const handleBuy = async () => {
   }
 
   window.location.href = data.payment_url;
+
 };
 
 
