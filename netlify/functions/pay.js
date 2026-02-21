@@ -1,52 +1,46 @@
 import admin from "firebase-admin";
 import fetch from "node-fetch";
 
-/* =============================
-   🔥 INIT FIREBASE SAFE
-============================= */
-
+/**
+ * 🔥 Initialisation Firebase Admin (compatible Netlify 4KB limit)
+ */
 if (!admin.apps.length) {
-  const raw = process.env.FIREBASE_ADMIN_JSON;
-
-  if (!raw) {
-    throw new Error("FIREBASE_ADMIN_JSON missing in env");
-  }
-
-  const serviceAccount = JSON.parse(raw);
-
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
+    credential: admin.credential.cert({
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    }),
   });
 }
 
 const db = admin.firestore();
 
-/* =============================
-   🚀 HANDLER
-============================= */
-
 export const handler = async (event) => {
   try {
-    /* =============================
-       🔐 AUTH CHECK
-    ============================= */
-
+    // 🔐 Vérification auth
     const authHeader = event.headers.authorization;
 
-    if (!authHeader) {
-      return { statusCode: 401, body: "Unauthorized" };
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ error: "Unauthorized" }),
+      };
     }
 
     const idToken = authHeader.split("Bearer ")[1];
     const decoded = await admin.auth().verifyIdToken(idToken);
     const userId = decoded.uid;
 
-    /* =============================
-       📦 BODY SAFE PARSE
-    ============================= */
+    // 📦 Body parsing sécurisé
+    if (!event.body) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Body manquant" }),
+      };
+    }
 
-    const body = event.body ? JSON.parse(event.body) : {};
-    const { productId } = body;
+    const { productId } = JSON.parse(event.body);
 
     if (!productId) {
       return {
@@ -55,10 +49,9 @@ export const handler = async (event) => {
       };
     }
 
-    /* =============================
-       🔍 SEARCH PRODUCT
-    ============================= */
-
+    /**
+     * 🔎 Recherche produit via champ imbriqué
+     */
     const snap = await db
       .collection("video_playlist")
       .where("product.productId", "==", productId)
@@ -72,25 +65,17 @@ export const handler = async (event) => {
       };
     }
 
-    const video = snap.docs[0].data();
-    const product = video.product;
+    const productData = snap.docs[0].data();
+    const product = productData.product;
 
-    if (!product?.price) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Prix invalide" }),
-      };
-    }
-
-    /* =============================
-       🛡 ANTI DOUBLE PAYMENT
-    ============================= */
-
+    /**
+     * 🛡 Anti double paiement
+     */
     const existingTx = await db
       .collection("wallet_transactions")
       .where("userId", "==", userId)
       .where("productId", "==", productId)
-      .where("status", "in", ["pending", "processing"])
+      .where("status", "==", "pending")
       .limit(1)
       .get();
 
@@ -101,13 +86,10 @@ export const handler = async (event) => {
       };
     }
 
-    /* =============================
-       💳 CREATE TRANSACTION
-    ============================= */
-
-    const txRef = db.collection("wallet_transactions").doc();
-
-    await txRef.set({
+    /**
+     * 💳 Création transaction
+     */
+    const txRef = await db.collection("wallet_transactions").add({
       userId,
       productId,
       amount: product.price,
@@ -116,10 +98,9 @@ export const handler = async (event) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    /* =============================
-       🔥 CALL FLUTTERWAVE
-    ============================= */
-
+    /**
+     * 🚀 Appel Flutterwave
+     */
     const flutterRes = await fetch(
       "https://api.flutterwave.com/v3/payments",
       {
@@ -146,12 +127,12 @@ export const handler = async (event) => {
     const flutterData = await flutterRes.json();
 
     if (!flutterData?.data?.link) {
-      throw new Error("Flutterwave response invalid");
+      console.error("Flutterwave error:", flutterData);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "Erreur paiement Flutterwave" }),
+      };
     }
-
-    /* =============================
-       ✅ RETURN PAYMENT LINK
-    ============================= */
 
     return {
       statusCode: 200,
@@ -161,7 +142,6 @@ export const handler = async (event) => {
     };
   } catch (error) {
     console.error("PAY FUNCTION ERROR:", error);
-
     return {
       statusCode: 500,
       body: JSON.stringify({ error: "Erreur serveur" }),
