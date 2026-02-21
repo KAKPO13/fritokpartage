@@ -169,7 +169,7 @@ export const handler = async (event) => {
     let finalAmount = product.price;
 
     if (currency !== "XOF") {
-      if (!process.env.EXCHANGE_API_KEY) {
+      if (!process.env.NEXT_PUBLIC_EXCHANGE_API_KEY) {
         return {
           statusCode: 500,
           body: JSON.stringify({ error: "API conversion non configurée" }),
@@ -177,7 +177,7 @@ export const handler = async (event) => {
       }
 
       const rateRes = await fetchWithTimeout(
-        `https://v6.exchangerate-api.com/v6/${process.env.EXCHANGE_API_KEY}/latest/XOF`
+        `https://v6.exchangerate-api.com/v6/${process.env.NEXT_PUBLIC_EXCHANGE_API_KEY}/latest/XOF`
       );
 
       const rateData = await rateRes.json();
