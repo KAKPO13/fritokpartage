@@ -80,12 +80,26 @@ export const handler = async (event) => {
       .get();
 
     if (!existingTx.empty) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Paiement déjà en cours" }),
-      };
-    }
+  const txDoc = existingTx.docs[0];
+  const txData = txDoc.data();
 
+  // si transaction trop vieille (ex: +15 min)
+  const createdAt = txData.createdAt?.toDate();
+  const now = new Date();
+
+  if (createdAt && now - createdAt > 15 * 60 * 1000) {
+    // on la supprime
+    await txDoc.ref.delete();
+  } else {
+    // on renvoie l'ancien lien
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        payment_url: txData.paymentLink,
+      }),
+    };
+  }
+}
     /**
      * 💳 Création transaction
      */
@@ -95,6 +109,7 @@ export const handler = async (event) => {
       amount: product.price,
       currency: "XOF",
       status: "pending",
+      paymentLink: flutterData.data.link, // AJOUTE ÇA
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
