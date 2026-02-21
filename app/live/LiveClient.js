@@ -309,31 +309,37 @@ const handleBuy = async () => {
         </div>
       )}
 
-      <select
-        value={currency}
-        onChange={(e) => setCurrency(e.target.value)}
-      >
-        <option value="XOF">XOF (FCFA)</option>
-        <option value="NGN">NGN (Naira)</option>
-        <option value="GHS">GHS (Cedi)</option>
-        <option value="USD">USD</option>
-      </select>
+  {/* 💱 Currency selector */}
+{activeProduct && (
+  <div className="currency-selector">
+    <label>Devise :</label>
+    <select
+      value={currency}
+      onChange={(e) => setCurrency(e.target.value)}
+    >
+      <option value="XOF">XOF (FCFA)</option>
+      <option value="NGN">NGN (Naira)</option>
+      <option value="GHS">GHS (Cedi)</option>
+      <option value="USD">USD ($)</option>
+    </select>
+  </div>
+)}
 
-      {/* 💳 Buy button */}
-      {activeProduct && (
-        <button
-          className="buy-button"
-          onClick={handleBuy}
-          disabled={loadingPayment}
-        >
-          {loadingPayment ? "Traitement..." : (
-            <>
-              <FaShoppingCart />
-              Acheter {activeProduct.name} • {activeProduct.price} FCFA
-            </>
-          )}
-        </button>
-      )}
+{/* 💳 Buy button */}
+{activeProduct && (
+  <button
+    className="buy-button"
+    onClick={handleBuy}
+    disabled={loadingPayment}
+  >
+    {loadingPayment ? "Traitement..." : (
+      <>
+        <FaShoppingCart />
+        Acheter {activeProduct.name} • {activeProduct.price} {currency}
+      </>
+    )}
+  </button>
+)}
 
       {/* 🟢 Wallet display */}
       <div className="wallet-display">
@@ -365,6 +371,37 @@ const handleBuy = async () => {
         .product-item img { width: 100%; height: 80px; object-fit: cover; border-radius: 8px; }
         .product-item.active { transform: scale(1.1); box-shadow: 0 0 15px #ff6600; border: 2px solid #ff6600; }
         .wallet-display { position: absolute; top: 10px; right: 10px; color: lime; font-weight: bold; display: flex; flex-direction: column; gap: 4px; }
+
+        .currency-selector {
+  position: fixed;
+  bottom: 85px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  padding: 10px 16px;
+  border-radius: 25px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 10002;
+  color: white;
+  font-weight: 500;
+}
+
+.currency-selector select {
+  background: #ff6600;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 20px;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+  outline: none;
+}
+
+.currency-selector select:hover {
+  background: #e65c00;
+}
       `}</style>
     </main>
   );
