@@ -80,28 +80,26 @@ export const handler = async (event) => {
       .get();
 
     if (!existingTx.empty) {
-      const txDoc = existingTx.docs[0];
-      const txData = txDoc.data();
-
-      const createdAt = txData.createdAt?.toDate();
-      const now = new Date();
-
-      // Si transaction > 15 minutes → on la supprime
-      if (createdAt && now - createdAt > 15 * 60 * 1000) {
-        await txDoc.ref.delete();
-      } else {
-        // Sinon on renvoie l'ancien lien
-        return {
-          statusCode: 200,
-          body: JSON.stringify({
-            payment_url: txData.paymentLink,
-          }),
-        };
-      }
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Paiement déjà en cours" }),
+      };
     }
 
     /**
-     * 🚀 Appel Flutterwave (AVANT création transaction)
+     * 💳 Création transaction
+     */
+    const txRef = await db.collection("wallet_transactions").add({
+      userId,
+      productId,
+      amount: product.price,
+      currency: "XOF",
+      status: "pending",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    /**
+     * 🚀 Appel Flutterwave
      */
     const flutterRes = await fetch(
       "https://api.flutterwave.com/v3/payments",
@@ -112,7 +110,7 @@ export const handler = async (event) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          tx_ref: `TX-${Date.now()}`,
+          tx_ref: txRef.id,
           amount: product.price,
           currency: "XOF",
           redirect_url: `${process.env.SITE_URL}/wallet`,
@@ -135,20 +133,6 @@ export const handler = async (event) => {
         body: JSON.stringify({ error: "Erreur paiement Flutterwave" }),
       };
     }
-
-    /**
-     * 💳 Création transaction APRÈS Flutterwave
-     */
-    const txRef = await db.collection("wallet_transactions").add({
-      userId,
-      productId,
-      amount: product.price,
-      currency: "XOF",
-      status: "pending",
-      paymentLink: flutterData.data.link,
-      txRef: flutterData.data.tx_ref,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
 
     return {
       statusCode: 200,
