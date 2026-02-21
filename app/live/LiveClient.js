@@ -20,6 +20,7 @@ export default function LiveClient() {
   const params = useSearchParams();
   const channel = params.get("channel");
   const token = params.get("token");
+  const [currency, setCurrency] = useState("XOF");
   
 
   const remoteRef = useRef(null);
@@ -230,6 +231,7 @@ const handleBuy = async () => {
       },
       body: JSON.stringify({
         productId: activeProduct.productId,
+        currency: currency,
       }),
     });
 
@@ -306,6 +308,16 @@ const handleBuy = async () => {
           ))}
         </div>
       )}
+
+      <select
+        value={currency}
+        onChange={(e) => setCurrency(e.target.value)}
+      >
+        <option value="XOF">XOF (FCFA)</option>
+        <option value="NGN">NGN (Naira)</option>
+        <option value="GHS">GHS (Cedi)</option>
+        <option value="USD">USD</option>
+      </select>
 
       {/* 💳 Buy button */}
       {activeProduct && (

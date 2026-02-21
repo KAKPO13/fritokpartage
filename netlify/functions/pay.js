@@ -2,7 +2,7 @@ import admin from "firebase-admin";
 import fetch from "node-fetch";
 
 /**
- * 🔥 Initialisation Firebase Admin (compatible Netlify 4KB limit)
+ * 🔥 Initialisation Firebase Admin (Netlify compatible)
  */
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -15,6 +15,24 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
+
+/**
+ * 💳 Payment options dynamiques selon devise
+ */
+function getPaymentOptions(currency) {
+  switch (currency) {
+    case "XOF":
+      return "card,mobilemoneyfranco";
+    case "NGN":
+      return "card,ussd,banktransfer";
+    case "GHS":
+      return "card,mobilemoneyghana";
+    case "USD":
+      return "card";
+    default:
+      return "card";
+  }
+}
 
 export const handler = async (event) => {
   try {
@@ -40,17 +58,17 @@ export const handler = async (event) => {
       };
     }
 
-    const { productId } = JSON.parse(event.body);
+    const { productId, currency } = JSON.parse(event.body);
 
-    if (!productId) {
+    if (!productId || !currency) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Produit invalide" }),
+        body: JSON.stringify({ error: "Produit ou devise invalide" }),
       };
     }
 
     /**
-     * 🔎 Recherche produit via champ imbriqué
+     * 🔎 Recherche produit
      */
     const snap = await db
       .collection("video_playlist")
@@ -87,13 +105,13 @@ export const handler = async (event) => {
     }
 
     /**
-     * 💳 Création transaction
+     * 💳 Création transaction (pending)
      */
     const txRef = await db.collection("wallet_transactions").add({
       userId,
       productId,
       amount: product.price,
-      currency: "XOF",
+      currency: currency,
       status: "pending",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -110,18 +128,18 @@ export const handler = async (event) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-        tx_ref: txRef.id,
-        amount: product.price,
-        currency: "XOF",
-        redirect_url: `${process.env.SITE_URL}/wallet`,
-        payment_options: "card,mobilemoney,ussd",
-        customer: {
-          email: decoded.email,
-        },
-        customizations: {
-          title: product.name,
-        },
-      })
+          tx_ref: txRef.id,
+          amount: product.price,
+          currency: currency,
+          redirect_url: `${process.env.SITE_URL}/wallet`,
+          payment_options: getPaymentOptions(currency),
+          customer: {
+            email: decoded.email,
+          },
+          customizations: {
+            title: product.name,
+          },
+        }),
       }
     );
 
@@ -135,10 +153,17 @@ export const handler = async (event) => {
       };
     }
 
+    /**
+     * 🔄 Sauvegarde du lien paiement
+     */
+    await txRef.update({
+      paymentLink: flutterData.data.link,
+    });
+
     return {
       statusCode: 200,
       body: JSON.stringify({
-       paymentLink: flutterData.data.link,
+        paymentLink: flutterData.data.link,
       }),
     };
   } catch (error) {
