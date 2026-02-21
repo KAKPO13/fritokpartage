@@ -137,7 +137,7 @@ export const handler = async (event) => {
     return {
       statusCode: 200,
       body: JSON.stringify({
-        payment_url: flutterData.data.link,
+       paymentLink: flutterData.data.link,
       }),
     };
   } catch (error) {
