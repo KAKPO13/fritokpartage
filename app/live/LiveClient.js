@@ -49,11 +49,7 @@ export default function LiveClient() {
 
   useEffect(() => {
   const unsubscribe = auth.onAuthStateChanged((firebaseUser) => {
-    if (!firebaseUser) {
-      router.push("/login");
-    } else {
-      setUser(firebaseUser);
-    }
+    setUser(firebaseUser); // on stocke juste l'utilisateur
   });
 
   return () => unsubscribe();
@@ -205,10 +201,11 @@ useEffect(() => {
 const [loadingPayment, setLoadingPayment] = useState(false);
 
 const handleBuy = async () => {
-  if (!user) {
-    alert("Connexion requise");
-    return;
-  }
+ if (!user) {
+  alert("Connecte-toi pour acheter ce produit");
+  router.push(`/login?redirect=${window.location.pathname}`);
+  return;
+}
 
   if (!activeProduct?.productId) {
     alert("Produit invalide");
