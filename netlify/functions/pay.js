@@ -2,9 +2,17 @@ import admin from "firebase-admin";
 import fetch from "node-fetch";
 
 /**
- * 🔥 Initialisation Firebase Admin (Netlify compatible)
+ * 🔥 Firebase Admin Init (Netlify safe)
  */
 if (!admin.apps.length) {
+  if (
+    !process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+    !process.env.FIREBASE_CLIENT_EMAIL ||
+    !process.env.FIREBASE_PRIVATE_KEY
+  ) {
+    throw new Error("Firebase env variables manquantes");
+  }
+
   admin.initializeApp({
     credential: admin.credential.cert({
       projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
@@ -17,7 +25,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 /**
- * 💳 Payment options dynamiques selon devise
+ * 💳 Payment options dynamiques
  */
 function getPaymentOptions(currency) {
   switch (currency) {
@@ -34,12 +42,29 @@ function getPaymentOptions(currency) {
   }
 }
 
+const allowedCurrencies = ["XOF", "NGN", "GHS", "USD"];
+
+/**
+ * 🔐 Timeout helper (anti API freeze)
+ */
+async function fetchWithTimeout(url, options, timeout = 8000) {
+  return Promise.race([
+    fetch(url, options),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout API")), timeout)
+    ),
+  ]);
+}
+
 export const handler = async (event) => {
   try {
-    // 🔐 Vérification auth
+    /* ===============================
+       🔐 AUTH
+    =============================== */
+
     const authHeader = event.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!authHeader?.startsWith("Bearer ")) {
       return {
         statusCode: 401,
         body: JSON.stringify({ error: "Unauthorized" }),
@@ -48,9 +73,20 @@ export const handler = async (event) => {
 
     const idToken = authHeader.split("Bearer ")[1];
     const decoded = await admin.auth().verifyIdToken(idToken);
+
+    if (!decoded?.uid || !decoded?.email) {
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ error: "Utilisateur invalide" }),
+      };
+    }
+
     const userId = decoded.uid;
 
-    // 📦 Body parsing sécurisé
+    /* ===============================
+       📦 BODY SAFE PARSE
+    =============================== */
+
     if (!event.body) {
       return {
         statusCode: 400,
@@ -58,18 +94,33 @@ export const handler = async (event) => {
       };
     }
 
-    const { productId, currency } = JSON.parse(event.body);
+    let body;
+    try {
+      body = JSON.parse(event.body);
+    } catch {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "JSON invalide" }),
+      };
+    }
 
-    if (!productId || !currency) {
+    const { productId, currency } = body;
+
+    if (
+      !productId ||
+      !currency ||
+      !allowedCurrencies.includes(currency)
+    ) {
       return {
         statusCode: 400,
         body: JSON.stringify({ error: "Produit ou devise invalide" }),
       };
     }
 
-    /**
-     * 🔎 Recherche produit
-     */
+    /* ===============================
+       🔎 PRODUIT
+    =============================== */
+
     const snap = await db
       .collection("video_playlist")
       .where("product.productId", "==", productId)
@@ -83,12 +134,19 @@ export const handler = async (event) => {
       };
     }
 
-    const productData = snap.docs[0].data();
-    const product = productData.product;
+    const product = snap.docs[0].data().product;
 
-    /**
-     * 🛡 Anti double paiement
-     */
+    if (!product?.price || product.price <= 0) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Prix invalide" }),
+      };
+    }
+
+    /* ===============================
+       🛡 Anti double paiement
+    =============================== */
+
     const existingTx = await db
       .collection("wallet_transactions")
       .where("userId", "==", userId)
@@ -104,22 +162,56 @@ export const handler = async (event) => {
       };
     }
 
-    /**
-     * 💳 Création transaction (pending)
-     */
+    /* ===============================
+       💱 CONVERSION SERVEUR (BASE XOF)
+    =============================== */
+
+    let finalAmount = product.price;
+
+    if (currency !== "XOF") {
+      if (!process.env.EXCHANGE_API_KEY) {
+        return {
+          statusCode: 500,
+          body: JSON.stringify({ error: "API conversion non configurée" }),
+        };
+      }
+
+      const rateRes = await fetchWithTimeout(
+        `https://v6.exchangerate-api.com/v6/${process.env.EXCHANGE_API_KEY}/latest/XOF`
+      );
+
+      const rateData = await rateRes.json();
+      const rate = rateData?.conversion_rates?.[currency];
+
+      if (!rate) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: "Devise non supportée" }),
+        };
+      }
+
+      finalAmount = Math.round(product.price * rate);
+    }
+
+    /* ===============================
+       💾 CREATE TX
+    =============================== */
+
     const txRef = await db.collection("wallet_transactions").add({
       userId,
       productId,
-      amount: product.price,
-      currency: currency,
+      basePriceXOF: product.price,
+      amount: finalAmount,
+      currency,
       status: "pending",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    /**
-     * 🚀 Appel Flutterwave
-     */
-    const flutterRes = await fetch(
+    /* ===============================
+       🚀 FLUTTERWAVE CALL
+    =============================== */
+
+    const flutterRes = await fetchWithTimeout(
       "https://api.flutterwave.com/v3/payments",
       {
         method: "POST",
@@ -129,8 +221,8 @@ export const handler = async (event) => {
         },
         body: JSON.stringify({
           tx_ref: txRef.id,
-          amount: product.price,
-          currency: currency,
+          amount: finalAmount,
+          currency,
           redirect_url: `${process.env.SITE_URL}/wallet`,
           payment_options: getPaymentOptions(currency),
           customer: {
@@ -145,17 +237,22 @@ export const handler = async (event) => {
 
     const flutterData = await flutterRes.json();
 
-    if (!flutterData?.data?.link) {
-      console.error("Flutterwave error:", flutterData);
+    if (
+      flutterData.status !== "success" ||
+      !flutterData?.data?.link
+    ) {
+      await txRef.delete();
+
       return {
         statusCode: 500,
         body: JSON.stringify({ error: "Erreur paiement Flutterwave" }),
       };
     }
 
-    /**
-     * 🔄 Sauvegarde du lien paiement
-     */
+    /* ===============================
+       🔄 SAVE LINK
+    =============================== */
+
     await txRef.update({
       paymentLink: flutterData.data.link,
     });
@@ -168,9 +265,10 @@ export const handler = async (event) => {
     };
   } catch (error) {
     console.error("PAY FUNCTION ERROR:", error);
+
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Erreur serveur" }),
+      body: JSON.stringify({ error: "Erreur serveur interne" }),
     };
   }
 };

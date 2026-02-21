@@ -21,6 +21,9 @@ export default function LiveClient() {
   const channel = params.get("channel");
   const token = params.get("token");
   const [currency, setCurrency] = useState("XOF");
+  const [exchangeRates, setExchangeRates] = useState({
+  XOF: 1
+});
   
 
   const remoteRef = useRef(null);
@@ -54,6 +57,41 @@ export default function LiveClient() {
 
   return () => unsubscribe();
 }, []);
+
+useEffect(() => {
+  const fetchRates = async () => {
+    try {
+      const res = await fetch(
+        `https://v6.exchangerate-api.com/v6/${process.env.NEXT_PUBLIC_EXCHANGE_API_KEY}/latest/XOF`
+      );
+      const data = await res.json();
+
+      if (data?.conversion_rates) {
+        setExchangeRates({
+          XOF: 1,
+          NGN: data.conversion_rates.NGN,
+          GHS: data.conversion_rates.GHS,
+          USD: data.conversion_rates.USD,
+        });
+      }
+    } catch (error) {
+      console.error("Erreur taux de change:", error);
+    }
+  };
+
+  fetchRates();
+}, []);
+
+// 💱 Conversion prix dynamique
+const convertPrice = (price) => {
+  if (!price) return 0;
+
+  const rate = exchangeRates[currency] || 1;
+  const converted = price * rate;
+
+  // Arrondi intelligent
+  return Math.round(converted).toLocaleString();
+};
 
  
 
@@ -142,31 +180,31 @@ useEffect(() => {
   }, [channel]);
 
   // 💰 Firestore wallet_transactions real-time
-  useEffect(() => {
-    // Suppose current userId is available (auth)
-    const userId = localStorage.getItem("userId");
-    if (!userId) return;
+    useEffect(() => {
+    if (!user) return;
 
     const q = query(
       collection(db, "wallet_transactions"),
-      where("userId", "==", userId),
+      where("userId", "==", user.uid),
       orderBy("createdAt", "desc")
     );
 
     const unsubscribe = onSnapshot(q, snapshot => {
+      let newWallet = {};
+
       snapshot.docs.forEach(docSnap => {
         const tx = docSnap.data();
         if (tx.status === "success") {
-          setWallet(prev => ({
-            ...prev,
-            [tx.currency]: (prev[tx.currency] || 0) + tx.amount
-          }));
+          newWallet[tx.currency] =
+            (newWallet[tx.currency] || 0) + tx.amount;
         }
       });
+
+      setWallet(newWallet);
     });
 
     return () => unsubscribe();
-  }, [db]);
+  }, [user]);
 
   // Send comment
   const sendMessage = async () => {
@@ -300,7 +338,7 @@ const handleBuy = async () => {
             >
               <img src={p.image} alt={p.name} />
               <p>{p.name}</p>
-              <span>{p.price} FCFA</span>
+              <span>{convertPrice(p.price)} {currency}</span>
             </div>
           ))}
         </div>
@@ -332,7 +370,7 @@ const handleBuy = async () => {
     {loadingPayment ? "Traitement..." : (
       <>
         <FaShoppingCart />
-        Acheter {activeProduct.name} • {activeProduct.price} {currency}
+        Acheter {activeProduct.name} • {convertPrice(activeProduct.price)} {currency}
       </>
     )}
   </button>
