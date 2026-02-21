@@ -110,17 +110,18 @@ export const handler = async (event) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          tx_ref: txRef.id,
-          amount: product.price,
-          currency: "XOF",
-          redirect_url: `${process.env.SITE_URL}/wallet`,
-          customer: {
-            email: decoded.email,
-          },
-          customizations: {
-            title: product.name,
-          },
-        }),
+        tx_ref: txRef.id,
+        amount: product.price,
+        currency: "XOF",
+        redirect_url: `${process.env.SITE_URL}/wallet`,
+        payment_options: "card,mobilemoney,ussd",
+        customer: {
+          email: decoded.email,
+        },
+        customizations: {
+          title: product.name,
+        },
+      })
       }
     );
 
