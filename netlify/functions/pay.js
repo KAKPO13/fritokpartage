@@ -1,8 +1,18 @@
 import admin from "firebase-admin";
 import fetch from "node-fetch";
 
+/* =============================
+   🔥 INIT FIREBASE SAFE
+============================= */
+
 if (!admin.apps.length) {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_ADMIN_JSON);
+  const raw = process.env.FIREBASE_ADMIN_JSON;
+
+  if (!raw) {
+    throw new Error("FIREBASE_ADMIN_JSON missing in env");
+  }
+
+  const serviceAccount = JSON.parse(raw);
 
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
@@ -11,9 +21,18 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
+/* =============================
+   🚀 HANDLER
+============================= */
+
 export const handler = async (event) => {
   try {
+    /* =============================
+       🔐 AUTH CHECK
+    ============================= */
+
     const authHeader = event.headers.authorization;
+
     if (!authHeader) {
       return { statusCode: 401, body: "Unauthorized" };
     }
@@ -22,7 +41,12 @@ export const handler = async (event) => {
     const decoded = await admin.auth().verifyIdToken(idToken);
     const userId = decoded.uid;
 
-    const { productId } = JSON.parse(event.body);
+    /* =============================
+       📦 BODY SAFE PARSE
+    ============================= */
+
+    const body = event.body ? JSON.parse(event.body) : {};
+    const { productId } = body;
 
     if (!productId) {
       return {
@@ -31,7 +55,10 @@ export const handler = async (event) => {
       };
     }
 
-    // 🔥 Recherche sécurisée par champ imbriqué
+    /* =============================
+       🔍 SEARCH PRODUCT
+    ============================= */
+
     const snap = await db
       .collection("video_playlist")
       .where("product.productId", "==", productId)
@@ -45,14 +72,25 @@ export const handler = async (event) => {
       };
     }
 
-    const product = productSnap.docs[0].data();
+    const video = snap.docs[0].data();
+    const product = video.product;
 
-    // 🔥 Anti double paiement
+    if (!product?.price) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Prix invalide" }),
+      };
+    }
+
+    /* =============================
+       🛡 ANTI DOUBLE PAYMENT
+    ============================= */
+
     const existingTx = await db
       .collection("wallet_transactions")
       .where("userId", "==", userId)
       .where("productId", "==", productId)
-      .where("status", "==", "pending")
+      .where("status", "in", ["pending", "processing"])
       .limit(1)
       .get();
 
@@ -63,8 +101,13 @@ export const handler = async (event) => {
       };
     }
 
-    // 🔥 Création transaction
-    const txRef = await db.collection("wallet_transactions").add({
+    /* =============================
+       💳 CREATE TRANSACTION
+    ============================= */
+
+    const txRef = db.collection("wallet_transactions").doc();
+
+    await txRef.set({
       userId,
       productId,
       amount: product.price,
@@ -73,7 +116,10 @@ export const handler = async (event) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 🔥 Flutterwave call
+    /* =============================
+       🔥 CALL FLUTTERWAVE
+    ============================= */
+
     const flutterRes = await fetch(
       "https://api.flutterwave.com/v3/payments",
       {
@@ -99,6 +145,14 @@ export const handler = async (event) => {
 
     const flutterData = await flutterRes.json();
 
+    if (!flutterData?.data?.link) {
+      throw new Error("Flutterwave response invalid");
+    }
+
+    /* =============================
+       ✅ RETURN PAYMENT LINK
+    ============================= */
+
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -106,7 +160,8 @@ export const handler = async (event) => {
       }),
     };
   } catch (error) {
-    console.error(error);
+    console.error("PAY FUNCTION ERROR:", error);
+
     return {
       statusCode: 500,
       body: JSON.stringify({ error: "Erreur serveur" }),
