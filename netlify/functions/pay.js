@@ -106,7 +106,7 @@ export const handler = async (event) => {
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET}`,
+          Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
