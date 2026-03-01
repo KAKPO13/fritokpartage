@@ -22,6 +22,8 @@ export default function LiveAvatarEmbed() {
   const [wallet, setWallet] = useState({});
   const [user, setUser] = useState(null);
   const [loadingPayment, setLoadingPayment] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const [playing, setPlaying] = useState(true);
 
   /* 🔐 Auth */
   useEffect(() => auth.onAuthStateChanged(setUser), []);
@@ -136,6 +138,34 @@ export default function LiveAvatarEmbed() {
     }
   };
 
+  const toggleMute = () => {
+  if (!videoRef.current) return;
+  videoRef.current.muted = !muted;
+  setMuted(!muted);
+};
+
+const togglePlay = () => {
+  if (!videoRef.current) return;
+
+  if (videoRef.current.paused) {
+    videoRef.current.play();
+    setPlaying(true);
+  } else {
+    videoRef.current.pause();
+    setPlaying(false);
+  }
+};
+
+const enterFullscreen = () => {
+  if (!videoRef.current) return;
+
+  if (videoRef.current.requestFullscreen) {
+    videoRef.current.requestFullscreen();
+  } else if (videoRef.current.webkitRequestFullscreen) {
+    videoRef.current.webkitRequestFullscreen();
+  }
+};
+
   if (!session) {
     return <div style={{ color: "white", padding: 40 }}>Live introuvable</div>;
   }
@@ -143,7 +173,40 @@ export default function LiveAvatarEmbed() {
   return (
     <div className="container">
       {/* 🎥 VIDEO */}
-      <video ref={videoRef} src={session.avatarVideoUrl} autoPlay muted loop playsInline />
+      <video
+        ref={videoRef}
+        src={session.avatarVideoUrl}
+        autoPlay
+        loop
+        playsInline
+        muted={muted}
+        onClick={() => togglePlay()}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+        }}
+      />
+
+      {/* 🎛️ MEDIA CONTROLS */}
+        <div className="media-controls">
+          <button onClick={togglePlay}>
+            {playing ? "⏸️" : "▶️"}
+          </button>
+
+          <button onClick={toggleMute}>
+            {muted ? "🔇" : "🔊"}
+          </button>
+
+          <button onClick={enterFullscreen}>
+            ⛶
+          </button>
+        </div>
+
+        {/* 🔴 LIVE BADGE */}
+        <div className="live-badge">
+          <span className="dot" /> LIVE
+        </div>
 
       {/* 🛍 PRODUITS */}
       <div className="product-bar">
@@ -199,6 +262,59 @@ export default function LiveAvatarEmbed() {
         .currency { position:absolute;bottom:70px;left:50%;transform:translateX(-50%) }
         select { padding:6px 14px;border-radius:20px;font-weight:bold }
         .wallet { position:absolute;top:10px;right:10px;color:lime }
+        .media-controls {
+  position: absolute;
+  bottom: 160px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 1000;
+}
+
+.media-controls button {
+  background: rgba(0,0,0,0.6);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.media-controls button:hover {
+  background: rgba(0,0,0,0.85);
+}
+
+.live-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: red;
+  color: white;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 1000;
+  animation: blink 1s infinite;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  background: white;
+  border-radius: 50%;
+}
+
+@keyframes blink {
+  0% { opacity: 1 }
+  50% { opacity: .4 }
+  100% { opacity: 1 }
+}
       `}</style>
     </div>
   );
