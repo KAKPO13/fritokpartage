@@ -1,24 +1,39 @@
 import { useRouter } from "next/router";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function LiveAvatarEmbed() {
   const router = useRouter();
   const { sessionId } = router.query;
   const videoRef = useRef(null);
 
+  const [live, setLive] = useState(null);
+
   useEffect(() => {
-    if (videoRef.current) {
+    if (!sessionId) return;
+
+    fetch(`/api/live?sessionId=${sessionId}`)
+      .then((r) => r.json())
+      .then(setLive)
+      .catch(console.error);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (videoRef.current && live?.avatarVideoUrl) {
       videoRef.current.muted = true;
       videoRef.current.play().catch(() => {});
     }
-  }, []);
+  }, [live]);
 
-  if (!sessionId) return null;
+  if (!live) {
+    return (
+      <div style={{ color: "white", padding: 20 }}>
+        Chargement du live…
+      </div>
+    );
+  }
 
   const openApp = () => {
-    const deepLink = `fritok://liveAvatar?sessionId=${sessionId}`;
-    window.location.href = deepLink;
-
+    window.location.href = `fritok://liveAvatar?sessionId=${sessionId}`;
     setTimeout(() => {
       window.location.href =
         "https://play.google.com/store/apps/details?id=com.fritok.app";
@@ -26,22 +41,16 @@ export default function LiveAvatarEmbed() {
   };
 
   return (
-    <div
-      style={{
-        width: "100vw",
-        height: "100vh",
-        background: "black",
-        position: "relative",
-      }}
-    >
-      {/* 🎥 PLAYER WEB */}
+    <div style={{ width: "100vw", height: "100vh", background: "black" }}>
+      {/* 🎥 VIDEO */}
       <video
         ref={videoRef}
-        src={`https://stream.fritok.net/live/${sessionId}.m3u8`}
+        src={live.avatarVideoUrl}
         autoPlay
         muted
         playsInline
         controls
+        preload="auto"
         style={{
           width: "100%",
           height: "100%",
@@ -49,7 +58,7 @@ export default function LiveAvatarEmbed() {
         }}
       />
 
-      {/* 📱 OPEN APP */}
+      {/* 📱 OUVRIR APP */}
       <button
         onClick={openApp}
         style={{
@@ -57,7 +66,7 @@ export default function LiveAvatarEmbed() {
           bottom: 20,
           left: "50%",
           transform: "translateX(-50%)",
-          padding: "14px 20px",
+          padding: "14px 22px",
           borderRadius: 30,
           background: "#ff0044",
           color: "white",
