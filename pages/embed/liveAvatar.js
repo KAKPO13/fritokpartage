@@ -1,7 +1,8 @@
 "use client";
 
+import { db, auth } from "@/lib/firebaseClient";
 import React, { useEffect, useRef, useState } from "react";
-import { doc, onSnapshot, collection, query, where, orderBy } from "firebase/firestore";
+import { doc, onSnapshot, collection, query, addDoc, serverTimestamp, where, orderBy } from "firebase/firestore";
 import { useSearchParams, useRouter } from "next/navigation";
 import { FaShoppingCart } from "react-icons/fa";
 import { db, auth } from "../../lib/firebaseClient";
@@ -24,6 +25,10 @@ export default function LiveAvatarEmbed() {
   const [loadingPayment, setLoadingPayment] = useState(false);
   const [muted, setMuted] = useState(true);
   const [playing, setPlaying] = useState(true);
+
+  const [comments, setComments] = useState([]);
+  const [commentInput, setCommentInput] = useState("");
+  const [showChat, setShowChat] = useState(true);
 
   /* 🔐 Auth */
   useEffect(() => auth.onAuthStateChanged(setUser), []);
@@ -74,6 +79,26 @@ export default function LiveAvatarEmbed() {
       });
   }, []);
 
+  useEffect(() => {
+  if (!sessionId) return;
+
+  const q = query(
+    collection(db, "live_avatar_sessions", sessionId, "comments"),
+    orderBy("createdAt", "desc")
+  );
+
+  const unsub = onSnapshot(q, snap => {
+    setComments(
+      snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }))
+    );
+  });
+
+  return () => unsub();
+}, [sessionId]);
+
   /* 💰 Wallet temps réel */
   useEffect(() => {
     if (!user) return;
@@ -96,6 +121,7 @@ export default function LiveAvatarEmbed() {
 
     return () => unsub();
   }, [user]);
+
 
   /* 💱 Conversion */
   const convertPrice = (price) =>
@@ -156,6 +182,21 @@ const togglePlay = () => {
   }
 };
 
+const sendComment = async () => {
+  if (!commentInput.trim()) return;
+
+  await addDoc(
+    collection(db, "live_avatar_sessions", sessionId, "comments"),
+    {
+      text: commentInput.trim(),
+      viewerId: auth.currentUser?.uid || "guest",
+      createdAt: serverTimestamp(),
+    }
+  );
+
+  setCommentInput("");
+};
+
 const enterFullscreen = () => {
   if (!videoRef.current) return;
 
@@ -208,6 +249,17 @@ const enterFullscreen = () => {
           <span className="dot" /> LIVE
         </div>
 
+        {/* 💬 CHAT OVERLAY */}
+        {showChat && (
+          <div className="chat-overlay">
+            {comments.slice(0, 15).map(c => (
+              <div key={c.id} className="chat-bubble">
+                <strong>{c.viewerId.slice(0, 6)}:</strong> {c.text}
+              </div>
+            ))}
+          </div>
+        )}
+
       {/* 🛍 PRODUITS */}
       <div className="product-bar">
         {products.map(p => (
@@ -249,6 +301,16 @@ const enterFullscreen = () => {
           <div key={c}>{c}: {a}</div>
         ))}
       </div>
+
+      {/* ✍️ COMMENT INPUT */}
+        <div className="chat-input">
+          <input
+            value={commentInput}
+            onChange={e => setCommentInput(e.target.value)}
+            placeholder="Écrire un commentaire..."
+          />
+          <button onClick={sendComment}>➤</button>
+        </div>
 
       <style jsx>{`
         .container { width:100vw;height:100vh;background:black;position:relative }
@@ -314,6 +376,70 @@ const enterFullscreen = () => {
   0% { opacity: 1 }
   50% { opacity: .4 }
   100% { opacity: 1 }
+}
+
+.chat-overlay {
+  position: absolute;
+  bottom: 180px;
+  left: 12px;
+  width: 70%;
+  max-height: 240px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 6px;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.chat-bubble {
+  background: rgba(0,0,0,0.45);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 14px;
+  font-size: 14px;
+  animation: fadeUp .25s ease-out;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-input {
+  position: fixed;
+  bottom: 20px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  background: rgba(0,0,0,0.65);
+  padding: 8px 12px;
+  border-radius: 30px;
+  z-index: 1001;
+}
+
+.chat-input input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: white;
+  outline: none;
+}
+
+.chat-input button {
+  background: #ff0050;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
 }
       `}</style>
     </div>
