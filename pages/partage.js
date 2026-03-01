@@ -2,23 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  updateDoc,
-  increment,
-} from "firebase/firestore";
-import { initializeApp } from "firebase/app";
-
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+import { db } from "../lib/firebaseClient"; // ✅ Import unique
+import { doc, getDoc, updateDoc, increment } from "firebase/firestore";
 
 export default function PartagePage() {
   const searchParams = useSearchParams();
@@ -30,7 +15,6 @@ export default function PartagePage() {
   const [rates, setRates] = useState({ XOF: 1 });
   const [loading, setLoading] = useState(true);
 
-  // 🔥 Charger session vendeur
   useEffect(() => {
     if (!session) return;
 
@@ -49,7 +33,6 @@ export default function PartagePage() {
         avatar: data.sellerAvatar,
       });
 
-      // 📊 Incrémenter compteur vues
       await updateDoc(doc(db, "partage_sessions", session), {
         viewCount: increment(1),
       });

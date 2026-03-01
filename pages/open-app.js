@@ -10,7 +10,7 @@ export default function OpenApp() {
 
     const deepLink = `fritok://liveAvatar?sessionId=${sessionId}&sellerId=${sellerId}&productId=${productId}`;
     const fallback = `/guest?sessionId=${sessionId}`;
-
+    ///
     // Tentative ouverture app
     window.location.href = deepLink;
 
