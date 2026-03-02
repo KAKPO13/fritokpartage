@@ -43,6 +43,7 @@ export default function LiveAvatarEmbed() {
   const [zoomIndex, setZoomIndex] = useState(0);
   const touchStartX = useRef(0);
 
+
   /* 🔐 Auth */
   useEffect(() => auth.onAuthStateChanged(setUser), []);
 
@@ -356,6 +357,18 @@ const enterFullscreen = () => {
                   <h3>{zoomProduct.name}</h3>
                   <p>{convertPrice(zoomProduct.price)} {currency}</p>
                   <small>Swipe ← → pour changer</small>
+                </div>
+
+                <div className="currency-selector">
+                  <select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value)}
+                  >
+                    <option value="XOF">XOF (FCFA)</option>
+                    <option value="NGN">NGN (₦)</option>
+                    <option value="GHS">GHS (₵)</option>
+                    <option value="USD">USD ($)</option>
+                  </select>
                 </div>
 
                 {/* 🛒 ACHETER */}
@@ -724,6 +737,26 @@ const enterFullscreen = () => {
   object-fit: cover;
   border-radius: 8px;
   pointer-events: none; /* 🔥 CRITIQUE */
+}
+
+.currency-selector {
+  position: fixed;
+  bottom: 85px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,.85);
+  padding: 8px 14px;
+  border-radius: 22px;
+  z-index: 1002;
+}
+
+.currency-selector select {
+  background: #ff6600;
+  border: none;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 18px;
+  font-weight: bold;
 }
       `}</style>
     </div>
