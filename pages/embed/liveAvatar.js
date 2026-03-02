@@ -269,38 +269,19 @@ const enterFullscreen = () => {
           </div>
         )}
 
-     
-   {/* 🛍 PRODUITS - SCROLL HORIZONTAL */}
-      <div className="product-wrapper">
-        <div className="product-bar">
-          {products.map((p, index) => (
-            <div
-              key={p.productId}
-              className={`product ${
-                activeProduct?.productId === p.productId ? "active" : ""
-              }`}
-              onClick={() => setActiveProduct(p)}
-            >
-              <img src={p.imageUrl} alt={p.name} />
-              <p className="name">{p.name}</p>
-              <span className="price">
-                {convertPrice(p.price)} {currency}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        {/* ▬▬▬ MINI BAR ▬▬▬ */}
-        <div className="mini-bar">
-          {products.map(p => (
-            <span
-              key={p.productId}
-              className={
-                activeProduct?.productId === p.productId ? "dot active" : "dot"
-              }
-            />
-          ))}
-        </div>
+      {/* 🛍 PRODUITS */}
+      <div className="product-bar">
+        {products.map(p => (
+          <div
+            key={p.productId}
+            className={`product ${activeProduct?.productId === p.productId ? "active" : ""}`}
+            onClick={() => setActiveProduct(p)}
+          >
+            <img src={p.imageUrl} />
+            <p>{p.name}</p>
+            <span>{convertPrice(p.price)} {currency}</span>
+          </div>
+        ))}
       </div>
 
       {/* 💱 DEVISE */}
@@ -468,85 +449,6 @@ const enterFullscreen = () => {
   width: 36px;
   height: 36px;
   font-size: 18px;
-}
-
-.product-wrapper {
-  position: absolute;
-  bottom: 110px;
-  left: 0;
-  right: 0;
-  z-index: 1000;
-}
-
-/* SCROLL HORIZONTAL */
-.product-bar {
-  display: flex;
-  gap: 12px;
-  padding: 10px 14px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-}
-
-/* Masquer scrollbar */
-.product-bar::-webkit-scrollbar {
-  display: none;
-}
-
-.product {
-  min-width: 120px;
-  max-width: 120px;
-  background: rgba(0, 0, 0, 0.7);
-  color: white;
-  border-radius: 14px;
-  padding: 8px;
-  scroll-snap-align: start;
-  transition: transform 0.2s, border 0.2s;
-}
-
-.product.active {
-  border: 2px solid #ff6600;
-  transform: scale(1.05);
-}
-
-.product img {
-  width: 100%;
-  height: 80px;
-  object-fit: cover;
-  border-radius: 10px;
-}
-
-.product .name {
-  font-size: 13px;
-  font-weight: bold;
-  margin: 6px 0 2px;
-}
-
-.product .price {
-  font-size: 12px;
-  color: #ffcc00;
-}
-
-/* ▬▬▬ MINI BAR ▬▬▬ */
-.mini-bar {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.mini-bar .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.4);
-  transition: all 0.2s;
-}
-
-.mini-bar .dot.active {
-  width: 16px;
-  border-radius: 6px;
-  background: #ff6600;
 }
       `}</style>
     </div>
