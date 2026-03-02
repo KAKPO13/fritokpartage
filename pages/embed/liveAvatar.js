@@ -39,6 +39,10 @@ export default function LiveAvatarEmbed() {
   const [commentInput, setCommentInput] = useState("");
   const [showChat, setShowChat] = useState(true);
 
+  const [zoomProduct, setZoomProduct] = useState(null);
+  const [zoomIndex, setZoomIndex] = useState(0);
+  const touchStartX = useRef(0);
+
   /* 🔐 Auth */
   useEffect(() => auth.onAuthStateChanged(setUser), []);
 
@@ -206,6 +210,31 @@ const sendComment = async () => {
   setCommentInput("");
 };
 
+const handleTouchStart = (e) => {
+  touchStartX.current = e.touches[0].clientX;
+};
+
+const handleTouchEnd = (e) => {
+  const diff = touchStartX.current - e.changedTouches[0].clientX;
+
+  if (Math.abs(diff) < 40) return;
+
+  let newIndex = zoomIndex;
+
+  if (diff > 0 && zoomIndex < products.length - 1) {
+    newIndex = zoomIndex + 1;
+  }
+
+  if (diff < 0 && zoomIndex > 0) {
+    newIndex = zoomIndex - 1;
+  }
+
+  const newProduct = products[newIndex];
+  setZoomIndex(newIndex);
+  setZoomProduct(newProduct);
+  setActiveProduct(newProduct);
+};
+
 const enterFullscreen = () => {
   if (!videoRef.current) return;
 
@@ -277,12 +306,79 @@ const enterFullscreen = () => {
             className={`product ${activeProduct?.productId === p.productId ? "active" : ""}`}
             onClick={() => setActiveProduct(p)}
           >
-            <img src={p.imageUrl} />
+            <img
+              src={p.imageUrl}
+              alt={p.name}
+              onClick={(e) => {
+                e.stopPropagation();
+                setZoomIndex(i);
+                setActiveProduct(p);
+                setZoomProduct(p);
+              }}
+            />
             <p>{p.name}</p>
             <span>{convertPrice(p.price)} {currency}</span>
           </div>
         ))}
-      </div>
+
+        {/* 🔍 ZOOM PRODUIT (SWIPE + DEVISE + ACHAT) */}
+              {zoomProduct && (
+                <div className="zoom-overlay" onClick={() => setZoomProduct(null)}>
+                  <div
+                    className="zoom-content"
+                    onClick={(e) => e.stopPropagation()}
+                    onTouchStart={handleTouchStart}
+                    onTouchEnd={handleTouchEnd}
+                  >
+                    <img
+                      src={zoomProduct.imageUrl}
+                      alt={zoomProduct.name}
+                      className="zoom-image"
+                    />
+
+                    {/* ❌ FERMER */}
+                    <button
+                      className="zoom-close"
+                      onClick={() => setZoomProduct(null)}
+                    >
+                      ✕
+                    </button>
+
+                    {/* 💱 DEVISE DANS ZOOM */}
+                    <div className="zoom-currency">
+                      <select
+                        value={currency}
+                        onChange={(e) => setCurrency(e.target.value)}
+                      >
+                        <option value="XOF">XOF</option>
+                        <option value="NGN">NGN</option>
+                        <option value="GHS">GHS</option>
+                        <option value="USD">USD</option>
+                      </select>
+                    </div>
+
+                    {/* ℹ️ INFOS */}
+                    <div className="zoom-info">
+                      <h3>{zoomProduct.name}</h3>
+                      <p>{convertPrice(zoomProduct.price)} {currency}</p>
+                      <small>Swipe ← → pour changer</small>
+                    </div>
+
+                    {/* 💳 ACHETER */}
+                    <button
+                      className="zoom-buy"
+                      onClick={() => {
+                        setZoomProduct(null);
+                        handleBuy();
+                      }}
+                      disabled={loadingPayment}
+                    >
+                      {loadingPayment ? "Traitement..." : "🛒 Acheter maintenant"}
+                    </button>
+                  </div>
+                </div>
+              )}
+                </div>
 
       {/* 💱 DEVISE */}
       <div className="currency">
@@ -449,6 +545,188 @@ const enterFullscreen = () => {
   width: 36px;
   height: 36px;
   font-size: 18px;
+}
+
+/* 🔍 ZOOM OVERLAY */
+.zoom-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* CONTENU */
+.zoom-content {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* IMAGE ZOOMABLE */
+.zoom-content img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  touch-action: pinch-zoom;
+  cursor: zoom-in;
+}
+
+/* BOUTON FERMER */
+.zoom-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+/* INFOS PRODUIT */
+.zoom-info {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.65);
+  color: white;
+  padding: 12px 20px;
+  border-radius: 20px;
+  text-align: center;
+}
+
+.zoom-info h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.zoom-info p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: #ffcc00;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 🛒 ACHETER DANS ZOOM */
+.zoom-buy {
+  position: absolute;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ff6600;
+  color: white;
+  border: none;
+  padding: 14px 26px;
+  border-radius: 30px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.zoom-buy:disabled {
+  opacity: 0.6;
+}
+
+/* 🔍 ZOOM */
+.zoom-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.95);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+}
+
+.zoom-content {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.zoom-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.zoom-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+}
+
+.zoom-info {
+  position: absolute;
+  bottom: 140px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: white;
+  text-align: center;
+}
+
+.zoom-info small {
+  opacity: 0.7;
+}
+
+/* 💱 DEVISE */
+.zoom-currency {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+}
+
+.zoom-currency select {
+  background: #ff6600;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 20px;
+  color: white;
+  font-weight: bold;
+}
+
+/* 🛒 ACHETER */
+.zoom-buy {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ff6600;
+  color: white;
+  border: none;
+  padding: 14px 28px;
+  border-radius: 30px;
+  font-size: 16px;
+  font-weight: bold;
 }
       `}</style>
     </div>
