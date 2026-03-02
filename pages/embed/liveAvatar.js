@@ -713,7 +713,7 @@ const enterFullscreen = () => {
   color: white;
   font-weight: bold;
 }
-
+//
 /* 🛒 ACHETER */
 .zoom-buy {
   position: absolute;
