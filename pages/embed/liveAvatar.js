@@ -299,113 +299,79 @@ const enterFullscreen = () => {
         )}
 
       {/* 🛍 PRODUITS */}
-      <div className="product-bar">
-        {products.map(p => (
-          <div
-            key={p.productId}
-            className={`product ${activeProduct?.productId === p.productId ? "active" : ""}`}
-            onClick={() => setActiveProduct(p)}
-          >
-            <img
-              src={p.imageUrl}
-              alt={p.name}
-              onClick={(e) => {
-                e.stopPropagation();
-                setZoomIndex(i);
-                setActiveProduct(p);
-                setZoomProduct(p);
-              }}
-            />
-            <p>{p.name}</p>
-            <span>{convertPrice(p.price)} {currency}</span>
-          </div>
-        ))}
-
+      {/* 🛍 PRODUITS */}
+          <div className="product-bar">
+            {products.map((p, i) => (
+              <div
+                key={p.productId}
+                className={`product ${activeProduct?.productId === p.productId ? "active" : ""}`}
+                onPointerUp={() => {
+                  setZoomIndex(i);
+                  setActiveProduct(p);
+                  setZoomProduct(p);
+                }}
+              >
+                <img
+                  src={p.imageUrl}
+                  alt={p.name}
+                  draggable={false}
+                />
+                <p>{p.name}</p>
+                <span>{convertPrice(p.price)} {currency}</span>
+              </div>
+            ))}
+       
         {/* 🔍 ZOOM PRODUIT (SWIPE + DEVISE + ACHAT) */}
               {zoomProduct && (
-                <div className="zoom-overlay" onClick={() => setZoomProduct(null)}>
-                  <div
-                    className="zoom-content"
-                    onClick={(e) => e.stopPropagation()}
-                    onTouchStart={handleTouchStart}
-                    onTouchEnd={handleTouchEnd}
-                  >
-                    <img
-                      src={zoomProduct.imageUrl}
-                      alt={zoomProduct.name}
-                      className="zoom-image"
-                    />
+            <div className="zoom-overlay" onClick={() => setZoomProduct(null)}>
+              <div
+                className="zoom-content"
+                onClick={(e) => e.stopPropagation()}
+                onTouchStart={handleTouchStart}
+                onTouchEnd={handleTouchEnd}
+              >
+                <img
+                  src={zoomProduct.imageUrl}
+                  alt={zoomProduct.name}
+                  className="zoom-image"
+                />
 
-                    {/* ❌ FERMER */}
-                    <button
-                      className="zoom-close"
-                      onClick={() => setZoomProduct(null)}
-                    >
-                      ✕
-                    </button>
+                {/* ❌ FERMER */}
+                <button className="zoom-close" onClick={() => setZoomProduct(null)}>
+                  ✕
+                </button>
 
-                    {/* 💱 DEVISE DANS ZOOM */}
-                    <div className="zoom-currency">
-                      <select
-                        value={currency}
-                        onChange={(e) => setCurrency(e.target.value)}
-                      >
-                        <option value="XOF">XOF</option>
-                        <option value="NGN">NGN</option>
-                        <option value="GHS">GHS</option>
-                        <option value="USD">USD</option>
-                      </select>
-                    </div>
-
-                    {/* ℹ️ INFOS */}
-                    <div className="zoom-info">
-                      <h3>{zoomProduct.name}</h3>
-                      <p>{convertPrice(zoomProduct.price)} {currency}</p>
-                      <small>Swipe ← → pour changer</small>
-                    </div>
-
-                    {/* 💳 ACHETER */}
-                    <button
-                      className="zoom-buy"
-                      onClick={() => {
-                        setZoomProduct(null);
-                        handleBuy();
-                      }}
-                      disabled={loadingPayment}
-                    >
-                      {loadingPayment ? "Traitement..." : "🛒 Acheter maintenant"}
-                    </button>
-                  </div>
-                </div>
-              )}
+                {/* 💱 DEVISE */}
+                <div className="zoom-currency">
+                  <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                    <option value="XOF">XOF</option>
+                    <option value="NGN">NGN</option>
+                    <option value="GHS">GHS</option>
+                    <option value="USD">USD</option>
+                  </select>
                 </div>
 
-      {/* 💱 DEVISE */}
-      <div className="currency">
-        <select value={currency} onChange={e => setCurrency(e.target.value)}>
-          <option value="XOF">XOF (FCFA)</option>
-          <option value="NGN">NGN</option>
-          <option value="GHS">GHS</option>
-          <option value="USD">USD</option>
-        </select>
-      </div>
+                {/* ℹ️ INFO */}
+                <div className="zoom-info">
+                  <h3>{zoomProduct.name}</h3>
+                  <p>{convertPrice(zoomProduct.price)} {currency}</p>
+                  <small>Swipe ← → pour changer</small>
+                </div>
 
-      {/* 💳 ACHAT */}
-      {activeProduct && (
-        <button className="buy" onClick={handleBuy} disabled={loadingPayment}>
-          <FaShoppingCart />
-          {loadingPayment
-            ? "Traitement..."
-            : `Acheter ${convertPrice(activeProduct.price)} ${currency}`}
-        </button>
-      )}
-
-      {/* 🟢 WALLET */}
-      <div className="wallet">
-        {Object.entries(wallet).map(([c, a]) => (
-          <div key={c}>{c}: {a}</div>
-        ))}
-      </div>
+                {/* 🛒 ACHETER */}
+                <button
+                  className="zoom-buy"
+                  onClick={() => {
+                    setZoomProduct(null);
+                    handleBuy();
+                  }}
+                  disabled={loadingPayment}
+                >
+                  {loadingPayment ? "Traitement..." : "🛒 Acheter maintenant"}
+                </button>
+              </div>
+            </div>
+          )}      </div>
 
       {/* ✍️ COMMENT INPUT */}
         <div className="chat-input">
@@ -727,6 +693,37 @@ const enterFullscreen = () => {
   border-radius: 30px;
   font-size: 16px;
   font-weight: bold;
+}
+
+.product-bar {
+  position: absolute;
+  bottom: 110px;
+  left: 0;
+  width: 100%;
+  display: flex;
+  gap: 12px;
+  padding: 10px;
+  overflow-x: auto;
+  z-index: 999;
+}
+
+.product {
+  min-width: 120px;
+  background: rgba(0,0,0,.75);
+  color: white;
+  border-radius: 12px;
+  padding: 8px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.product img {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 8px;
+  pointer-events: none; /* 🔥 CRITIQUE */
 }
       `}</style>
     </div>
