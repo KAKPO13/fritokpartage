@@ -342,16 +342,6 @@ const enterFullscreen = () => {
                   ✕
                 </button>
 
-                {/* 💱 DEVISE */}
-                <div className="zoom-currency">
-                  <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                    <option value="XOF">XOF</option>
-                    <option value="NGN">NGN</option>
-                    <option value="GHS">GHS</option>
-                    <option value="USD">USD</option>
-                  </select>
-                </div>
-
                 {/* ℹ️ INFO */}
                 <div className="zoom-info">
                   <h3>{zoomProduct.name}</h3>
@@ -359,8 +349,12 @@ const enterFullscreen = () => {
                   <small>Swipe ← → pour changer</small>
                 </div>
 
-                <div className="currency-selector">
+                {/* 🔽 ACTIONS (DEVISE + ACHAT) */}
+                <div className="zoom-actions">
+
+                  {/* 💱 DEVISE */}
                   <select
+                    className="zoom-currency"
                     value={currency}
                     onChange={(e) => setCurrency(e.target.value)}
                   >
@@ -369,19 +363,22 @@ const enterFullscreen = () => {
                     <option value="GHS">GHS (₵)</option>
                     <option value="USD">USD ($)</option>
                   </select>
-                </div>
 
-                {/* 🛒 ACHETER */}
-                <button
-                  className="zoom-buy"
-                  onClick={() => {
-                    setZoomProduct(null);
-                    handleBuy();
-                  }}
-                  disabled={loadingPayment}
-                >
-                  {loadingPayment ? "Traitement..." : "🛒 Acheter maintenant"}
-                </button>
+                  {/* 🛒 ACHETER */}
+                  <button
+                    className="zoom-buy"
+                    onClick={() => {
+                      setZoomProduct(null);
+                      handleBuy();
+                    }}
+                    disabled={loadingPayment}
+                  >
+                    {loadingPayment
+                      ? "Traitement..."
+                      : `🛒 Acheter • ${convertPrice(zoomProduct.price)} ${currency}`}
+                  </button>
+
+                </div>
               </div>
             </div>
           )}      </div>
