@@ -25,9 +25,10 @@ exports.handler = async function(event, context) {
     const signedUrl = s3.getSignedUrl("putObject", {
       Bucket: bucket,
       Key: fileName,
-      Expires: 60, // URL valable 60 secondes
-      ContentType: "application/octet-stream", 
+      Expires: 60,
+      ContentType: bucket.includes("video") ? "video/mp4" : "image/jpeg",
     });
+
 
     return {
       statusCode: 200,
