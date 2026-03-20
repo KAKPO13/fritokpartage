@@ -1,6 +1,6 @@
 const AWS = require("aws-sdk");
 
-exports.handler = async function (event) {
+exports.handler = async function(event, context) {
   try {
     const body = JSON.parse(event.body);
     const { fileName, bucket, contentType } = body;
@@ -8,32 +8,26 @@ exports.handler = async function (event) {
     if (!fileName || !bucket || !contentType) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "fileName, bucket et contentType requis" }),
+        body: JSON.stringify({
+          error: "fileName, bucket et contentType requis"
+        }),
       };
     }
 
-    const allowedTypes = ["image/jpeg", "image/png", "video/mp4"];
-    if (!allowedTypes.includes(contentType)) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Type non autorisé" }),
-      };
-    }
-
-    const safeFileName = `${Date.now()}-${fileName.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-
+    // Config Cloudflare R2
     const s3 = new AWS.S3({
       endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
       accessKeyId: process.env.R2_ACCESS_KEY,
       secretAccessKey: process.env.R2_SECRET_KEY,
       signatureVersion: "v4",
-      region: "auto",
+      region: "auto", // ✅ obligatoire pour R2
     });
 
+    // Générer URL signée PUT
     const signedUrl = s3.getSignedUrl("putObject", {
       Bucket: bucket,
-      Key: `uploads/${safeFileName}`,
-      Expires: 300,
+      Key: fileName,
+      Expires: 300, // 5 minutes
       ContentType: contentType,
     });
 
@@ -41,7 +35,7 @@ exports.handler = async function (event) {
       statusCode: 200,
       body: JSON.stringify({
         url: signedUrl,
-        key: `uploads/${safeFileName}`,
+        contentType: contentType,
       }),
     };
 
@@ -49,7 +43,7 @@ exports.handler = async function (event) {
     console.error("ERROR SIGNED URL:", error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Erreur serveur" }),
+      body: JSON.stringify({ error: "Erreur interne serveur" }),
     };
   }
 };
