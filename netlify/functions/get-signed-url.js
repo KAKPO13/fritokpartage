@@ -1,8 +1,7 @@
 const AWS = require("aws-sdk");
 
-exports.handler = async function(event, context) {
+exports.handler = async function (event, context) {
   try {
-    // Parse body JSON
     const body = JSON.parse(event.body);
     const { fileName, bucket } = body;
 
@@ -13,30 +12,34 @@ exports.handler = async function(event, context) {
       };
     }
 
-    // Config R2
     const s3 = new AWS.S3({
       endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
       accessKeyId: process.env.R2_ACCESS_KEY,
       secretAccessKey: process.env.R2_SECRET_KEY,
       signatureVersion: "v4",
+      region: "auto", // ✅ CRUCIAL pour Cloudflare R2
     });
 
-    // Générer URL signée
+    const contentType = bucket.includes("video")
+      ? "video/mp4"
+      : "image/jpeg";
+
     const signedUrl = s3.getSignedUrl("putObject", {
       Bucket: bucket,
       Key: fileName,
-      Expires: 60,
-      ContentType: bucket.includes("video") ? "video/mp4" : "image/jpeg",
+      Expires: 300, // ✅ plus stable (5 min)
+      ContentType: contentType,
     });
-
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ url: signedUrl }),
+      body: JSON.stringify({
+        url: signedUrl,
+        contentType,
+      }),
     };
-
   } catch (error) {
-    console.error(error);
+    console.error("ERROR SIGNED URL:", error);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: "Internal server error" }),
