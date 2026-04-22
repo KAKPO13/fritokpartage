@@ -31,3 +31,5 @@
 [[scheduled]]
   path = "/.netlify/functions/startScheduledLives"
   schedule = "*/1 * * * *"
+  # CRON – exécution chaque minute
+
