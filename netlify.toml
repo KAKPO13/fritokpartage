@@ -31,3 +31,14 @@
 [[scheduled]]
   path = "/.netlify/functions/startScheduledLives"
   schedule = "*/1 * * * *"
+
+[build]
+  publish = "."
+  command = "node generate-config.js"
+
+# Inject Firebase config as a global script in every HTML page
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"

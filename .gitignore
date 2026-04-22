@@ -43,3 +43,7 @@ next-env.d.ts
 # Local Netlify folder
 .netlify
 "serviceAccount.json" 
+
+# Fichier généré au build — contient les clés Firebase
+# NE PAS commiter dans git
+firebase-config.js
