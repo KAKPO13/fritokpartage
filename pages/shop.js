@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { initializeApp, getApps }      from "firebase/app";
 import {
   getFirestore, collection,
-  query, where, orderBy, getDocs,
+  query, where, getDocs,
 } from "firebase/firestore";
 
 // ── Firebase config (déplace dans .env.local en production) ──
@@ -103,13 +103,21 @@ export default function ShopPage({ userId, ogData }) {
       try {
         const app = getFirebaseApp();
         const db  = getFirestore(app);
-        const q   = query(
+        // Pas d'orderBy → pas d'index composite requis
+        // Tri effectué côté client par createdAt desc
+        const q    = query(
           collection(db, "video_playlist"),
           where("userId", "==", userId),
-          orderBy("createdAt", "desc"),
         );
         const snap = await getDocs(q);
-        setVideos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const docs = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => {
+            const ta = a.createdAt?.seconds ?? 0;
+            const tb = b.createdAt?.seconds ?? 0;
+            return tb - ta;
+          });
+        setVideos(docs);
       } catch (e) {
         setError(e.message);
       } finally {
