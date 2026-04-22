@@ -96,7 +96,7 @@ export default function ShopPage({ userId, ogData }) {
     (async () => {
       try {
         const db   = getFirestore(getFirebaseApp());
-        const q    = query(collection(db, "shop_videos"), where("userId", "==", userId));
+        const q    = query(collection(db, "video_playlist"), where("userId", "==", userId));
         const snap = await getDocs(q);
         const docs = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
