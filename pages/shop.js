@@ -439,7 +439,7 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
       refArticles,
 
       // ── Livraison ─────────────────────────────────────────
-      adresseLivraison  : adresse.trim(),
+      adresse  : adresse.trim(),
       villeDepart       : "Abidjan",
       villeDestination  : villeClient,
       typeLivraison     : typeLivr,
