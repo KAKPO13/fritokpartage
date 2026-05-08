@@ -422,8 +422,8 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
         userId,
         userIdVend : userId,
         productId     : v.product?.productId   ?? v.id,
-        productName   : v.product?.name         ?? "",
-        productImage  : v.product?.image        ?? v.product?.thumbnail ?? "",
+        nom_frifri   : v.product?.name         ?? "",
+        imageUrl  : v.product?.image        ?? v.product?.thumbnail ?? "",
         videoId       : v.videoId               ?? v.id,
         // ── Prix ─────────────────────────────────────────
         prixArticle   : prix,
