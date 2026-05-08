@@ -164,6 +164,16 @@ function VideoFeed({ videos, muted, setMuted, userId, authUser, authReady, pageU
     } else {
       setOrderVideo(video);  // connecté → ouvrir commande
     }
+
+    {videos.map((v, index) => (
+        <VideoSlide
+          key={v.id}
+          video={v}
+          muted={muted}
+          onOrder={() => handleOrder(v)}
+          isFirst={index === 0}   // ← AJOUTER
+        />
+      ))}
   };
 
   return (
@@ -250,16 +260,24 @@ function AuthRequiredModal({ pageUrl, onClose }) {
 // ─────────────────────────────────────────────────────────────
 // Slide vidéo
 // ─────────────────────────────────────────────────────────────
-function VideoSlide({ video: v, muted, onOrder }) {
+function VideoSlide({ video: v, muted, onOrder, isFirst }) {
   const videoRef = useRef(null);
   const slideRef = useRef(null);
-  const [paused, setPaused] = useState(true);
-  const [liked,  setLiked]  = useState(false);
-  const [likes,  setLikes]  = useState(v.likes ?? 0);
+  const [paused,    setPaused]    = useState(true);
+  const [liked,     setLiked]     = useState(false);
+  const [likes,     setLikes]     = useState(v.likes ?? 0);
+  const [showHint,  setShowHint]  = useState(isFirst ?? false); // ← hint uniquement sur la 1ère slide
 
   const price = v.product?.price
     ? `${Number(v.product.price).toLocaleString("fr-FR")} XOF`
     : "";
+
+  // Masquer le hint après 3.5s
+  useEffect(() => {
+    if (!showHint) return;
+    const t = setTimeout(() => setShowHint(false), 3500);
+    return () => clearTimeout(t);
+  }, [showHint]);
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = muted;
@@ -335,6 +353,9 @@ function VideoSlide({ video: v, muted, onOrder }) {
       {paused && (
         <div className="play-overlay"><div className="play-icon">▶</div></div>
       )}
+
+      {/* ← Hint scroll, visible uniquement sur la 1ère slide */}
+      {showHint && <ScrollHint />}
     </div>
   );
 }
@@ -986,4 +1007,38 @@ const CSS = `
     .mute-btn { right:calc(50% - 215px); }
     .modal-backdrop { align-items:center; }
   }
+    /* ── Scroll hint animation ── */
+.scroll-hint {
+  position:absolute; bottom:80px; left:50%; transform:translateX(-50%);
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  pointer-events:none; animation:hintFadeOut .4s ease 3.1s forwards;
+}
+.scroll-hint-hand {
+  font-size:36px;
+  animation:swipeUp 1.1s cubic-bezier(.4,0,.2,1) infinite;
+  filter:drop-shadow(0 2px 8px rgba(0,0,0,.7));
+}
+.scroll-hint-dots { display:flex; flex-direction:column; align-items:center; gap:4px; }
+.scroll-hint-dots span {
+  display:block; width:3px; height:3px; border-radius:50%;
+  background:rgba(255,240,220,.55); animation:dotFade 1.1s ease infinite;
+}
+.scroll-hint-dots span:nth-child(1) { animation-delay:0s; }
+.scroll-hint-dots span:nth-child(2) { animation-delay:.12s; }
+.scroll-hint-dots span:nth-child(3) { animation-delay:.24s; }
+.scroll-hint-label {
+  font-size:.65rem; letter-spacing:.1em; text-transform:uppercase;
+  color:rgba(255,240,220,.6); font-family:'Syne',sans-serif; font-weight:700;
+}
+@keyframes swipeUp {
+  0%   { transform:translateY(0);    opacity:.9; }
+  60%  { transform:translateY(-30px); opacity:1;  }
+  80%  { transform:translateY(-36px); opacity:.2; }
+  100% { transform:translateY(0);    opacity:.9; }
+}
+@keyframes dotFade {
+  0%,100% { opacity:.25; }
+  50%     { opacity:.9;  }
+}
+@keyframes hintFadeOut { to { opacity:0; } }
 `;
