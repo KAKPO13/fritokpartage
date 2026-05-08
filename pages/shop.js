@@ -350,9 +350,9 @@ const VILLES_CI = [
 ];
 
 const TARIFS = {
-  "Abidjan": { "Abidjan": 1500, "Bouaké": 6500, default: 7000 },
-  "Bouaké" : { "Bouaké":  1500, "Abidjan": 6500, default: 7500 },
-  default  : { default: 8000 },
+  "Abidjan": { "Abidjan": 1500, "Bouaké": 2500, default: 3000 },
+  "Bouaké" : { "Bouaké":  1500, "Abidjan": 2500, default: 3500 },
+  default  : { default: 3000 },
 };
 
 function getFrais(villeVendeur, villeClient, typeLivr) {
@@ -420,6 +420,7 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
         clientEmail   : authUser?.email        ?? null,
         // ── Produit ──────────────────────────────────────
         userId,
+        userIdVend : userId,
         productId     : v.product?.productId   ?? v.id,
         productName   : v.product?.name         ?? "",
         productImage  : v.product?.image        ?? v.product?.thumbnail ?? "",
