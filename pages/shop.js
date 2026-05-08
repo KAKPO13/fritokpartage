@@ -411,51 +411,109 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
   };
 
   const confirmer = async () => {
-    if (!validate()) return;
-    setSubmitting(true);
-    try {
-      const payload = {
-        // ── Données client connecté ──────────────────────
-        clientUid     : authUser?.uid          ?? null,
-        clientEmail   : authUser?.email        ?? null,
-        // ── Produit ──────────────────────────────────────
-        userId,
-        userIdVend : userId,
-        productId     : v.product?.productId   ?? v.id,
-        nom_frifri   : v.product?.name         ?? "",
-        imageUrl  : v.product?.image        ?? v.product?.thumbnail ?? "",
-        videoId       : v.videoId               ?? v.id,
-        // ── Prix ─────────────────────────────────────────
-        prixArticle   : prix,
-        fraisLivraison: fraisXof,
-        totalXof,
-        // ── Livraison ────────────────────────────────────
-        telephone     : telephone.trim(),
-        adresse       : adresse.trim(),
-        villeClient,
-        villeVendeur  : "Abidjan",
-        typeLivraison : typeLivr,
-        modePaiement  : modePaiem,
-        clientLat     : gpsCoords?.lat ?? null,
-        clientLng     : gpsCoords?.lng ?? null,
-        statut        : "en_attente",
-        source        : "web_shop",
-        createdAt     : serverTimestamp(),
-      };
+  if (!validate()) return;
+  setSubmitting(true);
+  try {
+    // ── Code vérification 6 chiffres ──────────────────────────
+    const codeVerification = String(Math.floor(100000 + Math.random() * 900000));
 
-      const docRef = await addDoc(collection(db, "commandes"), payload);
-      const cId    = docRef.id;
-      const qr     = JSON.stringify({
-        commandeId: cId, client: telephone.trim(),
-        adresse: adresse.trim(), ville: villeClient,
-        total: fmt(totalXof),
-        ...(gpsCoords ? { lat: gpsCoords.lat.toFixed(6), lng: gpsCoords.lng.toFixed(6) } : {}),
-        ts: Date.now(),
-      });
-      setCommandeId(cId); setQrData(qr); setStep("qr");
-    } catch (e) { showToast("Erreur : " + e.message); }
-    finally     { setSubmitting(false); }
-  };
+    // ── Tableau articles (structure cible) ────────────────────
+    const articles = [{
+      boutiqueId  : userId,
+      imageUrl    : v.product?.image ?? v.product?.thumbnail ?? "",
+      nom_frifri  : v.product?.name  ?? "",
+      prix_frifri : prix,
+      ref_article : v.product?.productId ?? v.id,
+      userIdVend  : userId,
+    }];
+
+    const refArticles = [v.product?.productId ?? v.id];
+
+    const payload = {
+      // ── Identification ────────────────────────────────────
+      clientId          : authUser?.uid   ?? null,
+      userIdVend        : userId,
+
+      // ── Articles ──────────────────────────────────────────
+      articles,
+      refArticles,
+
+      // ── Livraison ─────────────────────────────────────────
+      adresseLivraison  : adresse.trim(),
+      villeDepart       : "Abidjan",
+      villeDestination  : villeClient,
+      typeLivraison     : typeLivr,
+      telephoneClient   : telephone.trim(),
+
+      // ── Coordonnées GPS ───────────────────────────────────
+      clientLat         : gpsCoords?.lat ?? null,
+      clientLng         : gpsCoords?.lng ?? null,
+      latLivraison      : null,
+      lngLivraison      : null,
+
+      // ── Prix ──────────────────────────────────────────────
+      fraisLivraison    : fraisXof,
+      totalXof,
+      totalDevise       : totalXof,
+      devise            : "XOF",
+
+      // ── Paiement ──────────────────────────────────────────
+      modePaiement      : modePaiem === "immediat" ? "enLigne" : "aLaLivraison",
+      transactionId     : null,
+
+      // ── Livreur (initialisé vide) ─────────────────────────
+      livreurId         : null,
+      livreur           : null,
+      batchId           : null,
+
+      // ── Statut & meta ─────────────────────────────────────
+      statut            : "en_attente",
+      codeVerification,
+      source            : "web_shop",
+
+      // ── extraData (mirror des champs clés) ────────────────
+      extraData: {
+        clientLat       : gpsCoords?.lat ?? null,
+        clientLng       : gpsCoords?.lng ?? null,
+        devise          : "XOF",
+        fraisLivraison  : fraisXof,
+        refArticles,
+        telephoneClient : telephone.trim(),
+        userIdVend      : userId,
+        villeDepart     : "Abidjan",
+        villeDestination: villeClient,
+      },
+
+      createdAt         : serverTimestamp(),
+      updatedAt         : null,
+      collecteValideeAt : null,
+    };
+
+    // ── Écriture Firestore ────────────────────────────────────
+    const docRef    = await addDoc(collection(db, "commandes"), payload);
+    const cId       = docRef.id;
+
+    // ── QR Code (structure cible) ─────────────────────────────
+    const qrPayload = JSON.stringify({
+      commandeId : cId,
+      userIdVend : userId,
+      client     : telephone.trim(),
+      adresse    : adresse.trim(),
+      ...(gpsCoords ? {
+        lat: gpsCoords.lat.toFixed(6),
+        lng: gpsCoords.lng.toFixed(6),
+      } : {}),
+      total      : fmt(totalXof),
+      ts         : Date.now(),
+    });
+
+    setCommandeId(cId);
+    setQrData(qrPayload);
+    setStep("qr");
+
+  } catch (e) { showToast("Erreur : " + e.message); }
+  finally     { setSubmitting(false); }
+};
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
 
