@@ -1,0 +1,33 @@
+.footer {
+  border-top: 1px solid var(--border);
+  padding: 2rem 2.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.logo {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--white);
+}
+
+.logo span { color: var(--orange); }
+
+.copy { color: var(--muted); font-size: 0.82rem; }
+
+.links {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.links a {
+  color: var(--muted);
+  font-size: 0.82rem;
+  transition: color 0.2s;
+}
+
+.links a:hover { color: var(--white); }

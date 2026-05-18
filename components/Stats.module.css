@@ -1,0 +1,28 @@
+.stats {
+  display: flex;
+  justify-content: center;
+  gap: 4rem;
+  flex-wrap: wrap;
+  max-width: 900px;
+  margin: 0 auto 6rem;
+  padding: 3rem 2rem;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.stat { text-align: center; }
+
+.num {
+  font-family: var(--font-display);
+  font-size: 2.8rem;
+  font-weight: 800;
+  color: var(--orange);
+  letter-spacing: -1px;
+  line-height: 1;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin-top: 0.4rem;
+}

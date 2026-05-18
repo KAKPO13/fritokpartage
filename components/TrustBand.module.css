@@ -1,0 +1,33 @@
+.band {
+  background: #101010;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 3rem 2rem;
+  text-align: center;
+  margin: 0 0 6rem;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin-bottom: 1.2rem;
+}
+
+.badges {
+  display: flex;
+  justify-content: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 100px;
+  padding: 0.45rem 1rem;
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.6);
+}

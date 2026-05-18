@@ -1,0 +1,126 @@
+.hero {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 6rem 2rem 4rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 50% 40%, rgba(255,77,0,0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255,77,0,0.12);
+  border: 1px solid rgba(255,77,0,0.3);
+  border-radius: 100px;
+  padding: 0.4rem 1rem;
+  font-size: 0.82rem;
+  color: var(--orange-soft);
+  margin-bottom: 2rem;
+  animation: fadeUp 0.6s ease both;
+}
+
+.liveDot {
+  width: 8px;
+  height: 8px;
+  background: var(--coral);
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: clamp(2.8rem, 7vw, 5.5rem);
+  font-weight: 800;
+  line-height: 1.0;
+  letter-spacing: -2px;
+  margin-bottom: 1.5rem;
+  animation: fadeUp 0.7s 0.1s ease both;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+.accent { color: var(--orange); }
+
+.sub {
+  display: block;
+  font-weight: 400;
+  font-size: clamp(1.8rem, 4.5vw, 3.2rem);
+  color: rgba(255,255,255,0.5);
+  letter-spacing: -1px;
+}
+
+.desc {
+  max-width: 560px;
+  color: rgba(255,255,255,0.55);
+  font-size: 1.05rem;
+  margin-bottom: 2.5rem;
+  animation: fadeUp 0.7s 0.2s ease both;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+.actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  animation: fadeUp 0.7s 0.3s ease both;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+.btnPrimary {
+  background: var(--orange);
+  color: #fff;
+  padding: 0.9rem 2rem;
+  border-radius: 100px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: transform 0.15s, opacity 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btnPrimary:hover { opacity: 0.88; transform: translateY(-1px); }
+
+.btnSecondary {
+  background: transparent;
+  color: var(--white);
+  border: 1px solid rgba(255,255,255,0.2);
+  padding: 0.9rem 2rem;
+  border-radius: 100px;
+  font-size: 0.95rem;
+  font-weight: 400;
+  transition: border-color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btnSecondary:hover { border-color: rgba(255,255,255,0.5); }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
