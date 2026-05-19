@@ -112,7 +112,7 @@ const DEMO_CHAT = [
 // ─── Player plein écran ───────────────────────────────────────────────────────
 function LivePlayer({ session, onClose }) {
   // ── Agora ──
-  const { videoContainerRef, joined, remoteUsers, error: agoraError } =
+  const { videoContainerRef, remoteUsers, status, error: agoraError } =
     useAgoraPlayer(session.channelId, session.isLive);
 
   // ── UI state ──
@@ -158,7 +158,16 @@ function LivePlayer({ session, onClose }) {
   };
 
   const initial = (session.sellerName || 'V')[0].toUpperCase();
-  const hasVideo = session.isLive && remoteUsers.length > 0;
+  const hasVideo = status === 'live' && remoteUsers.length > 0;
+
+  const offlineLabel = {
+    'fetching-token': '🔑 Authentification…',
+    'connecting':     '🔗 Connexion au live…',
+    'live':           '⏳ En attente du vendeur…',
+    'error':          '⚠️ ' + (agoraError ?? 'Erreur de connexion'),
+    'offline':        '📼 Ce live est terminé',
+    'idle':           '…',
+  }[status] ?? '…';
 
   return (
     <div className={styles.playerPage}>
@@ -181,16 +190,7 @@ function LivePlayer({ session, onClose }) {
               />
             )}
             <div className={styles.offlineOverlay}/>
-            <div className={styles.offlineLabel}>
-              {session.isLive
-                ? joined
-                  ? '⏳ En attente du vendeur…'
-                  : agoraError
-                    ? '⚠️ ' + agoraError
-                    : '🔗 Connexion au live…'
-                : '📼 Ce live est terminé'
-              }
-            </div>
+            <div className={styles.offlineLabel}>{offlineLabel}</div>
           </div>
         </div>
       )}
