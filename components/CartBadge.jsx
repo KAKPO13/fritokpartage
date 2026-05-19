@@ -12,6 +12,7 @@ export default function CartBadge({
     setVisible(count > 0);
   }, [count]);
 
+
   return (
     <div className={`absolute ${position} z-50`}>
       {visible && (

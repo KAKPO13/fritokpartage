@@ -23,6 +23,7 @@ export default function VideoCard({ video, referrer, token }) {
     await logClick(video.id, referrer, token);
   };
 
+
   return (
     <div style={{
       marginBottom: '2rem',

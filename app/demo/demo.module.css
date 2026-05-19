@@ -1,104 +1,51 @@
-/* ─── Page wrapper ─────────────────────────────────────────────────────────── */
+/* ── Page ─────────────────────────────────────────────────────────────────── */
 .page {
   position: fixed;
   inset: 0;
   background: #000;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
-/* ─── Nav ───────────────────────────────────────────────────────────────────── */
-.nav {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.9rem 1.2rem;
-  background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 100%);
-}
-
-.navLogo {
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: 1.3rem;
-  color: #fff;
-  letter-spacing: -0.5px;
-}
-
-.navLogo span { color: var(--orange); }
-
-.navTabs {
-  display: flex;
-  gap: 0.2rem;
-}
-
-.navTab {
-  background: transparent;
-  color: rgba(255,255,255,0.55);
-  font-size: 0.88rem;
-  font-weight: 500;
-  padding: 0.3rem 0.8rem;
-  border-radius: 100px;
-  border: none;
-  cursor: pointer;
-  transition: color 0.2s, background 0.2s;
-}
-
-.navTab:hover { color: #fff; }
-
-.navTabActive {
-  color: #fff;
-  font-weight: 700;
-  background: rgba(255,255,255,0.1);
-  border-bottom: 2px solid #fff;
-  border-radius: 0;
-}
-
-.navCta {
-  background: var(--orange);
-  color: #fff;
-  padding: 0.4rem 1rem;
-  border-radius: 100px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  transition: opacity 0.2s;
-}
-
-.navCta:hover { opacity: 0.85; }
-
-/* ─── Feed (scroll-snap) ────────────────────────────────────────────────────── */
+/* ── Feed : scroll-snap container ────────────────────────────────────────── */
 .feed {
-  flex: 1;
+  width: 100%;
+  height: 100%;
   overflow-y: scroll;
   scroll-snap-type: y mandatory;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  /* PAS de display:flex ici — ça casse le scroll-snap vertical */
 }
-
 .feed::-webkit-scrollbar { display: none; }
 
-/* ─── Slide ─────────────────────────────────────────────────────────────────── */
-.slide {
+/* ── slideWrapper : le snap target ───────────────────────────────────────── */
+.slideWrapper {
   height: 100vh;
   height: 100dvh;
   scroll-snap-align: start;
+  scroll-snap-stop: always;
   position: relative;
   overflow: hidden;
+  /* Centrage desktop sans toucher au scroll */
+  display: flex;
+  justify-content: center;
+  background: #000;
 }
 
-/* ─── Video ─────────────────────────────────────────────────────────────────── */
-.videoItem {
+/* ── slide : le contenu intérieur ────────────────────────────────────────── */
+.slide {
   position: relative;
   width: 100%;
+  max-width: 480px;       /* plein écran mobile, encadré desktop */
   height: 100%;
+  overflow: hidden;
+  background: #111;
 }
 
+/* ── Vidéo ────────────────────────────────────────────────────────────────── */
 .video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -106,423 +53,308 @@
   cursor: pointer;
 }
 
-/* ─── Gradient overlays ─────────────────────────────────────────────────────── */
-.gradientTop {
+/* ── Dégradés overlay ────────────────────────────────────────────────────── */
+.gradTop {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 160px;
-  background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, transparent 100%);
+  top: 0; left: 0; right: 0;
+  height: 180px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 100%);
   pointer-events: none;
+  z-index: 5;
+}
+.gradBottom {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 60%;
+  background: linear-gradient(0deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.25) 65%, transparent 100%);
+  pointer-events: none;
+  z-index: 5;
 }
 
-.gradientBottom {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 55%;
-  background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.3) 60%, transparent 100%);
-  pointer-events: none;
-}
-
-/* ─── Pause flash icon ──────────────────────────────────────────────────────── */
-.pauseFlash {
+/* ── Flash tap ────────────────────────────────────────────────────────────── */
+.tapFlash {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  animation: fadeFlash 0.9s ease forwards;
-  z-index: 20;
+  z-index: 30;
+  animation: flashFade 0.85s ease forwards;
 }
-
-@keyframes fadeFlash {
-  0%   { opacity: 1; transform: scale(0.8); }
-  40%  { opacity: 1; transform: scale(1.1); }
+@keyframes flashFade {
+  0%   { opacity: 1; transform: scale(0.75); }
+  35%  { opacity: 1; transform: scale(1.1); }
   100% { opacity: 0; transform: scale(1.1); }
 }
 
-/* ─── Top bar (logo + mute) ─────────────────────────────────────────────────── */
+/* ── Barre du haut ────────────────────────────────────────────────────────── */
 .topBar {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: 0; left: 0; right: 0;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 3.5rem 1rem 0;
-  z-index: 10;
+  justify-content: space-between;
+  padding: 0.9rem 1rem 0;
+  z-index: 20;
 }
+.topLogo {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.3rem;
+  color: #fff;
+  letter-spacing: -0.5px;
+  text-decoration: none;
+}
+.topLogo span { color: var(--orange); }
 
-.topTitle {
-  font-size: 0; /* hidden on slides, nav shows it */
+.topTabs {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.5);
+  font-weight: 500;
+}
+.topTabActive {
+  color: #fff;
+  font-weight: 700;
+  border-bottom: 2px solid #fff;
+  padding-bottom: 1px;
 }
 
 .muteBtn {
-  background: rgba(0,0,0,0.3);
-  border: none;
+  width: 36px; height: 36px;
   border-radius: 50%;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  border: none; cursor: pointer;
   transition: background 0.2s;
 }
+.muteBtn:hover { background: rgba(0,0,0,0.6); }
 
-.muteBtn:hover { background: rgba(0,0,0,0.5); }
-
-/* ─── Right actions ─────────────────────────────────────────────────────────── */
+/* ── Actions droite ───────────────────────────────────────────────────────── */
 .actions {
   position: absolute;
   right: 0.9rem;
-  bottom: 160px;
+  bottom: 170px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1.4rem;
-  z-index: 10;
+  gap: 1.3rem;
+  z-index: 20;
 }
 
-.avatarWrap {
-  position: relative;
-  margin-bottom: 0.4rem;
-}
+.avatarWrap { position: relative; margin-bottom: 0.5rem; }
 
 .avatar {
-  width: 46px;
-  height: 46px;
+  width: 48px; height: 48px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--orange), var(--coral));
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   font-family: var(--font-display);
-  font-weight: 800;
-  font-size: 1.1rem;
+  font-weight: 800; font-size: 1.15rem;
   color: #fff;
   border: 2px solid #fff;
 }
 
 .followDot {
   position: absolute;
-  bottom: -6px;
-  left: 50%;
+  bottom: -7px; left: 50%;
   transform: translateX(-50%);
-  width: 20px;
-  height: 20px;
+  width: 20px; height: 20px;
   background: var(--coral);
   border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.9rem;
-  color: #fff;
-  font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.85rem; color: #fff; font-weight: 700;
   border: 2px solid #000;
 }
 
 .actionBtn {
-  background: transparent;
-  border: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.25rem;
-  cursor: pointer;
-  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5));
+  background: none; border: none;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 0.2rem; cursor: pointer;
+  filter: drop-shadow(0 1px 4px rgba(0,0,0,0.6));
   transition: transform 0.15s;
 }
+.actionBtn:hover { transform: scale(1.13); }
 
-.actionBtn:hover { transform: scale(1.12); }
+/* Les 3 variantes de compteur */
+.count     { font-size: 0.72rem; color: rgba(255,255,255,0.9); font-weight: 500; min-height: 1em; }
+.countLiked{ font-size: 0.72rem; color: var(--coral); font-weight: 700; min-height: 1em; }
+.countGold { font-size: 0.72rem; color: var(--gold);  font-weight: 700; min-height: 1em; }
 
-.actionCount {
-  font-size: 0.72rem;
-  color: rgba(255,255,255,0.9);
-  font-weight: 500;
-  min-height: 1em;
-}
+.cartBtn svg { stroke: var(--gold) !important; }
 
-.likedCount {
-  font-size: 0.72rem;
-  color: var(--coral);
-  font-weight: 600;
-  min-height: 1em;
-}
-
-.cartBtn svg { stroke: var(--gold); }
-.cartBtn .actionCount { color: var(--gold); }
-
-/* ─── Bottom info ───────────────────────────────────────────────────────────── */
+/* ── Bas : auteur / tags / produit ───────────────────────────────────────── */
 .bottomInfo {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 70px;
-  padding: 1rem 1rem 1.4rem;
-  z-index: 10;
+  bottom: 0; left: 0; right: 68px;
+  padding: 1rem 1rem 1.5rem;
+  z-index: 20;
 }
 
 .username {
   font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 1rem;
-  color: #fff;
-  margin-bottom: 0.3rem;
+  font-weight: 700; font-size: 1rem;
+  color: #fff; margin-bottom: 0.25rem;
 }
-
-.caption {
-  font-size: 0.82rem;
-  color: rgba(255,255,255,0.75);
-  margin-bottom: 0.9rem;
-  line-height: 1.4;
-}
-
-/* ─── Product mini-card ─────────────────────────────────────────────────────── */
-.productCard {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 12px;
-  padding: 0.5rem 0.8rem 0.5rem 0.5rem;
-  cursor: pointer;
-  width: 100%;
-  max-width: 320px;
-  transition: background 0.2s, transform 0.15s;
-  text-align: left;
-}
-
-.productCard:hover {
-  background: rgba(0,0,0,0.75);
-  transform: translateY(-2px);
-}
-
-.productThumb {
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  object-fit: cover;
-  flex-shrink: 0;
-  border: 1px solid rgba(255,255,255,0.1);
-}
-
-.productMeta {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.productName {
-  font-size: 0.82rem;
-  color: #fff;
-  font-weight: 500;
-  line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.productPrice {
-  font-size: 0.78rem;
-  color: var(--gold);
-  font-weight: 700;
-}
-
-.productCta {
-  font-size: 0.72rem;
-  background: var(--orange);
-  color: #fff;
-  padding: 0.3rem 0.6rem;
-  border-radius: 6px;
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-/* ─── Product sheet (bottom drawer) ─────────────────────────────────────────── */
-.sheetBackdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.6);
-  z-index: 100;
-  display: flex;
-  align-items: flex-end;
-  animation: fadeIn 0.2s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.sheet {
-  width: 100%;
-  max-width: 500px;
-  margin: 0 auto;
-  background: #181818;
-  border-radius: 24px 24px 0 0;
-  padding: 0.75rem 1.2rem 2rem;
-  animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-@keyframes slideUp {
-  from { transform: translateY(100%); }
-  to   { transform: translateY(0); }
-}
-
-.sheetHandle {
-  width: 40px;
-  height: 4px;
-  background: rgba(255,255,255,0.2);
-  border-radius: 2px;
-  margin: 0 auto 1.2rem;
-}
-
-.sheetContent {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.sheetImg {
-  width: 100%;
-  max-height: 240px;
-  object-fit: cover;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.08);
-}
-
-.sheetInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.sheetName {
-  font-family: var(--font-display);
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: #fff;
-}
-
-.sheetDesc {
-  font-size: 0.88rem;
-  color: rgba(255,255,255,0.55);
+.tags {
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.7);
+  margin-bottom: 0.85rem;
   line-height: 1.5;
 }
 
-.sheetPrice {
-  font-family: var(--font-display);
-  font-size: 1.5rem;
-  font-weight: 800;
-  color: var(--gold);
-}
-
-.sheetPrice span {
-  font-size: 0.85rem;
-  color: var(--muted);
-  font-weight: 400;
-}
-
-.sheetBtn {
-  background: var(--orange);
-  color: #fff;
-  border: none;
-  border-radius: 12px;
-  padding: 0.9rem;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-  margin-top: 0.4rem;
-}
-
-.sheetBtn:hover { opacity: 0.88; }
-
-.sheetBtnSecondary {
-  background: transparent;
-  color: rgba(255,255,255,0.6);
+/* Carte produit inline */
+.productCard {
+  display: flex; align-items: center; gap: 0.65rem;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255,255,255,0.15);
   border-radius: 12px;
-  padding: 0.75rem;
-  font-size: 0.88rem;
-  cursor: pointer;
+  padding: 0.45rem 0.75rem 0.45rem 0.45rem;
+  cursor: pointer; width: 100%; max-width: 310px;
+  text-align: left; border: none;
+  transition: background 0.2s, transform 0.15s;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.productCard:hover { background: rgba(0,0,0,0.75); transform: translateY(-2px); }
+
+.productThumb {
+  width: 44px; height: 44px;
+  border-radius: 8px; object-fit: cover; flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.productMeta { flex: 1; display: flex; flex-direction: column; gap: 0.12rem; }
+.productName {
+  font-size: 0.82rem; color: #fff; font-weight: 500; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+}
+.productPrice { font-size: 0.78rem; color: var(--gold); font-weight: 700; }
+.productCta {
+  font-size: 0.72rem; background: var(--orange);
+  color: #fff; padding: 0.3rem 0.6rem;
+  border-radius: 6px; font-weight: 600; white-space: nowrap; flex-shrink: 0;
+}
+
+/* ── Product sheet (drawer) ──────────────────────────────────────────────── */
+.sheetBackdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.65);
+  z-index: 200;
+  display: flex; align-items: flex-end;
+  animation: bdIn 0.2s ease;
+}
+@keyframes bdIn { from { opacity:0; } to { opacity:1; } }
+
+.sheet {
+  width: 100%; max-width: 480px;
+  margin: 0 auto;
+  background: #1a1a1a;
+  border-radius: 24px 24px 0 0;
+  padding: 0.8rem 1.2rem 2.5rem;
+  overflow-y: auto; max-height: 90vh;
+  animation: sheetUp 0.3s cubic-bezier(0.34,1.5,0.64,1);
+}
+@keyframes sheetUp { from { transform:translateY(100%); } to { transform:translateY(0); } }
+
+.sheetHandle {
+  width: 40px; height: 4px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 2px;
+  margin: 0 auto 1.2rem;
+}
+.sheetImg {
+  width: 100%; max-height: 260px;
+  object-fit: cover; border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.07);
+  margin-bottom: 1rem;
+}
+.sheetInfo { display: flex; flex-direction: column; gap: 0.6rem; }
+.sheetName { font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; color: #fff; }
+.sheetDesc { font-size: 0.88rem; color: rgba(255,255,255,0.5); line-height: 1.55; }
+.sheetPrice { font-family: var(--font-display); font-size: 1.6rem; font-weight: 800; color: var(--gold); }
+.sheetPrice span { font-size: 0.82rem; color: var(--muted); font-weight: 400; }
+.sheetBtn {
+  background: var(--orange); color: #fff;
+  border: none; border-radius: 12px;
+  padding: 0.95rem; font-size: 0.95rem; font-weight: 600;
+  cursor: pointer; margin-top: 0.5rem;
+  transition: opacity 0.2s;
+}
+.sheetBtn:hover { opacity: 0.87; }
+.sheetBtnSecondary {
+  background: transparent; color: rgba(255,255,255,0.55);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 12px; padding: 0.78rem;
+  font-size: 0.88rem; cursor: pointer;
   transition: border-color 0.2s, color 0.2s;
 }
+.sheetBtnSecondary:hover { border-color: rgba(255,255,255,0.4); color: #fff; }
 
-.sheetBtnSecondary:hover {
-  border-color: rgba(255,255,255,0.4);
-  color: #fff;
-}
-
-/* ─── Progress dots (side) ──────────────────────────────────────────────────── */
+/* ── Dots latéraux ────────────────────────────────────────────────────────── */
 .dots {
-  position: fixed;
-  right: 0.6rem;
-  top: 50%;
+  position: fixed; right: 0.55rem; top: 50%;
   transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  z-index: 40;
+  display: flex; flex-direction: column; gap: 0.4rem;
+  z-index: 50; max-height: 80vh; overflow: hidden;
 }
-
 .dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255,255,255,0.3);
-  border: none;
-  cursor: pointer;
+  width: 4px; height: 4px; border-radius: 2px;
+  background: rgba(255,255,255,0.25); border: none; cursor: pointer;
   transition: height 0.2s, background 0.2s;
 }
+.dotActive { height: 16px; background: #fff; }
 
-.dotActive {
-  height: 16px;
-  background: #fff;
+/* ── Compteur ─────────────────────────────────────────────────────────────── */
+.counter {
+  position: fixed; bottom: 1rem; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(6px);
+  color: rgba(255,255,255,0.6);
+  font-size: 0.72rem; padding: 0.25rem 0.7rem;
+  border-radius: 100px; z-index: 50;
+  pointer-events: none;
 }
 
-/* ─── Responsive ────────────────────────────────────────────────────────────── */
-@media (min-width: 480px) {
-  .feed {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .slide {
-    max-width: 390px;
-    width: 100%;
-    border-radius: 0;
-  }
+/* ── Skeleton loader ──────────────────────────────────────────────────────── */
+.skeleton {
+  width: 100%; height: 100%;
+  position: relative; overflow: hidden; background: #111;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  padding: 1.5rem;
+}
+.skeletonPulse {
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, #1a1a1a 25%, #252525 50%, #1a1a1a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+.skeletonText { position: relative; z-index: 2; display: flex; flex-direction: column; gap: 0.6rem; }
+.skeletonLine {
+  height: 14px; border-radius: 6px;
+  background: rgba(255,255,255,0.08);
 }
 
-@media (min-width: 900px) {
-  .page {
-    background: #0a0a0a;
-  }
-
-  .feed {
-    align-items: center;
-    justify-content: flex-start;
-  }
-
-  .slide {
-    max-width: 400px;
-    border-radius: 16px;
-    margin: 0 auto;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-  }
+/* ── Erreur ───────────────────────────────────────────────────────────────── */
+.errorBox {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 1.2rem; padding: 2rem; text-align: center;
+  color: rgba(255,255,255,0.6); font-size: 0.95rem;
 }
+.errorBack {
+  color: var(--orange); font-size: 0.88rem;
+  border-bottom: 1px solid rgba(255,77,0,0.3);
+  padding-bottom: 2px;
+  transition: opacity 0.2s;
+}
+.errorBack:hover { opacity: 0.75; }

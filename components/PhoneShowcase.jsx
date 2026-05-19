@@ -22,6 +22,7 @@ export default function PhoneShowcase() {
 
   const product = PRODUCTS[current];
 
+
   return (
     <section className={styles.section}>
       {/* Phone mockup */}
