@@ -9,7 +9,7 @@ import { db } from '../../lib/firebaseClient';
 import { useAgoraPlayer } from '../../lib/useAgoraPlayer';
 import styles from './live.module.css';
 
-// ─── Icônes ───────────────────────────────────────────────────────────────────
+/* ---- Icons ---------------------------------------------------------------- */
 function IconHeart({ filled }) {
   return (
     <svg width="26" height="26" viewBox="0 0 24 24"
@@ -63,7 +63,7 @@ function IconEye() {
   );
 }
 
-// ─── Bulle de chat ────────────────────────────────────────────────────────────
+/* ---- Chat bubble ---------------------------------------------------------- */
 function ChatBubble({ msg }) {
   return (
     <div className={styles.chatBubble}>
@@ -73,7 +73,7 @@ function ChatBubble({ msg }) {
   );
 }
 
-// ─── Fiche produit (drawer bas) ───────────────────────────────────────────────
+/* ---- Product sheet (bottom drawer) --------------------------------------- */
 function ProductSheet({ product, onClose }) {
   if (!product) return null;
   return (
@@ -92,7 +92,7 @@ function ProductSheet({ product, onClose }) {
           <div className={styles.sheetPrice}>
             {Number(product.price).toLocaleString('fr-FR')} <span>FCFA</span>
           </div>
-          <button className={styles.sheetBtn}>🛒 Commander maintenant</button>
+          <button className={styles.sheetBtn}>Commander maintenant</button>
           <button className={styles.sheetBtnSecondary} onClick={onClose}>Fermer</button>
         </div>
       </div>
@@ -100,33 +100,30 @@ function ProductSheet({ product, onClose }) {
   );
 }
 
-// ─── Messages de démo (en prod : onSnapshot sur subcollection comments) ───────
+/* ---- Demo chat messages --------------------------------------------------- */
 const DEMO_CHAT = [
-  { id: 1, user: '@marie_ci',  text: 'C\'est magnifique 😍' },
-  { id: 2, user: '@kofi',      text: 'Disponible en rouge ?' },
-  { id: 3, user: '@aminata',   text: 'Le prix svp 🙏' },
-  { id: 4, user: '@alex_abj',  text: 'J\'adore ce produit !' },
-  { id: 5, user: '@cissé',     text: 'Livraison à Yopougon ?' },
+  { id: 1, user: '@marie_ci', text: "C'est magnifique !" },
+  { id: 2, user: '@kofi', text: 'Disponible en rouge ?' },
+  { id: 3, user: '@aminata', text: 'Le prix svp' },
+  { id: 4, user: '@alex_abj', text: "J'adore ce produit !" },
+  { id: 5, user: '@cisse', text: 'Livraison a Yopougon ?' },
 ];
 
-// ─── Player plein écran ───────────────────────────────────────────────────────
+/* ---- Live player ---------------------------------------------------------- */
 function LivePlayer({ session, onClose }) {
-  // ── Agora ──
   const { videoContainerRef, remoteUsers, status, error: agoraError } =
     useAgoraPlayer(session.channelId, session.isLive);
 
-  // ── UI state ──
-  const [liked, setLiked]               = useState(false);
-  const [likeCount, setLikeCount]       = useState(session.likeCount ?? 0);
-  const [showSheet, setShowSheet]       = useState(false);
+  const [liked, setLiked]         = useState(false);
+  const [likeCount, setLikeCount] = useState(session.likeCount ?? 0);
+  const [showSheet, setShowSheet] = useState(false);
   const [activeProduct, setActiveProduct] = useState(session.products?.[0] ?? null);
-  const [showProductList, setShowProductList] = useState(false);
-  const [messages, setMessages]         = useState([]);
-  const [inputMsg, setInputMsg]         = useState('');
+  const [messages, setMessages]   = useState([]);
+  const [inputMsg, setInputMsg]   = useState('');
   const chatRef  = useRef(null);
   const msgIdRef = useRef(10);
 
-  // Simuler arrivée de messages (remplacer par onSnapshot en prod)
+  /* Simulated chat (replace with onSnapshot on comments subcollection) */
   useEffect(() => {
     setMessages(DEMO_CHAT.slice(0, 2));
     const timers = DEMO_CHAT.slice(2).map((m, i) =>
@@ -135,7 +132,6 @@ function LivePlayer({ session, onClose }) {
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  // Auto-scroll chat
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
@@ -157,37 +153,31 @@ function LivePlayer({ session, onClose }) {
     setInputMsg('');
   };
 
-  const initial = (session.sellerName || 'V')[0].toUpperCase();
-  const hasVideo = status === 'live' && remoteUsers.length > 0;
+  const initial    = (session.sellerName || 'V')[0].toUpperCase();
+  const hasVideo   = status === 'live' && remoteUsers.length > 0;
+  const products   = session.products ?? [];
 
   const offlineLabel = {
-    'fetching-token': '🔑 Authentification…',
-    'connecting':     '🔗 Connexion au live…',
-    'live':           '⏳ En attente du vendeur…',
-    'error':          '⚠️ ' + (agoraError ?? 'Erreur de connexion'),
-    'offline':        '📼 Ce live est terminé',
-    'idle':           '…',
-  }[status] ?? '…';
+    'fetching-token': 'Authentification...',
+    'connecting':     'Connexion au live...',
+    'live':           'En attente du vendeur...',
+    'error':          'Erreur : ' + (agoraError ?? 'inconnue'),
+    'offline':        'Ce live est termine',
+    'idle':           '...',
+  }[status] ?? '...';
 
   return (
     <div className={styles.playerPage}>
 
-      {/* ── Zone vidéo Agora ── */}
-      <div
-        ref={videoContainerRef}
-        className={styles.agoraVideo}
-      />
+      {/* Agora video output */}
+      <div ref={videoContainerRef} className={styles.agoraVideo}/>
 
-      {/* Fond de secours si pas de flux actif */}
+      {/* Fallback when no stream */}
       {!hasVideo && (
         <div className={styles.playerBg}>
           <div className={styles.offlineCover}>
-            {session.products?.[0]?.image && (
-              <img
-                src={session.products[0].image}
-                alt=""
-                className={styles.offlineImg}
-              />
+            {products[0]?.image && (
+              <img src={products[0].image} alt="" className={styles.offlineImg}/>
             )}
             <div className={styles.offlineOverlay}/>
             <div className={styles.offlineLabel}>{offlineLabel}</div>
@@ -198,7 +188,7 @@ function LivePlayer({ session, onClose }) {
       <div className={styles.playerGradTop}/>
       <div className={styles.playerGradBottom}/>
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div className={styles.playerHeader}>
         <div className={styles.playerHost}>
           <div className={styles.playerAvatar}>{initial}</div>
@@ -212,14 +202,14 @@ function LivePlayer({ session, onClose }) {
         </div>
         <div className={styles.playerHeaderRight}>
           {session.isLive
-            ? <span className={styles.liveIndicator}>🔴 LIVE</span>
-            : <span className={styles.replayLabel}>TERMINÉ</span>
+            ? <span className={styles.liveIndicator}>LIVE</span>
+            : <span className={styles.replayLabel}>TERMINE</span>
           }
           <button className={styles.closeBtn} onClick={onClose}><IconClose/></button>
         </div>
       </div>
 
-      {/* ── Actions droite ── */}
+      {/* Right actions */}
       <div className={styles.playerActions}>
         <button className={styles.playerActionBtn} onClick={handleLike}>
           <IconHeart filled={liked}/>
@@ -231,68 +221,59 @@ function LivePlayer({ session, onClose }) {
           <IconGift/>
           <span className={styles.countGold}>{session.giftCount > 0 ? session.giftCount : ''}</span>
         </button>
-        <button className={styles.playerActionBtn} onClick={() => setShowProductList(v => !v)}>
-          <IconCart/>
-          <span className={styles.countWhite}>{session.products?.length ?? 0}</span>
-        </button>
         <button className={styles.playerActionBtn}>
           <IconShare/>
         </button>
       </div>
 
-      {/* ── Chat ── */}
+      {/* Chat messages */}
       <div className={styles.chatArea} ref={chatRef}>
         {messages.map(m => <ChatBubble key={m.id} msg={m}/>)}
       </div>
 
+      {/* Chat input */}
       <div className={styles.chatInput}>
         <input
           className={styles.chatField}
-          placeholder="Écrire un commentaire…"
+          placeholder="Ecrire un commentaire..."
           value={inputMsg}
           onChange={e => setInputMsg(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && sendMessage()}
         />
-        <button className={styles.chatSend} onClick={sendMessage}>↑</button>
+        <button className={styles.chatSend} onClick={sendMessage}>up</button>
       </div>
 
-      {/* ── Produit épinglé ── */}
-      {activeProduct && (
-        <button className={styles.pinnedProduct} onClick={() => setShowSheet(true)}>
-          <img src={activeProduct.image} alt={activeProduct.name} className={styles.pinnedImg}
-            onError={e => { e.currentTarget.style.display = 'none'; }}/>
-          <div className={styles.pinnedMeta}>
-            <span className={styles.pinnedName}>{activeProduct.name}</span>
-            <span className={styles.pinnedPrice}>
-              {Number(activeProduct.price).toLocaleString('fr-FR')} FCFA
-            </span>
+      {/* Product carousel — ALL products always visible, tap to open sheet */}
+      {products.length > 0 && (
+        <div className={styles.productCarousel}>
+          <div className={styles.carouselLabel}>
+            Produits ({products.length})
           </div>
-          <span className={styles.pinnedCta}>Voir</span>
-        </button>
-      )}
-
-      {/* ── Liste produits ── */}
-      {showProductList && (
-        <div className={styles.productListPanel}>
-          <div className={styles.productListHeader}>
-            <span>Produits du live ({session.products?.length ?? 0})</span>
-            <button onClick={() => setShowProductList(false)}><IconClose/></button>
-          </div>
-          <div className={styles.productListScroll}>
-            {(session.products ?? []).map(p => (
-              <button key={p.productId} className={styles.productListItem}
-                onClick={() => { setActiveProduct(p); setShowSheet(true); setShowProductList(false); }}>
-                <img src={p.image} alt={p.name} className={styles.productListImg}
-                  onError={e => { e.currentTarget.style.display = 'none'; }}/>
-                <div className={styles.productListMeta}>
-                  <span className={styles.productListName}>{p.name}</span>
-                  <span className={styles.productListDesc}>{p.description}</span>
-                  <span className={styles.productListPrice}>
-                    {Number(p.price).toLocaleString('fr-FR')} FCFA
+          <div className={styles.carouselTrack}>
+            {products.map((p, i) => {
+              const isActive = activeProduct?.productId === p.productId;
+              return (
+                <button
+                  key={p.productId ?? i}
+                  className={isActive ? styles.carouselItemActive : styles.carouselItem}
+                  onClick={() => { setActiveProduct(p); setShowSheet(true); }}
+                >
+                  <div className={styles.carouselImgWrap}>
+                    <img
+                      src={p.image}
+                      alt={p.name}
+                      className={styles.carouselImg}
+                      onError={e => { e.currentTarget.style.display = 'none'; }}
+                    />
+                    {isActive && <div className={styles.carouselActiveDot}/>}
+                  </div>
+                  <span className={styles.carouselName}>{p.name}</span>
+                  <span className={styles.carouselPrice}>
+                    {Number(p.price).toLocaleString('fr-FR')} F
                   </span>
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -304,7 +285,7 @@ function LivePlayer({ session, onClose }) {
   );
 }
 
-// ─── Carte live ───────────────────────────────────────────────────────────────
+/* ---- Live card (list view) ------------------------------------------------ */
 const GRADIENTS = [
   'linear-gradient(135deg,#1e3a5f,#0d1b2a)',
   'linear-gradient(135deg,#3d1a4f,#1a0d2e)',
@@ -315,9 +296,8 @@ const GRADIENTS = [
 
 function LiveCard({ session, onSelect }) {
   const firstProduct = session.products?.[0];
-  const initial = (session.sellerName || 'L')[0].toUpperCase();
-  const gradient = GRADIENTS[session.channelId?.charCodeAt(5) % GRADIENTS.length ?? 0];
-
+  const initial  = (session.sellerName || 'L')[0].toUpperCase();
+  const gradient = GRADIENTS[(session.channelId?.charCodeAt(5) ?? 0) % GRADIENTS.length];
   return (
     <div className={styles.liveCard} onClick={() => onSelect(session)}>
       <div className={styles.liveThumb} style={{ background: gradient }}>
@@ -326,7 +306,7 @@ function LiveCard({ session, onSelect }) {
             onError={e => { e.currentTarget.style.display = 'none'; }}/>
         )}
         {session.isLive
-          ? <span className={styles.liveBadge}>🔴 LIVE</span>
+          ? <span className={styles.liveBadge}>LIVE</span>
           : <span className={styles.replayBadge}>REPLAY</span>
         }
         <span className={styles.viewerBadge}><IconEye/> {session.viewerCount ?? 0}</span>
@@ -348,7 +328,7 @@ function LiveCard({ session, onSelect }) {
   );
 }
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
+/* ---- Skeleton ------------------------------------------------------------- */
 function Skeleton() {
   return (
     <div className={styles.skeletonGrid}>
@@ -365,7 +345,7 @@ function Skeleton() {
   );
 }
 
-// ─── Page /live ───────────────────────────────────────────────────────────────
+/* ---- Page /live ----------------------------------------------------------- */
 export default function LivePage() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -374,10 +354,7 @@ export default function LivePage() {
   const [filter, setFilter]     = useState('all');
 
   useEffect(() => {
-    const q = query(
-      collection(db, 'live_sessions'),
-      orderBy('startedAt', 'desc')
-    );
+    const q = query(collection(db, 'live_sessions'), orderBy('startedAt', 'desc'));
     const unsub = onSnapshot(q,
       snap => {
         setSessions(snap.docs.map(d => ({
@@ -387,11 +364,7 @@ export default function LivePage() {
         })));
         setLoading(false);
       },
-      err => {
-        console.error(err);
-        setError('Impossible de charger les lives.');
-        setLoading(false);
-      }
+      err => { console.error(err); setError('Impossible de charger les lives.'); setLoading(false); }
     );
     return () => unsub();
   }, []);
@@ -400,7 +373,9 @@ export default function LivePage() {
     return <LivePlayer session={selected} onClose={() => setSelected(null)}/>;
   }
 
-  const filtered = sessions.filter(s => {
+  const liveCount   = sessions.filter(s => s.isLive).length;
+  const replayCount = sessions.filter(s => !s.isLive).length;
+  const filtered    = sessions.filter(s => {
     if (filter === 'live')   return s.isLive === true;
     if (filter === 'replay') return s.isLive === false;
     return true;
@@ -411,33 +386,31 @@ export default function LivePage() {
       <nav className={styles.nav}>
         <a href="/" className={styles.navLogo}>Fri<span>Tok</span></a>
         <span className={styles.navTitle}>Lives</span>
-        <a href="/demo" className={styles.navLink}>Vidéos</a>
+        <a href="/demo" className={styles.navLink}>Videos</a>
       </nav>
-
       <div className={styles.content}>
         <div className={styles.filters}>
           {[
-            { key: 'all',    label: `Tout (${sessions.length})` },
-            { key: 'live',   label: `🔴 En direct (${sessions.filter(s => s.isLive).length})` },
-            { key: 'replay', label: `Replays (${sessions.filter(s => !s.isLive).length})` },
+            { key: 'all',    label: 'Tout (' + sessions.length + ')' },
+            { key: 'live',   label: 'En direct (' + liveCount + ')' },
+            { key: 'replay', label: 'Replays (' + replayCount + ')' },
           ].map(f => (
             <button key={f.key}
-              className={`${styles.filterBtn} ${filter === f.key ? styles.filterActive : ''}`}
+              className={filter === f.key ? styles.filterActive : styles.filterBtn}
               onClick={() => setFilter(f.key)}>
               {f.label}
             </button>
           ))}
         </div>
-
         {loading && <Skeleton/>}
-        {error   && (
+        {error && (
           <div className={styles.errorBox}>
-            <p>⚠️ {error}</p>
-            <a href="/" className={styles.errorBack}>← Retour</a>
+            <p>{error}</p>
+            <a href="/" className={styles.errorBack}>Retour</a>
           </div>
         )}
         {!loading && !error && filtered.length === 0 && (
-          <div className={styles.emptyBox}><p>📡 Aucun live pour ce filtre.</p></div>
+          <div className={styles.emptyBox}><p>Aucun live pour ce filtre.</p></div>
         )}
         {!loading && !error && filtered.length > 0 && (
           <div className={styles.grid}>
