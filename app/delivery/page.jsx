@@ -17,6 +17,45 @@ const STATUT_CONFIG = {
 
 const fmt = (n) => Number(n ?? 0).toLocaleString('fr-FR') + ' XOF';
 
+export default function DeliveryPage() {
+  const mapRef = useRef(null);
+
+  useEffect(() => {
+    // ✅ Import dynamique de Leaflet côté client
+    import('leaflet').then(mod => {
+      const L = mod.default;
+
+      // Corriger le bug des icônes par défaut
+      delete L.Icon.Default.prototype._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: require('leaflet/dist/images/marker-icon-2x.png'),
+        iconUrl: require('leaflet/dist/images/marker-icon.png'),
+        shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
+      });
+
+      // Initialiser la carte
+      if (mapRef.current && !mapRef.current._leaflet_id) {
+        const map = L.map(mapRef.current).setView([5.345317, -4.024429], 13); // Abidjan par défaut
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors',
+        }).addTo(map);
+
+        // Exemple : ajouter un marker
+        L.marker([5.345317, -4.024429]).addTo(map)
+          .bindPopup('Point de livraison')
+          .openPopup();
+      }
+    });
+  }, []);
+
+  return (
+    <div className={styles.container}>
+      <h1>Suivi des livraisons</h1>
+      <div ref={mapRef} className={styles.map}></div>
+    </div>
+  );
+}
 
 
 /* ══════════════════════════════════════════════════════════
@@ -32,7 +71,7 @@ function StatutBadge({ statut }) {
       {cfg.label}
     </span>
   );
-
+}
 
 /* ══════════════════════════════════════════════════════════
    PANNEAU DÉTAIL COMMANDE
@@ -239,192 +278,4 @@ function createMarkerIcon(L, statut, frais) {
     iconAnchor: [65, 58],
     popupAnchor:[0, -60],
   });
-}
-
-/* ══════════════════════════════════════════════════════════
-   PAGE /delivery
-══════════════════════════════════════════════════════════ */
-export default function DeliveryPage() {
-  const L = useLeaflet();
-
-  const mapRef    = useRef(null);
-  const mapObjRef = useRef(null);
-  const markersRef= useRef([]);
-
-  const [commandes, setCommandes] = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [selected,  setSelected]  = useState(null);
-  const [filter,    setFilter]    = useState('en_attente');
-
-  /* Auth */
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, () => {});
-    return unsub;
-  }, []);
-
-  /* Firestore realtime */
-  useEffect(() => {
-    const q = query(collection(db, 'commandes'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(q,
-      snap => {
-        setCommandes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setLoading(false);
-      },
-      err => { console.error(err); setLoading(false); }
-    );
-    return () => unsub();
-  }, []);
-
-  /* Init carte Leaflet */
-  useEffect(() => {
-    if (!L || !mapRef.current || mapObjRef.current) return;
-
-    // Injecter le CSS Leaflet dynamiquement
-    if (!document.getElementById('leaflet-css')) {
-      const link = document.createElement('link');
-      link.id   = 'leaflet-css';
-      link.rel  = 'stylesheet';
-      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
-      document.head.appendChild(link);
-    }
-
-    const map = L.map(mapRef.current, {
-      center: [5.3544, -4.0083], // Abidjan
-      zoom: 12,
-      zoomControl: true,
-    });
-
-    // Tuiles OpenStreetMap — 100% gratuit, aucune clé
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
-    }).addTo(map);
-
-    // Tuiles sombres (Carto Dark) — aussi gratuit
-    // L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    //   attribution: '© OpenStreetMap © CARTO',
-    //   maxZoom: 19,
-    // }).addTo(map);
-
-    mapObjRef.current = map;
-  }, [L]);
-
-  /* Marqueurs */
-  const filtered = commandes.filter(c =>
-    filter === 'all' ? true : c.statut === filter
-  );
-
-  useEffect(() => {
-    if (!mapObjRef.current || !L) return;
-
-    // Supprimer anciens marqueurs
-    markersRef.current.forEach(m => m.remove());
-    markersRef.current = [];
-
-    const positions = [];
-
-    filtered.forEach(cmd => {
-      const lat = cmd.clientLat ?? cmd.extraData?.clientLat;
-      const lng = cmd.clientLng ?? cmd.extraData?.clientLng;
-      if (!lat || !lng) return;
-
-      const latNum = Number(lat);
-      const lngNum = Number(lng);
-
-      const marker = L.marker([latNum, lngNum], {
-        icon: createMarkerIcon(L, cmd.statut, cmd.fraisLivraison),
-      });
-
-      marker.on('click', () => setSelected(cmd));
-      marker.addTo(mapObjRef.current);
-      markersRef.current.push(marker);
-      positions.push([latNum, lngNum]);
-    });
-
-    // Recentrer sur les marqueurs visibles
-    if (positions.length === 1) {
-      mapObjRef.current.setView(positions[0], 14);
-    } else if (positions.length > 1) {
-      mapObjRef.current.fitBounds(positions, { padding: [60, 60] });
-    }
-  }, [filtered.length, filter, L]);
-
-  const enAttenteCount = commandes.filter(c => c.statut === 'en_attente').length;
-  const totalFrais     = filtered.reduce((s, c) => s + Number(c.fraisLivraison ?? 0), 0);
-
-  const FILTERS = [
-    { key: 'en_attente',    label: 'En attente'  },
-    { key: 'en_route',      label: 'En route'    },
-    { key: 'en_traitement', label: 'Traitement'  },
-    { key: 'all',           label: 'Toutes'      },
-  ];
-
-  return (
-    <div className={styles.page}>
-
-      {/* Nav */}
-      <nav className={styles.nav}>
-        <a href="/" className={styles.navLogo}>Fri<span>Tok</span></a>
-        <span className={styles.navTitle}>Livraisons</span>
-        <a href="/demo" className={styles.navLink}>Vidéos</a>
-      </nav>
-
-      {/* Barre frais + filtres */}
-      <div className={styles.fraisBar}>
-        <div className={styles.fraisBarItem}>
-          <span className={styles.fraisBarLabel}>
-            Frais ({filtered.length} cmd)
-          </span>
-          <span className={styles.fraisBarValue}>{fmt(totalFrais)}</span>
-        </div>
-        <div className={styles.fraisBarDivider}/>
-        <div className={styles.filtersInline}>
-          {FILTERS.map(f => (
-            <button
-              key={f.key}
-              className={filter === f.key ? styles.filterChipActive : styles.filterChip}
-              onClick={() => { setSelected(null); setFilter(f.key); }}
-            >
-              {f.label}
-              {f.key !== 'all' && (
-                <span className={styles.filterCount}>
-                  {commandes.filter(c => c.statut === f.key).length}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Carte */}
-      <div className={styles.mapWrap}>
-        <div ref={mapRef} className={styles.map}/>
-
-        {/* Loading overlay */}
-        {(!L || loading) && (
-          <div className={styles.mapLoading}>
-            <div className={styles.mapSpinner}/>
-            <p>{!L ? 'Chargement de la carte…' : 'Chargement des commandes…'}</p>
-          </div>
-        )}
-
-        {/* Détail commande */}
-        {selected && (
-          <OrderDetail commande={selected} onClose={() => setSelected(null)}/>
-        )}
-      </div>
-
-      {/* FAB — total en attente */}
-      <button
-        className={styles.fab}
-        onClick={() => { setFilter('en_attente'); setSelected(null); }}
-        title="Voir les commandes en attente"
-      >
-        <IconPackage/>
-        <span className={styles.fabCount}>{enAttenteCount}</span>
-        <span className={styles.fabLabel}>en attente</span>
-      </button>
-
-    </div>
-  );
 }
