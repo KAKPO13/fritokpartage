@@ -8,6 +8,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../../lib/firebaseClient';
 import styles from './delivery.module.css';
 
+
 /* ── Statut → couleur badge ──────────────────────────────────────────────── */
 const STATUT_CONFIG = {
   en_attente   : { label: 'En attente',    color: '#f7b731', bg: 'rgba(247,183,49,0.15)'  },
