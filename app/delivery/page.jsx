@@ -17,45 +17,6 @@ const STATUT_CONFIG = {
 
 const fmt = (n) => Number(n ?? 0).toLocaleString('fr-FR') + ' XOF';
 
-export default function DeliveryPage() {
-  const mapRef = useRef(null);
-
-  useEffect(() => {
-    // ✅ Import dynamique de Leaflet côté client
-    import('leaflet').then(mod => {
-      const L = mod.default;
-
-      // Corriger le bug des icônes par défaut
-      delete L.Icon.Default.prototype._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl: require('leaflet/dist/images/marker-icon-2x.png'),
-        iconUrl: require('leaflet/dist/images/marker-icon.png'),
-        shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
-      });
-
-      // Initialiser la carte
-      if (mapRef.current && !mapRef.current._leaflet_id) {
-        const map = L.map(mapRef.current).setView([5.345317, -4.024429], 13); // Abidjan par défaut
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors',
-        }).addTo(map);
-
-        // Exemple : ajouter un marker
-        L.marker([5.345317, -4.024429]).addTo(map)
-          .bindPopup('Point de livraison')
-          .openPopup();
-      }
-    });
-  }, []);
-
-  return (
-    <div className={styles.container}>
-      <h1>Suivi des livraisons</h1>
-      <div ref={mapRef} className={styles.map}></div>
-    </div>
-  );
-}
 
 
 /* ══════════════════════════════════════════════════════════
@@ -71,7 +32,7 @@ function StatutBadge({ statut }) {
       {cfg.label}
     </span>
   );
-}
+
 
 /* ══════════════════════════════════════════════════════════
    PANNEAU DÉTAIL COMMANDE
