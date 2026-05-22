@@ -23,8 +23,14 @@ const fmt = (n) => Number(n ?? 0).toLocaleString('fr-FR') + ' XOF';
 const maskPhone = (phone) => {
   if (!phone) return '—';
   const str = String(phone).replace(/\s/g, '');
-  const visible = str.slice(-2);
-  return 'xxxxxx' + visible;
+  return 'xxxxxx' + str.slice(-2);
+};
+
+// Masque un email : affiche xx@domaine.ext ex: "xx@gmail.com"
+const maskEmail = (email) => {
+  if (!email) return '—';
+  const [local, domain] = email.split('@');
+  return 'xx@' + (domain ?? '***');
 };
 
 /* ══════════════════════════════════════════════════════════
@@ -217,12 +223,12 @@ function OrderDetail({ commande, onClose }) {
             <div className={styles.infoGrid}>
               <div className={styles.infoRow}>
                 <IconTruck/>
-                <span>{commande.livreur.nom ?? '—'}</span>
+                <span>{maskEmail(commande.livreur.nom)}</span>
               </div>
               {commande.livreur.phone && (
                 <div className={styles.infoRow}>
                   <IconPhone/>
-                  <span>{commande.livreur.phone}</span>
+                  <span>{maskPhone(commande.livreur.phone)}</span>
                 </div>
               )}
             </div>
