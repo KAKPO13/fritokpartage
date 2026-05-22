@@ -19,6 +19,14 @@ const STATUT_CONFIG = {
 
 const fmt = (n) => Number(n ?? 0).toLocaleString('fr-FR') + ' XOF';
 
+// Masque le numéro : affiche xxxxxx + 2 derniers chiffres ex: "xxxxxx70"
+const maskPhone = (phone) => {
+  if (!phone) return '—';
+  const str = String(phone).replace(/\s/g, '');
+  const visible = str.slice(-2);
+  return 'xxxxxx' + visible;
+};
+
 /* ══════════════════════════════════════════════════════════
    ICÔNES SVG
 ══════════════════════════════════════════════════════════ */
@@ -89,7 +97,6 @@ function StatutBadge({ statut }) {
     </span>
   );
 }
-
 
 /* ══════════════════════════════════════════════════════════
    PANNEAU DÉTAIL COMMANDE
@@ -183,7 +190,7 @@ function OrderDetail({ commande, onClose }) {
             {commande.telephoneClient && (
               <div className={styles.infoRow}>
                 <IconPhone/>
-                <span>{commande.telephoneClient}</span>
+                <span>{maskPhone(commande.telephoneClient)}</span>
               </div>
             )}
             {commande.clientLat && (
@@ -197,12 +204,9 @@ function OrderDetail({ commande, onClose }) {
             )}
           </div>
           {commande.telephoneClient && (
-            <a
-              href={`tel:${commande.telephoneClient}`}
-              className={styles.callBtn}
-            >
+            <button className={styles.callBtnDisabled} disabled>
               <IconPhone/> Appeler le client
-            </a>
+            </button>
           )}
         </div>
 
@@ -223,12 +227,9 @@ function OrderDetail({ commande, onClose }) {
               )}
             </div>
             {commande.livreur.phone && (
-              <a
-                href={`tel:${commande.livreur.phone}`}
-                className={styles.callBtnSecondary}
-              >
+              <button className={styles.callBtnDisabled} disabled>
                 <IconPhone/> Appeler le livreur
-              </a>
+              </button>
             )}
           </div>
         )}
