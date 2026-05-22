@@ -79,12 +79,17 @@ function StatutBadge({ statut }) {
   return (
     <span
       className={styles.statutBadge}
-      style={{ color: cfg.color, background: cfg.color + '22', border: `1px solid ${cfg.color}55` }}
+      style={{
+        color      : cfg.color,
+        background : cfg.color + '22',
+        border     : `1px solid ${cfg.color}55`,
+      }}
     >
       {cfg.label}
     </span>
   );
 }
+
 
 /* ══════════════════════════════════════════════════════════
    PANNEAU DÉTAIL COMMANDE
@@ -101,12 +106,14 @@ function OrderDetail({ commande, onClose }) {
           <span>Commande</span>
           <StatutBadge statut={commande.statut}/>
         </div>
-        <button className={styles.detailClose} onClick={onClose}><IconClose/></button>
+        <button className={styles.detailClose} onClick={onClose}>
+          <IconClose/>
+        </button>
       </div>
 
       <div className={styles.detailBody}>
 
-        {/* ── Frais en haut ── */}
+        {/* Frais en haut — priorité visuelle */}
         <div className={styles.fraisTop}>
           <div className={styles.fraisTopItem}>
             <span className={styles.fraisTopLabel}>Frais livraison</span>
@@ -119,7 +126,7 @@ function OrderDetail({ commande, onClose }) {
           </div>
         </div>
 
-        {/* ── Articles ── */}
+        {/* Articles */}
         {articles.length > 0 && (
           <div className={styles.section}>
             <p className={styles.sectionLabel}>Articles ({articles.length})</p>
@@ -127,8 +134,12 @@ function OrderDetail({ commande, onClose }) {
               {articles.map((a, i) => (
                 <div key={i} className={styles.articleRow}>
                   {a.imageUrl && (
-                    <img src={a.imageUrl} alt={a.nom_frifri} className={styles.articleImg}
-                      onError={e => { e.currentTarget.style.display = 'none'; }}/>
+                    <img
+                      src={a.imageUrl}
+                      alt={a.nom_frifri}
+                      className={styles.articleImg}
+                      onError={e => { e.currentTarget.style.display = 'none'; }}
+                    />
                   )}
                   <div className={styles.articleMeta}>
                     <span className={styles.articleName}>{a.nom_frifri}</span>
@@ -140,7 +151,7 @@ function OrderDetail({ commande, onClose }) {
           </div>
         )}
 
-        {/* ── Livraison ── */}
+        {/* Livraison */}
         <div className={styles.section}>
           <p className={styles.sectionLabel}>Livraison</p>
           <div className={styles.infoGrid}>
@@ -157,19 +168,22 @@ function OrderDetail({ commande, onClose }) {
             {commande.typeLivraison && (
               <div className={styles.infoRow}>
                 <IconTruck/>
-                <span>{commande.typeLivraison === 'groupee' ? 'Groupée (-20%)' : 'Solo'}</span>
+                <span>
+                  {commande.typeLivraison === 'groupee' ? 'Groupée (-20%)' : 'Solo'}
+                </span>
               </div>
             )}
           </div>
         </div>
 
-        {/* ── Client ── */}
+        {/* Client */}
         <div className={styles.section}>
           <p className={styles.sectionLabel}>Client</p>
           <div className={styles.infoGrid}>
             {commande.telephoneClient && (
               <div className={styles.infoRow}>
-                <IconPhone/><span>{commande.telephoneClient}</span>
+                <IconPhone/>
+                <span>{commande.telephoneClient}</span>
               </div>
             )}
             {commande.clientLat && (
@@ -183,45 +197,55 @@ function OrderDetail({ commande, onClose }) {
             )}
           </div>
           {commande.telephoneClient && (
-            <a href={`tel:${commande.telephoneClient}`} className={styles.callBtn}>
+            <a
+              href={`tel:${commande.telephoneClient}`}
+              className={styles.callBtn}
+            >
               <IconPhone/> Appeler le client
             </a>
           )}
         </div>
 
-        {/* ── Livreur ── */}
+        {/* Livreur */}
         {commande.livreur && (
           <div className={styles.section}>
             <p className={styles.sectionLabel}>Livreur</p>
             <div className={styles.infoGrid}>
               <div className={styles.infoRow}>
-                <IconTruck/><span>{commande.livreur.nom ?? '—'}</span>
+                <IconTruck/>
+                <span>{commande.livreur.nom ?? '—'}</span>
               </div>
               {commande.livreur.phone && (
                 <div className={styles.infoRow}>
-                  <IconPhone/><span>{commande.livreur.phone}</span>
+                  <IconPhone/>
+                  <span>{commande.livreur.phone}</span>
                 </div>
               )}
             </div>
             {commande.livreur.phone && (
-              <a href={`tel:${commande.livreur.phone}`} className={styles.callBtnSecondary}>
+              <a
+                href={`tel:${commande.livreur.phone}`}
+                className={styles.callBtnSecondary}
+              >
                 <IconPhone/> Appeler le livreur
               </a>
             )}
           </div>
         )}
 
-        {/* ── Paiement ── */}
+        {/* Paiement */}
         <div className={styles.section}>
           <p className={styles.sectionLabel}>Paiement</p>
           <div className={styles.infoRow}>
             <span className={styles.payMode}>
-              {commande.modePaiement === 'enLigne' ? '💳 En ligne' : '💵 À la livraison'}
+              {commande.modePaiement === 'enLigne'
+                ? '💳 En ligne'
+                : '💵 À la livraison'}
             </span>
           </div>
         </div>
 
-        {/* ── ID ── */}
+        {/* ID */}
         <div className={styles.cidRow}>
           <span className={styles.cidLabel}>ID</span>
           <span className={styles.cidValue}>{commande.id}</span>
@@ -233,22 +257,33 @@ function OrderDetail({ commande, onClose }) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   HOOK LEAFLET (import dynamique → pas d'erreur SSR)
+   HOOK LEAFLET — import dynamique (browser only, pas de SSR)
+   CSS injecté via <link> pour éviter les erreurs webpack
 ══════════════════════════════════════════════════════════ */
 function useLeaflet() {
   const [L, setL] = useState(null);
 
   useEffect(() => {
-    // Leaflet ne fonctionne que côté browser
+    // 1. Injecter le CSS Leaflet une seule fois
+    if (!document.getElementById('leaflet-css')) {
+      const link    = document.createElement('link');
+      link.id       = 'leaflet-css';
+      link.rel      = 'stylesheet';
+      link.href     = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+      document.head.appendChild(link);
+    }
+
+    // 2. Importer Leaflet dynamiquement (pas de require, pas de SSR crash)
     import('leaflet').then(mod => {
       const Leaflet = mod.default;
 
-      // Corriger le bug d'icône par défaut de Leaflet avec webpack
+      // Corriger le bug des icônes par défaut avec webpack/Next.js
+      // On pointe vers CDN au lieu de require() les fichiers locaux
       delete Leaflet.Icon.Default.prototype._getIconUrl;
       Leaflet.Icon.Default.mergeOptions({
         iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-        iconUrl:       'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-        shadowUrl:     'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+        iconUrl      : 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+        shadowUrl    : 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
       });
 
       setL(Leaflet);
@@ -259,11 +294,13 @@ function useLeaflet() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   GÉNÈRE UN MARQUEUR SVG INLINE selon statut + frais
+   MARQUEUR SVG PERSONNALISÉ — frais + statut coloré
 ══════════════════════════════════════════════════════════ */
 function createMarkerIcon(L, statut, frais) {
   const cfg   = STATUT_CONFIG[statut] ?? { label: statut, color: '#888' };
-  const label = frais ? `${Number(frais).toLocaleString('fr-FR')} XOF` : cfg.label;
+  const label = frais
+    ? `${Number(frais).toLocaleString('fr-FR')} XOF`
+    : cfg.label;
 
   const svg = `
 <svg xmlns="http://www.w3.org/2000/svg" width="130" height="60" viewBox="0 0 130 60">
@@ -284,75 +321,71 @@ function createMarkerIcon(L, statut, frais) {
 </svg>`.trim();
 
   return L.divIcon({
-    html: `<img src="data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}"
-      style="width:130px;height:60px;display:block"/>`,
-    className: '',
-    iconSize:   [130, 60],
+    html: `<img
+      src="data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}"
+      style="width:130px;height:60px;display:block"
+    />`,
+    className : '',
+    iconSize  : [130, 60],
     iconAnchor: [65, 58],
-    popupAnchor:[0, -60],
   });
 }
 
 /* ══════════════════════════════════════════════════════════
-   PAGE /delivery
+   PAGE PRINCIPALE /delivery  — export default UNIQUE
 ══════════════════════════════════════════════════════════ */
 export default function DeliveryPage() {
   const L = useLeaflet();
 
-  const mapRef    = useRef(null);
-  const mapObjRef = useRef(null);
-  const markersRef= useRef([]);
+  const mapRef     = useRef(null);
+  const mapObjRef  = useRef(null);
+  const markersRef = useRef([]);
 
   const [commandes, setCommandes] = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [selected,  setSelected]  = useState(null);
   const [filter,    setFilter]    = useState('en_attente');
 
-  /* Auth */
+  /* Observer auth (nécessaire pour les règles Firestore) */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, () => {});
     return unsub;
   }, []);
 
-  /* Firestore realtime */
+  /* Écoute temps réel de la collection commandes */
   useEffect(() => {
-    const q = query(collection(db, 'commandes'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(q,
+    const q = query(
+      collection(db, 'commandes'),
+      orderBy('createdAt', 'desc')
+    );
+    const unsub = onSnapshot(
+      q,
       snap => {
         setCommandes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         setLoading(false);
       },
-      err => { console.error(err); setLoading(false); }
+      err => { console.error('Firestore:', err); setLoading(false); }
     );
     return () => unsub();
   }, []);
 
-  /* Init carte Leaflet */
+  /* Initialiser la carte une seule fois */
   useEffect(() => {
     if (!L || !mapRef.current || mapObjRef.current) return;
 
-    // Injecter le CSS Leaflet dynamiquement
-    if (!document.getElementById('leaflet-css')) {
-      const link = document.createElement('link');
-      link.id   = 'leaflet-css';
-      link.rel  = 'stylesheet';
-      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
-      document.head.appendChild(link);
-    }
-
     const map = L.map(mapRef.current, {
-      center: [5.3544, -4.0083], // Abidjan
-      zoom: 12,
+      center     : [5.3544, -4.0083], // Abidjan
+      zoom       : 12,
       zoomControl: true,
     });
 
-    // Tuiles OpenStreetMap — 100% gratuit, aucune clé
+    // OpenStreetMap — gratuit, aucune clé
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
+      maxZoom    : 19,
     }).addTo(map);
 
-    // Tuiles sombres (Carto Dark) — aussi gratuit
+    // Alternative sombre Carto (décommenter pour activer) :
     // L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     //   attribution: '© OpenStreetMap © CARTO',
     //   maxZoom: 19,
@@ -361,7 +394,7 @@ export default function DeliveryPage() {
     mapObjRef.current = map;
   }, [L]);
 
-  /* Marqueurs */
+  /* Mettre à jour les marqueurs à chaque changement de filtre ou de données */
   const filtered = commandes.filter(c =>
     filter === 'all' ? true : c.statut === filter
   );
@@ -369,31 +402,28 @@ export default function DeliveryPage() {
   useEffect(() => {
     if (!mapObjRef.current || !L) return;
 
-    // Supprimer anciens marqueurs
+    // Supprimer les anciens marqueurs
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
 
     const positions = [];
 
     filtered.forEach(cmd => {
-      const lat = cmd.clientLat ?? cmd.extraData?.clientLat;
-      const lng = cmd.clientLng ?? cmd.extraData?.clientLng;
+      const lat = Number(cmd.clientLat ?? cmd.extraData?.clientLat ?? 0);
+      const lng = Number(cmd.clientLng ?? cmd.extraData?.clientLng ?? 0);
       if (!lat || !lng) return;
 
-      const latNum = Number(lat);
-      const lngNum = Number(lng);
-
-      const marker = L.marker([latNum, lngNum], {
+      const marker = L.marker([lat, lng], {
         icon: createMarkerIcon(L, cmd.statut, cmd.fraisLivraison),
       });
 
       marker.on('click', () => setSelected(cmd));
       marker.addTo(mapObjRef.current);
       markersRef.current.push(marker);
-      positions.push([latNum, lngNum]);
+      positions.push([lat, lng]);
     });
 
-    // Recentrer sur les marqueurs visibles
+    // Recentrer la vue sur les marqueurs visibles
     if (positions.length === 1) {
       mapObjRef.current.setView(positions[0], 14);
     } else if (positions.length > 1) {
@@ -401,6 +431,7 @@ export default function DeliveryPage() {
     }
   }, [filtered.length, filter, L]);
 
+  /* Totaux */
   const enAttenteCount = commandes.filter(c => c.statut === 'en_attente').length;
   const totalFrais     = filtered.reduce((s, c) => s + Number(c.fraisLivraison ?? 0), 0);
 
@@ -414,14 +445,14 @@ export default function DeliveryPage() {
   return (
     <div className={styles.page}>
 
-      {/* Nav */}
+      {/* ── Nav ── */}
       <nav className={styles.nav}>
         <a href="/" className={styles.navLogo}>Fri<span>Tok</span></a>
         <span className={styles.navTitle}>Livraisons</span>
         <a href="/demo" className={styles.navLink}>Vidéos</a>
       </nav>
 
-      {/* Barre frais + filtres */}
+      {/* ── Barre frais + filtres ── */}
       <div className={styles.fraisBar}>
         <div className={styles.fraisBarItem}>
           <span className={styles.fraisBarLabel}>
@@ -434,7 +465,11 @@ export default function DeliveryPage() {
           {FILTERS.map(f => (
             <button
               key={f.key}
-              className={filter === f.key ? styles.filterChipActive : styles.filterChip}
+              className={
+                filter === f.key
+                  ? styles.filterChipActive
+                  : styles.filterChip
+              }
               onClick={() => { setSelected(null); setFilter(f.key); }}
             >
               {f.label}
@@ -448,25 +483,28 @@ export default function DeliveryPage() {
         </div>
       </div>
 
-      {/* Carte */}
+      {/* ── Carte ── */}
       <div className={styles.mapWrap}>
         <div ref={mapRef} className={styles.map}/>
 
-        {/* Loading overlay */}
+        {/* Overlay chargement */}
         {(!L || loading) && (
           <div className={styles.mapLoading}>
             <div className={styles.mapSpinner}/>
             <p>{!L ? 'Chargement de la carte…' : 'Chargement des commandes…'}</p>
           </div>
         )}
-
-        {/* Détail commande */}
-        {selected && (
-          <OrderDetail commande={selected} onClose={() => setSelected(null)}/>
-        )}
       </div>
 
-      {/* FAB — total en attente */}
+      {/* Panneau détail — hors mapWrap pour éviter le clipping */}
+      {selected && (
+        <OrderDetail
+          commande={selected}
+          onClose={() => setSelected(null)}
+        />
+      )}
+
+      {/* ── FAB commandes en attente ── */}
       <button
         className={styles.fab}
         onClick={() => { setFilter('en_attente'); setSelected(null); }}
