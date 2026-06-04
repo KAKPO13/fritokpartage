@@ -1,7 +1,9 @@
-// pages/shop.js  — v4
-// Ajout : vérification Firebase Auth avant d'ouvrir le modal commande.
-//         Si non connecté → modal "Connexion requise" avec boutons
-//         Se connecter / Créer un compte (redirect conservé).
+// pages/shop.js — v5
+// ✅ Support ?videoId=XXX — scroll automatique sur la vidéo du produit
+// ✅ Bouton "Commander" vérifié Firebase Auth avant ouverture modal
+// ✅ Modal AuthRequired si non connecté
+// ✅ ScrollHint sur la 1ère slide
+// ✅ Meta Open Graph SSR
 // ─────────────────────────────────────────────────────────────
 import Head from "next/head";
 import { useEffect, useRef, useState } from "react";
@@ -26,37 +28,60 @@ function getFirebaseApp() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// SSR — meta Open Graph pour WhatsApp / Facebook
+// SSR — meta Open Graph
 // ─────────────────────────────────────────────────────────────
 export async function getServerSideProps({ query: q }) {
-  const userId = q.userId || q.sellerId || null;
-  if (!userId) return { props: { userId: null, ogData: null } };
+  const userId  = q.userId || q.sellerId || null;
+  const videoId = q.videoId || null;
+  if (!userId) return { props: { userId: null, videoId: null, ogData: null } };
 
   let ogData = null;
   try {
     const pid = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-    const res  = await fetch(
-      `https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents/shop_videos?pageSize=1`
-    );
-    const data = await res.json();
-    if (data.documents?.length) {
-      const f = data.documents[0].fields ?? {};
-      const p = f.product?.mapValue?.fields ?? {};
-      ogData = {
-        title      : p.name?.stringValue       ?? f.title?.stringValue ?? "Boutique FriTok",
-        description: p.description?.stringValue ?? "Découvrez nos produits en vidéo",
-        image      : p.thumbnail?.stringValue   ?? p.image?.stringValue ?? "https://fritok.net/og-default.jpg",
-      };
+
+    // Si videoId fourni, on tente de récupérer les meta de cette vidéo précise
+    if (videoId) {
+      const res  = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents/video_playlist/${videoId}`
+      );
+      const data = await res.json();
+      if (data.fields) {
+        const f = data.fields;
+        const p = f.product?.mapValue?.fields ?? {};
+        ogData = {
+          title      : p.name?.stringValue       ?? f.title?.stringValue ?? "Boutique FriTok",
+          description: p.description?.stringValue ?? "Découvrez ce produit en vidéo",
+          image      : p.thumbnail?.stringValue   ?? p.image?.stringValue ?? "https://fritok.net/og-default.jpg",
+        };
+      }
+    }
+
+    // Fallback : première vidéo de la boutique
+    if (!ogData) {
+      const res  = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents/video_playlist?pageSize=1`
+      );
+      const data = await res.json();
+      if (data.documents?.length) {
+        const f = data.documents[0].fields ?? {};
+        const p = f.product?.mapValue?.fields ?? {};
+        ogData = {
+          title      : p.name?.stringValue       ?? f.title?.stringValue ?? "Boutique FriTok",
+          description: p.description?.stringValue ?? "Découvrez nos produits en vidéo",
+          image      : p.thumbnail?.stringValue   ?? p.image?.stringValue ?? "https://fritok.net/og-default.jpg",
+        };
+      }
     }
   } catch (e) { console.error("SSR:", e); }
 
   return {
     props: {
       userId,
+      videoId,
       ogData: ogData ?? {
-        title: "Boutique FriTok",
+        title      : "Boutique FriTok",
         description: "Découvrez des produits en vidéo",
-        image: "https://fritok.net/og-default.jpg",
+        image      : "https://fritok.net/og-default.jpg",
       },
     },
   };
@@ -65,32 +90,29 @@ export async function getServerSideProps({ query: q }) {
 // ─────────────────────────────────────────────────────────────
 // Page
 // ─────────────────────────────────────────────────────────────
-export default function ShopPage({ userId, ogData }) {
-  const [videos,  setVideos]  = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  const [muted,   setMuted]   = useState(true);
-
-  // ── État auth ─────────────────────────────────────────────
-  // null = en cours de vérification, false = non connecté, object = connecté
-  const [authUser, setAuthUser] = useState(null);
+export default function ShopPage({ userId, videoId, ogData }) {
+  const [videos,    setVideos]    = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState(null);
+  const [muted,     setMuted]     = useState(true);
+  const [authUser,  setAuthUser]  = useState(null);
   const [authReady, setAuthReady] = useState(false);
 
   const pageUrl = userId
-    ? `https://fritok.net/shop?userId=${userId}`
+    ? `https://fritok.net/shop?userId=${userId}${videoId ? `&videoId=${videoId}` : ""}`
     : "https://fritok.net";
 
-  // ── Observer Firebase Auth ────────────────────────────────
+  // Auth observer
   useEffect(() => {
     const auth  = getAuth(getFirebaseApp());
     const unsub = onAuthStateChanged(auth, (user) => {
-      setAuthUser(user && user.emailVerified ? user : null);
+      setAuthUser(user?.emailVerified ? user : null);
       setAuthReady(true);
     });
     return unsub;
   }, []);
 
-  // ── Chargement des vidéos ─────────────────────────────────
+  // Chargement vidéos
   useEffect(() => {
     if (!userId) { setLoading(false); return; }
     (async () => {
@@ -100,12 +122,19 @@ export default function ShopPage({ userId, ogData }) {
         const snap = await getDocs(q);
         const docs = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
-          .sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
+          .sort((a, b) => {
+            // Si videoId demandé → mettre cette vidéo en PREMIER
+            if (videoId) {
+              if (a.videoId === videoId || a.id === videoId) return -1;
+              if (b.videoId === videoId || b.id === videoId) return  1;
+            }
+            return (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0);
+          });
         setVideos(docs);
       } catch (e) { setError(e.message); }
       finally     { setLoading(false); }
     })();
-  }, [userId]);
+  }, [userId, videoId]);
 
   return (
     <>
@@ -128,8 +157,8 @@ export default function ShopPage({ userId, ogData }) {
       </Head>
 
       {loading && <Loader />}
-      {!loading && error   && <CenterMsg text={`⚠️ ${error}`} isErr />}
-      {!loading && !userId && <CenterMsg text="Lien invalide — userId manquant." isErr />}
+      {!loading && error    && <CenterMsg text={`⚠️ ${error}`} isErr />}
+      {!loading && !userId  && <CenterMsg text="Lien invalide — userId manquant." isErr />}
       {!loading && !error && userId && videos.length === 0 && (
         <CenterMsg text="Aucune vidéo pour cette boutique." />
       )}
@@ -139,6 +168,7 @@ export default function ShopPage({ userId, ogData }) {
           muted={muted}
           setMuted={setMuted}
           userId={userId}
+          targetVideoId={videoId}
           authUser={authUser}
           authReady={authReady}
           pageUrl={pageUrl}
@@ -151,59 +181,61 @@ export default function ShopPage({ userId, ogData }) {
 // ─────────────────────────────────────────────────────────────
 // Feed
 // ─────────────────────────────────────────────────────────────
-function VideoFeed({ videos, muted, setMuted, userId, authUser, authReady, pageUrl }) {
-  const [orderVideo,  setOrderVideo]  = useState(null); // vidéo → modal commande
-  const [authPrompt,  setAuthPrompt]  = useState(null); // vidéo → modal auth requis
+function VideoFeed({ videos, muted, setMuted, userId, targetVideoId, authUser, authReady, pageUrl }) {
+  const [orderVideo, setOrderVideo] = useState(null);
+  const [authPrompt, setAuthPrompt] = useState(null);
+  const feedRef = useRef(null);
 
-  // ── Clic sur "Commander" ──────────────────────────────────
-  // Si auth non prête on attend, si non connecté → modal auth
+  // Scroll automatique sur la vidéo cible après le premier rendu
+  useEffect(() => {
+    if (!targetVideoId || !feedRef.current) return;
+    // Cherche l'index de la vidéo cible (elle est en premier grâce au tri SSR)
+    // Le scroll se fait au premier slide — rien à faire si index 0
+    const idx = videos.findIndex(v => v.videoId === targetVideoId || v.id === targetVideoId);
+    if (idx <= 0) return;
+    // Délai pour laisser le DOM se monter
+    const t = setTimeout(() => {
+      const slides = feedRef.current?.querySelectorAll(".slide");
+      if (slides?.[idx]) {
+        slides[idx].scrollIntoView({ behavior: "auto" });
+      }
+    }, 150);
+    return () => clearTimeout(t);
+  }, [targetVideoId, videos]);
+
   const handleOrder = (video) => {
-    if (!authReady) return; // attendre la résolution auth
-    if (!authUser) {
-      setAuthPrompt(video);  // non connecté → demander connexion
-    } else {
-      setOrderVideo(video);  // connecté → ouvrir commande
-    }
-
-    {videos.map((v, index) => (
-        <VideoSlide
-          key={v.id}
-          video={v}
-          muted={muted}
-          onOrder={() => handleOrder(v)}
-          isFirst={index === 0}   // ← AJOUTER
-        />
-      ))}
+    if (!authReady) return;
+    if (!authUser) { setAuthPrompt(video); }
+    else           { setOrderVideo(video); }
   };
 
   return (
     <>
-      <div id="feed">
-        {videos.map((v) => (
-          <VideoSlide key={v.id} video={v} muted={muted} onOrder={() => handleOrder(v)} />
+      <div id="feed" ref={feedRef}>
+        {videos.map((v, index) => (
+          <VideoSlide
+            key={v.id}
+            video={v}
+            muted={muted}
+            onOrder={() => handleOrder(v)}
+            isFirst={index === 0}
+            isTarget={v.videoId === targetVideoId || v.id === targetVideoId}
+          />
         ))}
       </div>
 
-      {/* Bouton mute global */}
       <button className="mute-btn" onClick={() => setMuted(m => !m)}
         title={muted ? "Activer le son" : "Couper le son"}>
         {muted ? <MuteIcon /> : <UnmuteIcon />}
       </button>
 
-      {/* Modal connexion requise */}
       {authPrompt && (
         <AuthRequiredModal
           pageUrl={pageUrl}
           onClose={() => setAuthPrompt(null)}
-          onContinue={() => {
-            // Après connexion, l'observer mettra authUser à jour
-            // et l'utilisateur pourra re-cliquer sur Commander
-            setAuthPrompt(null);
-          }}
         />
       )}
 
-      {/* Modal commande livraison */}
       {orderVideo && (
         <OrderModal
           video={orderVideo}
@@ -217,37 +249,26 @@ function VideoFeed({ videos, muted, setMuted, userId, authUser, authReady, pageU
 }
 
 // ─────────────────────────────────────────────────────────────
-// Modal : connexion requise avant de commander
+// Modal connexion requise
 // ─────────────────────────────────────────────────────────────
 function AuthRequiredModal({ pageUrl, onClose }) {
   const encodedRedirect = encodeURIComponent(pageUrl);
-
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-sheet auth-modal">
         <div className="modal-handle" />
-
         <div className="auth-modal-body">
-          {/* Icône */}
-          <div className="auth-icon-wrap">
-            <LockShieldIcon />
-          </div>
-
+          <div className="auth-icon-wrap"><LockShieldIcon /></div>
           <h2 className="auth-title">Connexion requise</h2>
           <p className="auth-sub">
             Créez un compte ou connectez-vous pour passer une commande sur FriTok.
           </p>
-
-          {/* Bouton connexion */}
           <a className="auth-btn-primary" href={`/login?redirect=${encodedRedirect}`}>
             <UserIcon /> Se connecter
           </a>
-
-          {/* Bouton inscription */}
           <a className="auth-btn-outline" href={`/register?redirect=${encodedRedirect}`}>
             Créer un compte gratuit
           </a>
-
           <button className="auth-skip" onClick={onClose}>
             Continuer à regarder
           </button>
@@ -260,19 +281,19 @@ function AuthRequiredModal({ pageUrl, onClose }) {
 // ─────────────────────────────────────────────────────────────
 // Slide vidéo
 // ─────────────────────────────────────────────────────────────
-function VideoSlide({ video: v, muted, onOrder, isFirst }) {
+function VideoSlide({ video: v, muted, onOrder, isFirst, isTarget }) {
   const videoRef = useRef(null);
   const slideRef = useRef(null);
-  const [paused,    setPaused]    = useState(true);
-  const [liked,     setLiked]     = useState(false);
-  const [likes,     setLikes]     = useState(v.likes ?? 0);
-  const [showHint,  setShowHint]  = useState(isFirst ?? false); // ← hint uniquement sur la 1ère slide
+  const [paused,   setPaused]   = useState(true);
+  const [liked,    setLiked]    = useState(false);
+  const [likes,    setLikes]    = useState(v.likes ?? 0);
+  const [showHint, setShowHint] = useState(isFirst ?? false);
 
   const price = v.product?.price
     ? `${Number(v.product.price).toLocaleString("fr-FR")} XOF`
     : "";
 
-  // Masquer le hint après 3.5s
+  // Masquer le hint après 3.5 s
   useEffect(() => {
     if (!showHint) return;
     const t = setTimeout(() => setShowHint(false), 3500);
@@ -288,7 +309,7 @@ function VideoSlide({ video: v, muted, onOrder, isFirst }) {
     if (!el || !vid) return;
     const obs = new IntersectionObserver(([e]) => {
       if (e.isIntersecting) { vid.play().catch(() => {}); setPaused(false); }
-      else                  { vid.pause();                 setPaused(true);  }
+      else                  { vid.pause();                 setPaused(true); }
     }, { threshold: 0.7 });
     obs.observe(el);
     return () => obs.disconnect();
@@ -314,12 +335,17 @@ function VideoSlide({ video: v, muted, onOrder, isFirst }) {
   };
 
   return (
-    <div className="slide" ref={slideRef} onClick={togglePlay}>
+    <div className={`slide${isTarget ? " slide-target" : ""}`} ref={slideRef} onClick={togglePlay}>
       <video ref={videoRef} className="bg-video" src={v.videoUrl}
         poster={v.product?.thumbnail || v.product?.image || ""}
         loop muted playsInline preload="metadata" />
       <div className="gradient-top" />
       <div className="gradient-bot" />
+
+      {/* Badge "Produit demandé" si c'est la vidéo ciblée */}
+      {isTarget && (
+        <div className="target-badge">📦 Produit demandé</div>
+      )}
 
       <div className="hud-top">
         <div className="logo-chip"><span className="dot" />FriTok</div>
@@ -354,14 +380,28 @@ function VideoSlide({ video: v, muted, onOrder, isFirst }) {
         <div className="play-overlay"><div className="play-icon">▶</div></div>
       )}
 
-      {/* ← Hint scroll, visible uniquement sur la 1ère slide */}
       {showHint && <ScrollHint />}
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────
-// Modal commande + livraison
+// Hint scroll
+// ─────────────────────────────────────────────────────────────
+function ScrollHint() {
+  return (
+    <div className="scroll-hint">
+      <div className="scroll-hint-dots">
+        <span /><span /><span />
+      </div>
+      <div className="scroll-hint-hand">👆</div>
+      <p className="scroll-hint-label">Swipe pour voir plus</p>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Modal commande + livraison (inchangé)
 // ─────────────────────────────────────────────────────────────
 const VILLES_CI = [
   "Abidjan","Bouaké","Daloa","Korhogo","Yamoussoukro","San-Pédro",
@@ -386,22 +426,19 @@ function getFrais(villeVendeur, villeClient, typeLivr) {
 function OrderModal({ video: v, userId, authUser, onClose }) {
   const db = getFirestore(getFirebaseApp());
 
-  const [step,        setStep]        = useState("form");
-  const [telephone,   setTelephone]   = useState(
-    // Pré-remplir avec le téléphone du profil si dispo
-    authUser?.phoneNumber ?? ""
-  );
-  const [adresse,     setAdresse]     = useState("");
-  const [villeClient, setVilleClient] = useState("");
-  const [typeLivr,    setTypeLivr]    = useState("solo");
-  const [modePaiem,   setModePaiem]   = useState("livraison");
-  const [locLoading,  setLocLoading]  = useState(false);
-  const [gpsCoords,   setGpsCoords]   = useState(null);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [errors,      setErrors]      = useState({});
-  const [commandeId,  setCommandeId]  = useState(null);
-  const [qrData,      setQrData]      = useState(null);
-  const [toast,       setToast]       = useState(null);
+  const [step,       setStep]       = useState("form");
+  const [telephone,  setTelephone]  = useState(authUser?.phoneNumber ?? "");
+  const [adresse,    setAdresse]    = useState("");
+  const [villeClient,setVilleClient]= useState("");
+  const [typeLivr,   setTypeLivr]   = useState("solo");
+  const [modePaiem,  setModePaiem]  = useState("livraison");
+  const [locLoading, setLocLoading] = useState(false);
+  const [gpsCoords,  setGpsCoords]  = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [errors,     setErrors]     = useState({});
+  const [commandeId, setCommandeId] = useState(null);
+  const [qrData,     setQrData]     = useState(null);
+  const [toast,      setToast]      = useState(null);
 
   const prix     = Number(v.product?.price ?? 0);
   const fraisXof = villeClient ? getFrais("Abidjan", villeClient, typeLivr) : 0;
@@ -432,109 +469,77 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
   };
 
   const confirmer = async () => {
-  if (!validate()) return;
-  setSubmitting(true);
-  try {
-    // ── Code vérification 6 chiffres ──────────────────────────
-    const codeVerification = String(Math.floor(100000 + Math.random() * 900000));
-
-    // ── Tableau articles (structure cible) ────────────────────
-    const articles = [{
-      boutiqueId  : userId,
-      imageUrl    : v.product?.image ?? v.product?.thumbnail ?? "",
-      nom_frifri  : v.product?.name  ?? "",
-      prix_frifri : prix,
-      ref_article : v.product?.productId ?? v.id,
-      userIdVend  : userId,
-    }];
-
-    const refArticles = [v.product?.productId ?? v.id];
-
-    const payload = {
-      // ── Identification ────────────────────────────────────
-      clientId          : authUser?.uid   ?? null,
-      userIdVend        : userId,
-
-      // ── Articles ──────────────────────────────────────────
-      articles,
-      refArticles,
-
-      // ── Livraison ─────────────────────────────────────────
-      adresse  : adresse.trim(),
-      villeDepart       : "Abidjan",
-      villeDestination  : villeClient,
-      typeLivraison     : typeLivr,
-      telephoneClient   : telephone.trim(),
-
-      // ── Coordonnées GPS ───────────────────────────────────
-      clientLat         : gpsCoords?.lat ?? null,
-      clientLng         : gpsCoords?.lng ?? null,
-      latLivraison      : null,
-      lngLivraison      : null,
-
-      // ── Prix ──────────────────────────────────────────────
-      fraisLivraison    : fraisXof,
-      totalXof,
-      totalDevise       : totalXof,
-      devise            : "XOF",
-
-      // ── Paiement ──────────────────────────────────────────
-      modePaiement      : modePaiem === "immediat" ? "enLigne" : "aLaLivraison",
-      transactionId     : null,
-
-      // ── Livreur (initialisé vide) ─────────────────────────
-      livreurId         : null,
-      livreur           : null,
-      batchId           : null,
-
-      // ── Statut & meta ─────────────────────────────────────
-      statut            : "en_attente",
-      codeVerification,
-      source            : "web_shop",
-
-      // ── extraData (mirror des champs clés) ────────────────
-      extraData: {
-        clientLat       : gpsCoords?.lat ?? null,
-        clientLng       : gpsCoords?.lng ?? null,
-        devise          : "XOF",
-        fraisLivraison  : fraisXof,
+    if (!validate()) return;
+    setSubmitting(true);
+    try {
+      const codeVerification = String(Math.floor(100000 + Math.random() * 900000));
+      const articles = [{
+        boutiqueId  : userId,
+        imageUrl    : v.product?.image ?? v.product?.thumbnail ?? "",
+        nom_frifri  : v.product?.name  ?? "",
+        prix_frifri : prix,
+        ref_article : v.product?.productId ?? v.id,
+        userIdVend  : userId,
+      }];
+      const refArticles = [v.product?.productId ?? v.id];
+      const payload = {
+        clientId         : authUser?.uid ?? null,
+        userIdVend       : userId,
+        articles,
         refArticles,
-        telephoneClient : telephone.trim(),
-        userIdVend      : userId,
-        villeDepart     : "Abidjan",
-        villeDestination: villeClient,
-      },
-
-      createdAt         : serverTimestamp(),
-      updatedAt         : null,
-      collecteValideeAt : null,
-    };
-
-    // ── Écriture Firestore ────────────────────────────────────
-    const docRef    = await addDoc(collection(db, "commandes"), payload);
-    const cId       = docRef.id;
-
-    // ── QR Code (structure cible) ─────────────────────────────
-    const qrPayload = JSON.stringify({
-      commandeId : cId,
-      userIdVend : userId,
-      client     : telephone.trim(),
-      adresse    : adresse.trim(),
-      ...(gpsCoords ? {
-        lat: gpsCoords.lat.toFixed(6),
-        lng: gpsCoords.lng.toFixed(6),
-      } : {}),
-      total      : fmt(totalXof),
-      ts         : Date.now(),
-    });
-
-    setCommandeId(cId);
-    setQrData(qrPayload);
-    setStep("qr");
-
-  } catch (e) { showToast("Erreur : " + e.message); }
-  finally     { setSubmitting(false); }
-};
+        adresse          : adresse.trim(),
+        villeDepart      : "Abidjan",
+        villeDestination : villeClient,
+        typeLivraison    : typeLivr,
+        telephoneClient  : telephone.trim(),
+        clientLat        : gpsCoords?.lat ?? null,
+        clientLng        : gpsCoords?.lng ?? null,
+        latLivraison     : null,
+        lngLivraison     : null,
+        fraisLivraison   : fraisXof,
+        totalXof,
+        totalDevise      : totalXof,
+        devise           : "XOF",
+        modePaiement     : modePaiem === "immediat" ? "enLigne" : "aLaLivraison",
+        transactionId    : null,
+        livreurId        : null,
+        livreur          : null,
+        batchId          : null,
+        statut           : "en_attente",
+        codeVerification,
+        source           : "web_shop",
+        extraData: {
+          clientLat      : gpsCoords?.lat ?? null,
+          clientLng      : gpsCoords?.lng ?? null,
+          devise         : "XOF",
+          fraisLivraison : fraisXof,
+          refArticles,
+          telephoneClient: telephone.trim(),
+          userIdVend     : userId,
+          villeDepart    : "Abidjan",
+          villeDestination: villeClient,
+        },
+        createdAt        : serverTimestamp(),
+        updatedAt        : null,
+        collecteValideeAt: null,
+      };
+      const docRef = await addDoc(collection(db, "commandes"), payload);
+      const cId    = docRef.id;
+      const qrPayload = JSON.stringify({
+        commandeId : cId,
+        userIdVend : userId,
+        client     : telephone.trim(),
+        adresse    : adresse.trim(),
+        ...(gpsCoords ? { lat: gpsCoords.lat.toFixed(6), lng: gpsCoords.lng.toFixed(6) } : {}),
+        total      : fmt(totalXof),
+        ts         : Date.now(),
+      });
+      setCommandeId(cId);
+      setQrData(qrPayload);
+      setStep("qr");
+    } catch (e) { showToast("Erreur : " + e.message); }
+    finally     { setSubmitting(false); }
+  };
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
 
@@ -542,7 +547,6 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-sheet">
         <div className="modal-handle" />
-
         <div className="modal-header">
           <div>
             <p className="modal-title">
@@ -555,7 +559,6 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
 
-        {/* ── Badge utilisateur connecté ── */}
         {step === "form" && authUser && (
           <div className="auth-badge">
             <UserCheckIcon />
@@ -563,7 +566,6 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
           </div>
         )}
 
-        {/* ── FORMULAIRE ── */}
         {step === "form" && (
           <div className="modal-body">
             <div className="recap-card">
@@ -622,8 +624,7 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
 
             <button className={`loc-btn${gpsCoords ? " loc-ok" : ""}`}
               onClick={localiser} disabled={locLoading}>
-              {locLoading
-                ? <span className="spinner-sm" />
+              {locLoading ? <span className="spinner-sm" />
                 : gpsCoords
                   ? `✅ ${gpsCoords.lat.toFixed(4)}, ${gpsCoords.lng.toFixed(4)}`
                   : <><PinIcon /> Localiser mon adresse de livraison</>
@@ -631,15 +632,13 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
             </button>
 
             <button className="confirm-btn" onClick={confirmer} disabled={submitting}>
-              {submitting
-                ? <span className="spinner-sm" />
+              {submitting ? <span className="spinner-sm" />
                 : modePaiem === "immediat" ? `Payer ${fmt(totalXof)}` : "Commander — payer à la livraison"
               }
             </button>
           </div>
         )}
 
-        {/* ── QR CODE ── */}
         {step === "qr" && commandeId && (
           <div className="modal-body qr-step">
             <p className="qr-hint">Le livreur scannera ce code pour récupérer votre commande</p>
@@ -648,10 +647,7 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrData)}`}
                 alt="QR commande" />
             </div>
-            <div className="cid-card" onClick={() => {
-              navigator.clipboard?.writeText(commandeId);
-              showToast("ID copié !");
-            }}>
+            <div className="cid-card" onClick={() => { navigator.clipboard?.writeText(commandeId); showToast("ID copié !"); }}>
               <span className="cid-label">Commande #</span>
               <span className="cid-value">{commandeId}</span>
               <CopyIcon />
@@ -682,8 +678,8 @@ function OrderModal({ video: v, userId, authUser, onClose }) {
 // ─────────────────────────────────────────────────────────────
 // Petits composants
 // ─────────────────────────────────────────────────────────────
-const FieldLabel  = ({ text }) => <p className="field-label">{text}</p>;
-const CenterMsg   = ({ text, isErr }) => (
+const FieldLabel = ({ text }) => <p className="field-label">{text}</p>;
+const CenterMsg  = ({ text, isErr }) => (
   <div className="center-msg"><p className={isErr ? "err" : "muted"}>{text}</p></div>
 );
 const Loader = () => (
@@ -764,7 +760,7 @@ const UserCheckIcon = () => (
 );
 
 // ─────────────────────────────────────────────────────────────
-// CSS global
+// CSS
 // ─────────────────────────────────────────────────────────────
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
@@ -782,12 +778,10 @@ const CSS = `
   html,body { width:100%; height:100%; background:var(--bg);
     font-family:'DM Sans',sans-serif; color:var(--text1); overflow:hidden; }
 
-  /* Feed */
   #feed { width:100vw; height:100dvh; overflow-y:scroll;
     scroll-snap-type:y mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
   #feed::-webkit-scrollbar { display:none; }
 
-  /* Slide */
   .slide { position:relative; width:100vw; height:100dvh;
     scroll-snap-align:start; overflow:hidden; background:#080300; cursor:pointer; }
   .bg-video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
@@ -797,7 +791,18 @@ const CSS = `
     background:linear-gradient(to top,rgba(10,3,0,.97) 0%,rgba(10,3,0,.5) 50%,transparent);
     pointer-events:none; }
 
-  /* HUD top */
+  /* Badge produit ciblé */
+  .slide-target { outline: 2px solid rgba(255,107,0,.5); }
+  .target-badge {
+    position:absolute; top:env(safe-area-inset-top,16px); left:50%;
+    transform:translateX(-50%);
+    background:rgba(255,107,0,.9); color:#fff;
+    font-size:.72rem; font-weight:700; font-family:'Syne',sans-serif;
+    padding:5px 14px; border-radius:20px; z-index:10;
+    box-shadow:0 2px 12px rgba(255,107,0,.5);
+    white-space:nowrap;
+  }
+
   .hud-top { position:absolute; top:env(safe-area-inset-top,16px); left:0; right:0;
     display:flex; justify-content:center; padding:12px 16px; pointer-events:none; }
   .logo-chip { display:flex; align-items:center; gap:7px;
@@ -808,7 +813,6 @@ const CSS = `
     box-shadow:0 0 8px var(--orange); animation:pulse 1.2s ease infinite; }
   @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.85)} }
 
-  /* HUD bot */
   .hud-bot { position:absolute; bottom:0; left:0; right:90px; padding:0 16px 44px; }
   .product-name { font-family:'Syne',sans-serif; font-weight:800; font-size:1.1rem;
     line-height:1.25; margin-bottom:6px; text-shadow:0 2px 12px rgba(0,0,0,.7); }
@@ -821,7 +825,6 @@ const CSS = `
     padding:5px 14px; border-radius:20px; font-family:'Syne',sans-serif;
     font-weight:800; font-size:1rem; box-shadow:0 4px 18px rgba(255,107,0,.45); }
 
-  /* Bouton Commander */
   .order-btn { display:flex; align-items:center; gap:7px;
     background:rgba(255,107,0,.15); border:1.5px solid rgba(255,107,0,.6);
     border-radius:20px; padding:7px 16px; color:var(--text1);
@@ -830,7 +833,6 @@ const CSS = `
   .order-btn:hover  { background:rgba(255,107,0,.3); }
   .order-btn:active { transform:scale(.95); }
 
-  /* Mute */
   .mute-btn { position:fixed; top:env(safe-area-inset-top,14px); right:14px; z-index:90;
     width:40px; height:40px; border-radius:50%;
     background:rgba(0,0,0,.55); border:1.5px solid rgba(255,107,0,.35);
@@ -839,7 +841,6 @@ const CSS = `
   .mute-btn:hover { background:rgba(255,107,0,.25); }
   .mute-btn svg { width:18px; height:18px; }
 
-  /* Rail droit */
   .side-rail { position:absolute; right:10px; bottom:40px;
     display:flex; flex-direction:column; align-items:center; gap:20px; }
   .rail-btn { background:none; border:none; cursor:pointer;
@@ -854,7 +855,6 @@ const CSS = `
     border:2px solid var(--orange); overflow:hidden; box-shadow:0 0 14px rgba(255,107,0,.4); }
   .product-thumb { width:100%; height:100%; object-fit:cover; }
 
-  /* Overlay pause */
   .play-overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
   .play-icon { width:64px; height:64px; border-radius:50%;
     background:rgba(255,107,0,.2); border:2px solid rgba(255,107,0,.5);
@@ -862,7 +862,6 @@ const CSS = `
     font-size:1.4rem; backdrop-filter:blur(4px); animation:fadeIn .15s ease; }
   @keyframes fadeIn { from{opacity:0;transform:scale(.8)} }
 
-  /* États vides */
   .center-msg { position:fixed; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:center; background:var(--bg); }
   .spinner-big { width:44px; height:44px; border:3px solid rgba(255,107,0,.2);
@@ -871,7 +870,6 @@ const CSS = `
   .muted { color:var(--muted); font-size:.9rem; }
   .err   { color:var(--orange); font-size:1rem; }
 
-  /* ── Modal commun ── */
   .modal-backdrop { position:fixed; inset:0; z-index:200;
     background:rgba(0,0,0,.72); display:flex; align-items:flex-end;
     backdrop-filter:blur(5px); animation:fadeIn .2s ease; }
@@ -891,15 +889,13 @@ const CSS = `
     display:flex; align-items:center; justify-content:center; flex-shrink:0; }
   .modal-body { padding:16px 20px 36px; display:flex; flex-direction:column; gap:10px; }
 
-  /* Badge utilisateur connecté */
   .auth-badge { display:flex; align-items:center; gap:8px;
     padding:8px 20px; background:rgba(52,199,89,.07);
     border-bottom:1px solid rgba(52,199,89,.15); flex-shrink:0; }
   .auth-badge span { font-size:.78rem; color:rgba(255,240,220,.7); }
   .auth-badge strong { color:#34C759; }
 
-  /* ── Modal auth requise ── */
-  .auth-modal { max-height:auto; border-radius:24px 24px 0 0; }
+  .auth-modal { border-radius:24px 24px 0 0; }
   .auth-modal-body { padding:24px 28px 40px; display:flex; flex-direction:column;
     align-items:center; gap:16px; text-align:center; }
   .auth-icon-wrap { width:72px; height:72px; border-radius:50%;
@@ -924,7 +920,6 @@ const CSS = `
   .auth-skip { background:none; border:none; color:var(--muted);
     font-size:.8rem; cursor:pointer; text-decoration:underline; margin-top:4px; }
 
-  /* Récap */
   .recap-card { display:flex; gap:12px; align-items:center;
     background:rgba(255,107,0,.07); border:1px solid var(--border);
     border-radius:14px; padding:12px; }
@@ -933,7 +928,6 @@ const CSS = `
   .recap-name { font-weight:700; font-size:.9rem; color:var(--text1); }
   .recap-price{ font-family:'Syne',sans-serif; font-weight:800; font-size:.95rem; color:var(--orange); }
 
-  /* Toggles */
   .toggle-row { display:flex; gap:10px; }
   .toggle-opt { flex:1; padding:12px; border-radius:12px; cursor:pointer;
     background:rgba(255,255,255,.04); border:1.5px solid rgba(255,107,0,.2);
@@ -942,7 +936,6 @@ const CSS = `
   .toggle-sel { background:rgba(255,107,0,.1); border-color:var(--orange); }
   .toggle-label { font-family:'Syne',sans-serif; font-weight:700; font-size:.82rem; color:var(--text1); }
   .toggle-sub   { font-size:.72rem; color:var(--muted); }
-
   .field-label { font-size:.7rem; font-weight:700; letter-spacing:.09em;
     color:var(--muted); text-transform:uppercase; margin-top:4px; }
 
@@ -1000,6 +993,28 @@ const CSS = `
     color:var(--text1); z-index:300; white-space:nowrap;
     box-shadow:0 4px 24px rgba(0,0,0,.4); animation:fadeIn .2s ease; }
 
+  .scroll-hint { position:absolute; bottom:80px; left:50%; transform:translateX(-50%);
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    pointer-events:none; animation:hintFadeOut .4s ease 3.1s forwards; }
+  .scroll-hint-hand { font-size:36px; animation:swipeUp 1.1s cubic-bezier(.4,0,.2,1) infinite;
+    filter:drop-shadow(0 2px 8px rgba(0,0,0,.7)); }
+  .scroll-hint-dots { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .scroll-hint-dots span { display:block; width:3px; height:3px; border-radius:50%;
+    background:rgba(255,240,220,.55); animation:dotFade 1.1s ease infinite; }
+  .scroll-hint-dots span:nth-child(1) { animation-delay:0s; }
+  .scroll-hint-dots span:nth-child(2) { animation-delay:.12s; }
+  .scroll-hint-dots span:nth-child(3) { animation-delay:.24s; }
+  .scroll-hint-label { font-size:.65rem; letter-spacing:.1em; text-transform:uppercase;
+    color:rgba(255,240,220,.6); font-family:'Syne',sans-serif; font-weight:700; }
+  @keyframes swipeUp {
+    0%   { transform:translateY(0);     opacity:.9; }
+    60%  { transform:translateY(-30px); opacity:1;  }
+    80%  { transform:translateY(-36px); opacity:.2; }
+    100% { transform:translateY(0);     opacity:.9; }
+  }
+  @keyframes dotFade { 0%,100%{opacity:.25} 50%{opacity:.9} }
+  @keyframes hintFadeOut { to{opacity:0} }
+
   @media (min-width: 560px) {
     #feed { max-width:400px; margin:0 auto; box-shadow:0 0 80px rgba(255,107,0,.07); }
     .modal-sheet { max-width:460px; margin:0 auto; border-radius:24px; margin-bottom:24px;
@@ -1007,38 +1022,4 @@ const CSS = `
     .mute-btn { right:calc(50% - 215px); }
     .modal-backdrop { align-items:center; }
   }
-    /* ── Scroll hint animation ── */
-.scroll-hint {
-  position:absolute; bottom:80px; left:50%; transform:translateX(-50%);
-  display:flex; flex-direction:column; align-items:center; gap:6px;
-  pointer-events:none; animation:hintFadeOut .4s ease 3.1s forwards;
-}
-.scroll-hint-hand {
-  font-size:36px;
-  animation:swipeUp 1.1s cubic-bezier(.4,0,.2,1) infinite;
-  filter:drop-shadow(0 2px 8px rgba(0,0,0,.7));
-}
-.scroll-hint-dots { display:flex; flex-direction:column; align-items:center; gap:4px; }
-.scroll-hint-dots span {
-  display:block; width:3px; height:3px; border-radius:50%;
-  background:rgba(255,240,220,.55); animation:dotFade 1.1s ease infinite;
-}
-.scroll-hint-dots span:nth-child(1) { animation-delay:0s; }
-.scroll-hint-dots span:nth-child(2) { animation-delay:.12s; }
-.scroll-hint-dots span:nth-child(3) { animation-delay:.24s; }
-.scroll-hint-label {
-  font-size:.65rem; letter-spacing:.1em; text-transform:uppercase;
-  color:rgba(255,240,220,.6); font-family:'Syne',sans-serif; font-weight:700;
-}
-@keyframes swipeUp {
-  0%   { transform:translateY(0);    opacity:.9; }
-  60%  { transform:translateY(-30px); opacity:1;  }
-  80%  { transform:translateY(-36px); opacity:.2; }
-  100% { transform:translateY(0);    opacity:.9; }
-}
-@keyframes dotFade {
-  0%,100% { opacity:.25; }
-  50%     { opacity:.9;  }
-}
-@keyframes hintFadeOut { to { opacity:0; } }
 `;
