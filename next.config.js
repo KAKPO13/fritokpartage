@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Tu peux ajouter d'autres options ici si nécessaire
+  // Leaflet accesses `window` — ensure it's never processed server-side
+  webpack: (config) => {
+    config.resolve.fallback = { ...config.resolve.fallback, fs: false };
+    return config;
+  },
 };
 
 export default nextConfig;

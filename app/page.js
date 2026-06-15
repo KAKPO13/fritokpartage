@@ -9,6 +9,7 @@ import LiveGrid from '../components/LiveGrid';
 import TrustBand from '../components/TrustBand';
 import CtaBottom from '../components/CtaBottom';
 import Footer from '../components/Footer';
+import AppBanner from '../components/AppBanner';
 
 export default function Home() {
   return (
@@ -16,6 +17,7 @@ export default function Home() {
       <Navbar />
       <main>
         <Hero />
+        <AppBanner />
         <Ticker />
         <PhoneShowcase />
         <Stats />
