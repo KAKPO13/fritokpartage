@@ -3,6 +3,7 @@
 // Miroir JS de WalletService.dart
 // Appelle les Netlify Functions avec le Firebase ID Token en Authorization.
 // ─────────────────────────────────────────────────────────────────────────────
+//
 
 import { getAuth } from 'firebase/auth';
 

@@ -9,10 +9,12 @@ import { useRouter } from 'next/router';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
-import { createTopup } from '../../hooks/useWallet';
-import useWallet from '../../hooks/useWallet';
+import { createTopup } from '../../app/hooks/useWallet';
+import useWallet from '../../app/hooks/useWallet';
 
 
+
+//TEST
 
 const firebaseConfig = {
   apiKey           : process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
