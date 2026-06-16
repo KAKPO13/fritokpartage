@@ -9,7 +9,7 @@ import { useRouter } from 'next/router';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
-import { createTopup } from '../../app/hooks/useWallet';
+import { webcreateTopup } from '../../app/hooks/useWallet';
 import useWallet from '../../app/hooks/useWallet';
 
 
