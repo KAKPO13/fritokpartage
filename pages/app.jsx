@@ -10,6 +10,7 @@ import {
   onSnapshot, serverTimestamp, increment,
 } from 'firebase/firestore';
 import dynamic from 'next/dynamic';
+import { createFlutterwaveRentalPayment } from '../hooks/useWallet';
 
 // ─── Firebase ────────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -428,39 +429,54 @@ function RentTab({ db, user, wallet, onSuccess }) {
     const xofBalance = toNum(wallet['XOF']);
     const total      = FRAIS_XOF + CAUTION_XOF;
 
-    if (payMethod === 'wallet' && xofBalance < total) {
-      setError(`Solde insuffisant. Requis : ${fmt(total)} FCFA · Solde : ${fmt(xofBalance)} FCFA`);
-      setLoading(false); return;
-    }
     try {
-      const rentalRef = await addDoc(collection(db, 'rentals'), {
-        userId        : user.uid,
-        qrCode        : pbData.qrCode || pbData.docId, // champ qrCode du sticker
-        partnerId     : pbData.currentPartnerId || null,
-        status        : 'en_cours',
-        paymentMethod : payMethod,
-        fraisXof      : FRAIS_XOF,
-        cautionXof    : CAUTION_XOF,
-        devise        : 'XOF',
-        startTime     : serverTimestamp(),
-      });
-
+      // ── Paiement Wallet Fritok ───────────────────────────────────────────
       if (payMethod === 'wallet') {
+        if (xofBalance < total) {
+          setError(`Solde insuffisant. Requis : ${fmt(total)} FCFA · Solde actuel : ${fmt(xofBalance)} FCFA`);
+          setLoading(false); return;
+        }
+
+        const rentalRef = await addDoc(collection(db, 'rentals'), {
+          userId        : user.uid,
+          qrCode        : pbData.qrCode || pbData.docId,
+          partnerId     : pbData.currentPartnerId || null,
+          status        : 'en_cours',
+          paymentMethod : 'wallet',
+          fraisXof      : FRAIS_XOF,
+          cautionXof    : CAUTION_XOF,
+          devise        : 'XOF',
+          startTime     : serverTimestamp(),
+        });
         await updateDoc(doc(db, 'users', user.uid), { 'wallet.XOF': increment(-total) });
+        await updateDoc(doc(db, 'powerBanks', pbData.docId), {
+          state: 'en_location', currentUserId: user.uid, updatedAt: serverTimestamp(),
+        });
+        setRental({ id: rentalRef.id, qrCode: pbData.qrCode || pbData.docId, fraisXof: FRAIS_XOF, cautionXof: CAUTION_XOF, paymentMethod: 'wallet', batteryLevel: pbData.batteryLevel });
+        setStep('done');
+
+      // ── Paiement Flutterwave ─────────────────────────────────────────────
+      } else {
+        // La Netlify Function génère le lien de paiement et pré-enregistre
+        // la transaction. La Rental est créée CÔTÉ SERVEUR après vérification
+        // (verifyFlutterwaveRentalPayment) — jamais côté client.
+        const result = await createFlutterwaveRentalPayment({
+          powerBankId   : pbData.qrCode || pbData.docId,
+          powerBankDocId: pbData.docId,
+          partnerStartId: pbData.currentPartnerId || '',
+          amountXof     : FRAIS_XOF,
+          cautionXof    : CAUTION_XOF,
+          devise        : 'XOF',
+        });
+        // Redirige vers le checkout Flutterwave
+        // La page /app/payment-confirm gère le retour et la vérification
+        window.location.href = result.payment_url;
+        // Ne pas setLoading(false) — la page va se décharger
+        return;
       }
-
-      // state → "en_location"  (champ "state" dans powerBanks, pas "status")
-      await updateDoc(doc(db, 'powerBanks', pbData.docId), {
-        state        : 'en_location',
-        currentUserId: user.uid,
-        updatedAt    : serverTimestamp(),
-      });
-
-      setRental({ id: rentalRef.id, qrCode: pbData.qrCode || pbData.docId, fraisXof: FRAIS_XOF, cautionXof: CAUTION_XOF, paymentMethod: payMethod, batteryLevel: pbData.batteryLevel });
-      setStep('done');
     } catch (e) {
       console.error('confirmRent:', e);
-      setError('Erreur : ' + e.message);
+      setError(e.message || 'Erreur lors du paiement.');
     }
     setLoading(false);
   };
@@ -764,6 +780,9 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
       </div>
 
       {/* Actions */}
+      <button onClick={() => { if (typeof window !== 'undefined') window.location.href = '/wallet/topup'; }} style={{ width: '100%', padding: '14px 0', background: D.orange, color: '#fff', border: 'none', borderRadius: 14, cursor: 'pointer', fontSize: 15, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        💳 Recharger mon wallet
+      </button>
       <button onClick={() => onNav('history')} style={{ width: '100%', padding: '13px 0', background: D.surface, color: D.text1, border: `1px solid ${D.border}`, borderRadius: 14, cursor: 'pointer', fontSize: 14, fontWeight: 600, marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
         📋 Historique des locations
       </button>
