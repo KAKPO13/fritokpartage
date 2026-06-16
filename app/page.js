@@ -6,6 +6,7 @@ import PhoneShowcase from '../components/PhoneShowcase';
 import Stats from '../components/Stats';
 import Features from '../components/Features';
 import LiveGrid from '../components/LiveGrid';
+import DeliveryMap from '../components/DeliveryMap'; // ← import
 import TrustBand from '../components/TrustBand';
 import CtaBottom from '../components/CtaBottom';
 import Footer from '../components/Footer';
@@ -23,6 +24,7 @@ export default function Home() {
         <Stats />
         <Features />
         <LiveGrid />
+        <DeliveryMap />  {/* ← insertion */}
         <TrustBand />
         <CtaBottom />
       </main>
