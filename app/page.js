@@ -6,7 +6,7 @@ import PhoneShowcase from '../components/PhoneShowcase';
 import Stats from '../components/Stats';
 import Features from '../components/Features';
 import LiveGrid from '../components/LiveGrid';
-import LiveBanner from '../components/GoLiveBanner';   // ← 🆕 section live marketing
+import LiveBanner from '../components/GoLivebanner';   // ← 🆕 section live marketing
 import DeliveryMap from '../components/DeliveryMap';
 import TrustBand from '../components/TrustBand';
 import CtaBottom from '../components/CtaBottom';
