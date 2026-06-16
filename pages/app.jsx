@@ -10,7 +10,8 @@ import {
   onSnapshot, serverTimestamp, increment,
 } from 'firebase/firestore';
 import dynamic from 'next/dynamic';
-import { createFlutterwaveRentalPayment } from '../hooks/useWallet';
+import { createFlutterwaveRentalPayment } from '../app/hooks/useWallet';;
+import useWallet from '../app/hooks/useWallet';
 
 // ─── Firebase ────────────────────────────────────────────────────────────────
 const firebaseConfig = {
