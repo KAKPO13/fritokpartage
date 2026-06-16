@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
-import { db } from '../../lib/firebaseClient';
+import { db } from '../lib/firebaseClient';
+
 
 /* ══════════════════════════════════════════════════════════
    CONFIG STATUTS
