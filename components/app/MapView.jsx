@@ -1,151 +1,188 @@
 'use client';
-
 import { useEffect, useRef } from 'react';
 
-// Leaflet is loaded client-side only
 const D = {
-  orange    : '#FF6B00',
-  green     : '#1A9640',
-  greenLight: '#E6F7EC',
-  text1     : '#2D1500',
-  text2     : '#8B5E3C',
-  amberLight: '#FEF3C7',
-  amber     : '#B45309',
+  orange: '#FF6B00', green: '#1A9640', text1: '#2D1500', text2: '#8B5E3C',
+  amber: '#B45309', red: '#E53E00',
 };
 
-export default function MapView({ stations = [] }) {
-  const mapRef      = useRef(null);
-  const leafletRef  = useRef(null);
-  const instanceRef = useRef(null);
+// Couleur selon l'état du power bank
+function stateColor(state) {
+  if (state === 'disponible')  return D.orange;
+  if (state === 'en_location') return '#888';
+  return D.red; // hors_service
+}
 
+function batteryColor(level) {
+  if (level == null || level >= 60) return D.green;
+  if (level >= 30) return D.amber;
+  return D.red;
+}
+
+export default function MapView({ powerBanks = [] }) {
+  const mapRef      = useRef(null);
+  const mapInstance = useRef(null); // Leaflet map instance
+  const L           = useRef(null); // Leaflet lib
+  const markersRef  = useRef([]);   // track added markers for cleanup
+
+  // ── Init map once ────────────────────────────────────────────────────────
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    let destroyed = false;
 
-    const init = async () => {
-      // Dynamically import Leaflet
-      const L = (await import('leaflet')).default;
+    (async () => {
+      // Load Leaflet + CSS
+      const leaflet = (await import('leaflet')).default;
       await import('leaflet/dist/leaflet.css');
 
-      if (!mapRef.current || instanceRef.current) return;
+      if (destroyed || !mapRef.current || mapInstance.current) return;
 
-      // Fix default marker icon path issue in Next.js
-      delete L.Icon.Default.prototype._getIconUrl;
-      L.Icon.Default.mergeOptions({
+      // Fix broken default icon paths in Next.js/webpack
+      delete leaflet.Icon.Default.prototype._getIconUrl;
+      leaflet.Icon.Default.mergeOptions({
         iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
         iconUrl      : 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
         shadowUrl    : 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
       });
 
-      // Default center: Abidjan
-      const defaultCenter = [5.3484, -4.0083];
-
-      const map = L.map(mapRef.current, {
-        center: defaultCenter,
+      const map = leaflet.map(mapRef.current, {
+        center: [5.3484, -4.0083], // Abidjan par défaut
         zoom  : 13,
         zoomControl: true,
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      leaflet.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',
         maxZoom    : 19,
       }).addTo(map);
 
-      instanceRef.current = map;
-      leafletRef.current  = L;
+      mapInstance.current = map;
+      L.current           = leaflet;
 
-      // Try to center on user's position
+      // Géolocalisation utilisateur
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            const { latitude: lat, longitude: lng } = pos.coords;
-            map.setView([lat, lng], 14);
-
-            // Blue dot for user location
-            L.circleMarker([lat, lng], {
-              radius     : 8,
-              fillColor  : '#2196F3',
-              color      : '#fff',
-              weight     : 2,
-              opacity    : 1,
-              fillOpacity: 1,
-            })
-              .addTo(map)
-              .bindPopup('<b>Ma position</b>');
+          ({ coords }) => {
+            if (destroyed) return;
+            map.setView([coords.latitude, coords.longitude], 14);
+            leaflet.circleMarker([coords.latitude, coords.longitude], {
+              radius: 8, fillColor: '#2196F3', color: '#fff',
+              weight: 2, opacity: 1, fillOpacity: 1,
+            }).addTo(map).bindPopup('<b>📍 Ma position</b>');
           },
-          () => {},
-          { enableHighAccuracy: true, timeout: 5000 }
+          () => {}, // permission refusée → reste sur Abidjan
+          { enableHighAccuracy: true, timeout: 6000 },
         );
       }
-    };
 
-    init();
+      // Une fois la carte prête, ajouter les marqueurs déjà disponibles
+      if (powerBanks.length > 0) addMarkers(map, leaflet, powerBanks);
+    })();
 
     return () => {
-      if (instanceRef.current) {
-        instanceRef.current.remove();
-        instanceRef.current = null;
+      destroyed = true;
+      if (mapInstance.current) {
+        mapInstance.current.remove();
+        mapInstance.current = null;
+        L.current           = null;
+        markersRef.current  = [];
       }
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // une seule fois
 
-  // Add station markers whenever stations prop changes
+  // ── Mise à jour des marqueurs quand powerBanks change ───────────────────
   useEffect(() => {
-    const L   = leafletRef.current;
-    const map = instanceRef.current;
-    if (!L || !map) return;
+    if (!mapInstance.current || !L.current) return;
+    // Supprimer les anciens marqueurs
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
+    addMarkers(mapInstance.current, L.current, powerBanks);
+  }, [powerBanks]);
 
-    stations.forEach((station) => {
-      if (!station.lat || !station.lng) return;
+  return (
+    <div ref={mapRef} style={{ width: '100%', height: '100%', minHeight: 400 }} />
+  );
+}
 
-      const available = station.availableCount ?? 0;
-      const color     = available > 0 ? D.orange : '#aaa';
+// ── Fonction utilitaire : ajoute les marqueurs sur la carte ───────────────
+function addMarkers(map, leaflet, powerBanks) {
+  const added = [];
 
-      // Custom icon
-      const icon = L.divIcon({
-        className : '',
-        html      : `
+  powerBanks.forEach((pb) => {
+    // Sécurité : GeoPoint peut arriver sous forme d'objet Firestore
+    const lat = pb.lat ?? pb.location?.latitude;
+    const lng = pb.lng ?? pb.location?.longitude;
+    if (lat == null || lng == null) return;
+
+    const color   = stateColor(pb.state);
+    const battery = pb.batteryLevel;
+    const isDispo = pb.state === 'disponible';
+
+    const icon = leaflet.divIcon({
+      className: '',
+      html: `
+        <div style="
+          position:relative;
+          width:40px; height:40px;
+        ">
           <div style="
-            width:36px; height:36px; border-radius:50% 50% 50% 0;
+            width:40px; height:40px; border-radius:50% 50% 50% 0;
             transform:rotate(-45deg);
             background:${color};
             border:3px solid #fff;
-            box-shadow:0 2px 6px rgba(0,0,0,0.30);
+            box-shadow:0 3px 8px rgba(0,0,0,0.35);
             display:flex; align-items:center; justify-content:center;
           ">
-            <span style="transform:rotate(45deg); font-size:14px;">⚡</span>
-          </div>`,
-        iconSize  : [36, 36],
-        iconAnchor: [18, 36],
-        popupAnchor: [0, -36],
-      });
-
-      L.marker([station.lat, station.lng], { icon })
-        .addTo(map)
-        .bindPopup(`
-          <div style="font-family:sans-serif; min-width:160px;">
-            <div style="font-size:13px; font-weight:700; color:${D.text1}; margin-bottom:4px;">
-              ${station.name || station.id}
-            </div>
-            <div style="font-size:12px; color:${D.text2}; margin-bottom:8px;">
-              ${station.address || ''}
-            </div>
-            <div style="
-              display:inline-block; padding:3px 8px; border-radius:99px;
-              background:${available > 0 ? '#E6F7EC' : '#f5f5f5'};
-              color:${available > 0 ? D.green : '#888'};
-              font-size:11px; font-weight:700;
-            ">
-              ${available > 0 ? `${available} power bank${available > 1 ? 's' : ''} dispo` : 'Aucun disponible'}
-            </div>
+            <span style="transform:rotate(45deg); font-size:16px; line-height:1;">⚡</span>
           </div>
-        `);
+          ${battery != null ? `
+          <div style="
+            position:absolute; bottom:-6px; left:50%; transform:translateX(-50%);
+            background:${batteryColor(battery)}; color:#fff;
+            font-size:9px; font-weight:800; border-radius:4px;
+            padding:1px 4px; white-space:nowrap; border:1.5px solid #fff;
+            box-shadow:0 1px 3px rgba(0,0,0,0.3);
+          ">${battery}%</div>` : ''}
+        </div>`,
+      iconSize   : [40, 46],
+      iconAnchor : [20, 46],
+      popupAnchor: [0, -46],
     });
-  }, [stations]);
 
-  return (
-    <div
-      ref={mapRef}
-      style={{ width: '100%', height: '100%', minHeight: 300 }}
-    />
-  );
+    const stateLabel = {
+      disponible : '✅ Disponible',
+      en_location: '🔋 En location',
+      hors_service: '🚫 Hors service',
+    }[pb.state] ?? pb.state;
+
+    const marker = leaflet.marker([lat, lng], { icon })
+      .addTo(map)
+      .bindPopup(`
+        <div style="font-family:system-ui,sans-serif; min-width:180px; padding:4px 0;">
+          <div style="font-size:14px; font-weight:800; color:#2D1500; margin-bottom:4px;">
+            ${pb.qrCode || pb.id}
+          </div>
+          <div style="
+            display:inline-block; padding:3px 10px; border-radius:99px; margin-bottom:8px;
+            background:${isDispo ? '#E6F7EC' : '#f5f5f5'};
+            color:${isDispo ? '#1A9640' : '#888'};
+            font-size:11px; font-weight:700;
+          ">${stateLabel}</div>
+          ${battery != null ? `
+          <div style="margin-top:4px;">
+            <div style="font-size:11px; color:#8B5E3C; margin-bottom:4px;">Batterie</div>
+            <div style="height:6px; background:#eee; border-radius:99px; overflow:hidden;">
+              <div style="height:100%; width:${battery}%; background:${batteryColor(battery)}; border-radius:99px;"></div>
+            </div>
+            <div style="font-size:11px; font-weight:700; color:${batteryColor(battery)}; margin-top:3px;">${battery}%</div>
+          </div>` : ''}
+        </div>
+      `);
+
+    added.push(marker);
+  });
+
+  return added;
 }
+
