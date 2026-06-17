@@ -5,15 +5,12 @@ import { useRouter } from 'next/router';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
 import {
-  getFirestore, doc, getDoc, getDocs, updateDoc,
+  getFirestore, doc, getDoc, getDocs, updateDoc, setDoc,
   collection, addDoc, query, where, orderBy, limit,
   onSnapshot, serverTimestamp, increment,
 } from 'firebase/firestore';
 import dynamic from 'next/dynamic';
-import { createFlutterwaveRentalPayment, confirmRestitution, createWalletRentalRecord } from '../app/hooks/useWallet';
-
-
-
+import { createFlutterwaveRentalPayment } from '../app/hooks/useWallet';
 
 // ─── Firebase ────────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -75,6 +72,48 @@ const elapsed = (ts) => {
 
 const batteryColor = (lvl) => lvl == null ? D.text3 : lvl >= 60 ? D.green : lvl >= 30 ? D.amber : D.red;
 const batteryIcon  = (lvl) => lvl == null ? '🔋' : lvl >= 60 ? '🔋' : lvl >= 30 ? '🪫' : '🔴';
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  writeTranstet — écrit dans TranstetMoney directement depuis le client
+//  Schéma réel Firestore : currency, date, destinataireId, destinataireNom,
+//  destinataireTelephone, expediteurEmail, expediteurId, frais, montantEnvoye,
+//  montantRecu, profilePictureUrl, status, timestamp, transactionId, type
+// ─────────────────────────────────────────────────────────────────────────────
+async function writeTranstet(db, {
+  type,                          // "rental" | "restitution" | "topup"
+  currency,
+  montantEnvoye,
+  frais = 0,
+  expediteurId,
+  expediteurEmail,
+  expediteurPhoto = '',
+  destinataireId,
+  destinataireNom,
+  destinataireTel = '',
+  status = 'completed',
+}) {
+  const now    = Date.now();
+  const date   = new Date(now).toISOString().slice(0, 10); // "YYYY-MM-DD"
+  const docRef = doc(collection(db, 'TranstetMoney'));      // ID auto
+  await setDoc(docRef, {
+    transactionId         : docRef.id,
+    type,
+    currency,
+    date,
+    timestamp             : now,
+    montantEnvoye         : Number(montantEnvoye),
+    frais                 : Number(frais),
+    montantRecu           : Number(montantEnvoye) - Number(frais),
+    expediteurId,
+    expediteurEmail,
+    profilePictureUrl     : expediteurPhoto || '',
+    destinataireId,
+    destinataireNom,
+    destinataireTelephone : destinataireTel,
+    status,
+  });
+  return docRef.id;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  ROOT
@@ -164,8 +203,8 @@ export default function FritokApp() {
       <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 80 }}>
         {tab === 'home'    && <HomeTab    balance={balance} currency={currency} currencies={currencies} normWallet={normWallet} onCurrencyChange={setCurrency} activeRentals={activeRentals} history={history} profile={profile} onNav={setTab} />}
         {tab === 'map'     && <MapTab     db={db} />}
-        {tab === 'rent'    && <RentTab    db={db} user={user} wallet={wallet} onSuccess={() => setTab('home')} />}
-        {tab === 'return'  && <ReturnTab  db={db} user={user} activeRentals={activeRentals} onSuccess={() => setTab('home')} />}
+        {tab === 'rent'    && <RentTab    db={db} user={user} wallet={wallet} profile={profile} onSuccess={() => setTab('home')} />}
+        {tab === 'return'  && <ReturnTab  db={db} user={user} activeRentals={activeRentals} profile={profile} onSuccess={() => setTab('home')} />}
         {tab === 'history' && <HistoryTab history={history} />}
         {tab === 'profile' && <ProfileTab profile={profile} user={user} onSignOut={handleSignOut} onNav={setTab} />}
       </div>
@@ -380,7 +419,7 @@ function MapTab({ db }) {
 //  Lookup : where('qrCode', '==', id) en premier, fallback par doc ID
 //  state Firestore : "disponible" | "en_location" | "hors_service"
 // ─────────────────────────────────────────────────────────────────────────────
-function RentTab({ db, user, wallet, onSuccess }) {
+function RentTab({ db, user, wallet, profile, onSuccess }) {
   const [step,      setStep]      = useState('scan');
   const [qrCode,    setQrCode]    = useState('');
   const [pbData,    setPbData]    = useState(null);
@@ -456,12 +495,37 @@ function RentTab({ db, user, wallet, onSuccess }) {
           state: 'en_location', currentUserId: user.uid, updatedAt: serverTimestamp(),
         });
         setRental({ id: rentalRef.id, qrCode: pbData.qrCode || pbData.docId, fraisXof: FRAIS_XOF, cautionXof: CAUTION_XOF, paymentMethod: 'wallet', batteryLevel: pbData.batteryLevel });
-        // Enregistrement TranstetMoney côté serveur (fire-and-forget)
-        createWalletRentalRecord({
-          rentalId    : rentalRef.id,
-          powerBankId : pbData.qrCode || pbData.docId,
-          partnerId   : pbData.currentPartnerId || null,
-        }).catch(e => console.warn('TranstetMoney wallet record:', e));
+
+        // ── TranstetMoney "rental" ── paiement wallet immédiat ────────────
+        await writeTranstet(db, {
+          type            : 'rental',
+          currency        : 'XOF',
+          montantEnvoye   : total,                           // frais + caution
+          frais           : 0,
+          expediteurId    : user.uid,
+          expediteurEmail : user.email || '',
+          expediteurPhoto : profile?.photoUrl || '',
+          destinataireId  : pbData.currentPartnerId || 'fritok-system',
+          destinataireNom : pbData.currentPartnerId ? 'Partenaire' : 'Fritok',
+          destinataireTel : '',
+          status          : 'completed',
+        });
+
+        // ── TranstetMoney "restitution" ── caution future en pending ──────
+        await writeTranstet(db, {
+          type            : 'restitution',
+          currency        : 'XOF',
+          montantEnvoye   : CAUTION_XOF,
+          frais           : 0,
+          expediteurId    : 'fritok-system',
+          expediteurEmail : 'noreply@fritok.net',
+          expediteurPhoto : '',
+          destinataireId  : user.uid,
+          destinataireNom : profile?.username || user.email || '',
+          destinataireTel : profile?.phone || '',
+          status          : 'pending',
+        });
+
         setStep('done');
 
       // ── Paiement Flutterwave ─────────────────────────────────────────────
@@ -558,7 +622,7 @@ function RentTab({ db, user, wallet, onSuccess }) {
 //  ReturnTab
 //  Met le powerBank.state → "disponible" et currentUserId → ""
 // ─────────────────────────────────────────────────────────────────────────────
-function ReturnTab({ db, user, activeRentals, onSuccess }) {
+function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
   const [selected, setSelected] = useState(null);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
@@ -567,15 +631,70 @@ function ReturnTab({ db, user, activeRentals, onSuccess }) {
 
   const doReturn = async () => {
     if (!selected) return;
-    const r = activeRentals.find(x => x.id === selected);
+    const r       = activeRentals.find(x => x.id === selected);
+    const caution = r.cautionXof ?? CAUTION_XOF;
     setLoading(true); setError('');
     try {
-      // confirmRestitution côté serveur :
-      // • clôture la Rental, rembourse la caution, libère le PB
-      // • crée/met à jour la TranstetMoney "restitution" → "completed"
-      const result = await confirmRestitution({ rentalId: r.id });
-      if (!result.success) throw new Error(result.error || 'Échec de la restitution');
-      setRefund(result.cautionRefunded ?? r.cautionXof ?? CAUTION_XOF);
+      // 1. Clôturer la Rental
+      await updateDoc(doc(db, 'rentals', r.id), {
+        status : 'restitue',
+        endTime: serverTimestamp(),
+      });
+
+      // 2. Rembourser la caution sur le wallet
+      await updateDoc(doc(db, 'users', user.uid), {
+        'wallet.XOF': increment(caution),
+      });
+
+      // 3. Libérer le power bank (cherche par champ qrCode puis par ID)
+      if (r.qrCode) {
+        const qSnap = await getDocs(
+          query(collection(db, 'powerBanks'), where('qrCode', '==', r.qrCode))
+        );
+        const pbRef = qSnap.empty
+          ? doc(db, 'powerBanks', r.qrCode) // fallback par ID
+          : qSnap.docs[0].ref;
+        await updateDoc(pbRef, {
+          state        : 'disponible',
+          currentUserId: '',
+          updatedAt    : serverTimestamp(),
+        });
+      }
+
+      // 4. TranstetMoney "restitution" → "completed" directement en Firestore
+      //    Cherche d'abord si une entrée pending existe (créée au moment du paiement)
+      const pendingSnap = await getDocs(
+        query(
+          collection(db, 'TranstetMoney'),
+          where('type',           '==', 'restitution'),
+          where('destinataireId', '==', user.uid),
+          where('status',         '==', 'pending'),
+          orderBy('timestamp',    'desc'),
+          limit(1),
+        )
+      );
+
+      if (!pendingSnap.empty) {
+        // Mettre à jour l'entrée existante
+        await updateDoc(pendingSnap.docs[0].ref, { status: 'completed' });
+      } else {
+        // Créer une nouvelle entrée (cas rare : pas de pending trouvé)
+        await writeTranstet(db, {
+          type            : 'restitution',
+          currency        : r.devise || 'XOF',
+          montantEnvoye   : caution,
+          frais           : 0,
+          expediteurId    : 'fritok-system',
+          expediteurEmail : 'noreply@fritok.net',
+          expediteurPhoto : '',
+          destinataireId  : user.uid,
+          destinataireNom : profile?.username || user.email || '',
+          destinataireTel : profile?.phone || '',
+          status          : 'completed',
+        });
+      }
+
+      setRefund(caution);
       setDone(true);
     } catch (e) {
       console.error('doReturn:', e);
