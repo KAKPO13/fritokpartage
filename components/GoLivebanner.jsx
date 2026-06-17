@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+
 // ─────────────────────────────────────────────
 // 📡 LiveBanner — Section marketing "Vendez en direct"
 // À insérer dans la home page entre LiveGrid et DeliveryMap
