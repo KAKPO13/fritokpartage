@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import dynamic from 'next/dynamic';
 import { createFlutterwaveRentalPayment, confirmRestitution, createWalletRentalRecord } from '../app/hooks/useWallet';
+import GoLivePage from '../../components/GoLivePage'
 
 
 // ─── Firebase ────────────────────────────────────────────────────────────────

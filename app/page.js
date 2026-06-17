@@ -12,7 +12,7 @@ import TrustBand from '../components/TrustBand';
 import CtaBottom from '../components/CtaBottom';
 import Footer from '../components/Footer';
 import AppBanner from '../components/AppBanner';
-import GoLivePage from '../../components/GoLivePage'
+
 
 
 
