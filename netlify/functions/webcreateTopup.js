@@ -103,7 +103,7 @@ exports.handler = async (event) => {
     const flwRes = await fetch('https://api.flutterwave.com/v3/payments', {
       method : 'POST',
       headers: {
-        Authorization : `Bearer ${process.env.FLW_SECRET_KEY}`,
+        Authorization : `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(flwPayload),
