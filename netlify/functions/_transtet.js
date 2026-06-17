@@ -1,6 +1,6 @@
 // netlify/functions/_transtet.js
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper partagé — crée un document dans la collection TranstetMoney.
+// Helper partagé — crée un document dans la collection TransfetMoney.
 // Schéma réel observé sur Firestore :
 //
 //   currency           string   "XOF" | "GHS" | "NGN"
@@ -32,7 +32,7 @@ function toDateString(d = new Date()) {
 }
 
 /**
- * Crée un document TranstetMoney et retourne son ID.
+ * Crée un document TransfetMoney et retourne son ID.
  *
  * @param {FirebaseFirestore.Firestore} db
  * @param {object} opts
@@ -57,7 +57,7 @@ async function createTranstetEntry(db, opts) {
   } = opts;
 
   const now       = Date.now();
-  const docRef    = db.collection('TranstetMoney').doc();
+  const docRef    = db.collection('TransfetMoney').doc();
   const txId      = docRef.id;
 
   await docRef.set({

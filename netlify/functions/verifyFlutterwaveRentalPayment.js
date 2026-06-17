@@ -1,8 +1,8 @@
 // netlify/functions/verifyFlutterwaveRentalPayment.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Vérifie côté serveur une transaction FLW et crée la Rental dans Firestore.
-// ➜ Met à jour la TranstetMoney "rental" → "completed"
-// ➜ Crée une TranstetMoney "restitution" en "pending" (remboursement caution)
+// ➜ Met à jour la TransfetMoney "rental" → "completed"
+// ➜ Crée une TransfetMoney "restitution" en "pending" (remboursement caution)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const admin = require('firebase-admin');
@@ -57,7 +57,7 @@ exports.handler = async (event) => {
 
     // 3. Vérifier avec l'API Flutterwave (clé secrète — jamais côté client)
     const flwRes = await fetch(`https://api.flutterwave.com/v3/transactions/${transactionId}/verify`, {
-      headers: { Authorization: `Bearer ${process.env.FLW_SECRET_KEY}` },
+      headers: { Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}` },
     });
     const flwData = await flwRes.json();
 
@@ -110,7 +110,7 @@ exports.handler = async (event) => {
       pbDocRef = qSnap.docs[0].ref;
     }
 
-    // 8. Récupérer le profil utilisateur pour TranstetMoney
+    // 8. Récupérer le profil utilisateur pour TransfetMoney
     const userSnap = await db.collection('users').doc(uid).get();
     const user     = userSnap.exists ? userSnap.data() : {};
 
@@ -168,15 +168,15 @@ exports.handler = async (event) => {
       });
     });
 
-    // 10. Mettre à jour TranstetMoney "rental" → "completed"
+    // 10. Mettre à jour TransfetMoney "rental" → "completed"
     if (pending.transtetId) {
-      await db.collection('TranstetMoney').doc(pending.transtetId).update({
+      await db.collection('TransfetMoney').doc(pending.transtetId).update({
         status       : 'completed',
         transactionId: transactionId,  // ID FLW réel
       });
     }
 
-    // 11. Créer TranstetMoney "restitution" en "pending"
+    // 11. Créer TransfetMoney "restitution" en "pending"
     //     (sera mis à "completed" quand l'utilisateur rend le power bank)
     await createTranstetEntry(db, {
       type            : 'restitution',

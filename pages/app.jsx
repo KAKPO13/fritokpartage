@@ -74,7 +74,7 @@ const batteryColor = (lvl) => lvl == null ? D.text3 : lvl >= 60 ? D.green : lvl 
 const batteryIcon  = (lvl) => lvl == null ? '🔋' : lvl >= 60 ? '🔋' : lvl >= 30 ? '🪫' : '🔴';
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  writeTranstet — écrit dans TranstetMoney directement depuis le client
+//  writeTranstet — écrit dans TransfetMoney directement depuis le client
 //  Schéma réel Firestore : currency, date, destinataireId, destinataireNom,
 //  destinataireTelephone, expediteurEmail, expediteurId, frais, montantEnvoye,
 //  montantRecu, profilePictureUrl, status, timestamp, transactionId, type
@@ -94,7 +94,7 @@ async function writeTranstet(db, {
 }) {
   const now    = Date.now();
   const date   = new Date(now).toISOString().slice(0, 10); // "YYYY-MM-DD"
-  const docRef = doc(collection(db, 'TranstetMoney'));      // ID auto
+  const docRef = doc(collection(db, 'TransfetMoney'));      // ID auto
   await setDoc(docRef, {
     transactionId         : docRef.id,
     type,
@@ -496,7 +496,7 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
         });
         setRental({ id: rentalRef.id, qrCode: pbData.qrCode || pbData.docId, fraisXof: FRAIS_XOF, cautionXof: CAUTION_XOF, paymentMethod: 'wallet', batteryLevel: pbData.batteryLevel });
 
-        // ── TranstetMoney "rental" ── paiement wallet immédiat ────────────
+        // ── TransfetMoney "rental" ── paiement wallet immédiat ────────────
         await writeTranstet(db, {
           type            : 'rental',
           currency        : 'XOF',
@@ -511,7 +511,7 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
           status          : 'completed',
         });
 
-        // ── TranstetMoney "restitution" ── caution future en pending ──────
+        // ── TransfetMoney "restitution" ── caution future en pending ──────
         await writeTranstet(db, {
           type            : 'restitution',
           currency        : 'XOF',
@@ -661,11 +661,11 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
         });
       }
 
-      // 4. TranstetMoney "restitution" → "completed" directement en Firestore
+      // 4. TransfetMoney "restitution" → "completed" directement en Firestore
       //    Cherche d'abord si une entrée pending existe (créée au moment du paiement)
       const pendingSnap = await getDocs(
         query(
-          collection(db, 'TranstetMoney'),
+          collection(db, 'TransfetMoney'),
           where('type',           '==', 'restitution'),
           where('destinataireId', '==', user.uid),
           where('status',         '==', 'pending'),
