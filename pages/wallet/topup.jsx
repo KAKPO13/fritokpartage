@@ -83,7 +83,7 @@ export default function TopupPage() {
     }
     setLoading(true);
     try {
-      const { payment_url } = await createTopup({ amount: amt, currency });
+      const { payment_url } = await webcreateTopup({ amount: amt, currency });
       // Ouvre le checkout Flutterwave dans le même onglet (redirect_url ramène sur /wallet/confirm)
       window.location.href = payment_url;
     } catch (e) {

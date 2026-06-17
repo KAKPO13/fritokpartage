@@ -27,11 +27,11 @@ async function post(fn, payload) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  1. createTopup
+//  1. webcreateTopup
 //  Retourne { payment_url, tx_ref }
 // ─────────────────────────────────────────────────────────────────────────────
-export async function createTopup({ amount, currency }) {
-  return post('createTopup', { amount: Number(amount), currency });
+export async function webcreateTopup({ amount, currency }) {
+  return post('webcreateTopup', { amount: Number(amount), currency });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
