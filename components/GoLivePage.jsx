@@ -1127,5 +1127,3 @@ function BtnPrimary({ children, onClick, disabled, color }) {
     }}>{children}</button>
   );
 }
-
-import { useState } from 'react';
