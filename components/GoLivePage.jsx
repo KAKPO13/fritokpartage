@@ -93,6 +93,7 @@ export default function GoLivePage() {
   const [isEnding, setIsEnding] = useState(false);
   const [sellerLanguage, setSellerLanguage] = useState('fr'); // 'fr' | 'zh'
 
+
   const [viewerCount, setViewerCount] = useState(0);
   const [likeCount, setLikeCount] = useState(0);
   const [giftCount, setGiftCount] = useState(0);
