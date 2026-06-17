@@ -419,39 +419,99 @@ function MapTab({ db }) {
 //  Lookup : where('qrCode', '==', id) en premier, fallback par doc ID
 //  state Firestore : "disponible" | "en_location" | "hors_service"
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Taux de conversion XOF → autres devises ─────────────────────────────────
+// Source : taux de référence BCEAO (mis à jour via API openexchangerates)
+// Fallback hardcodé si fetch échoue
+const RATES_FALLBACK = { XOF: 1, GHS: 0.013, NGN: 4.75 };
+
+// Convertit un montant XOF → devise cible
+function convertFromXof(amountXof, toCurrency, rates) {
+  if (toCurrency === 'XOF') return amountXof;
+  const rate = rates[toCurrency] ?? RATES_FALLBACK[toCurrency] ?? 1;
+  return Math.round(amountXof * rate * 100) / 100;
+}
+
+// Symboles et décimales par devise
+const CUR_META = {
+  XOF: { symbol: 'FCFA', decimals: 0 },
+  GHS: { symbol: 'GH₵',  decimals: 2 },
+  NGN: { symbol: '₦',    decimals: 2 },
+};
+
+function fmtCur(amount, currency) {
+  const m    = CUR_META[currency] ?? { symbol: currency, decimals: 2 };
+  const n    = Number(amount);
+  const str  = m.decimals === 0
+    ? new Intl.NumberFormat('fr-FR').format(Math.round(n))
+    : n.toFixed(m.decimals).replace('.', ',');
+  return `${str} ${m.symbol}`;
+}
+
 function RentTab({ db, user, wallet, profile, onSuccess }) {
   const [step,      setStep]      = useState('scan');
   const [qrCode,    setQrCode]    = useState('');
   const [pbData,    setPbData]    = useState(null);
   const [payMethod, setPayMethod] = useState('wallet');
+  // Devise choisie pour le paiement wallet
+  const [devise,    setDevise]    = useState(() => {
+    // Initialise sur la devise préférée du profil si wallet non vide
+    return profile?.currency ?? 'XOF';
+  });
+  const [rates,     setRates]     = useState(RATES_FALLBACK);
+  const [ratesLoading, setRatesLoading] = useState(false);
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState('');
   const [rental,    setRental]    = useState(null);
+
+  // Devises disponibles dans le wallet (solde > 0 ou = 0 mais devise présente)
+  const normWalletLocal = Object.fromEntries(
+    Object.entries(wallet).map(([k, v]) => [k, toNum(v)])
+  );
+  const availableDevises = Object.keys(normWalletLocal).filter(k => CUR_META[k]);
+
+  // Charger les taux de conversion au montage
+  useEffect(() => {
+    setRatesLoading(true);
+    fetch('https://api.exchangerate-api.com/v4/latest/XOF')
+      .then(r => r.json())
+      .then(data => {
+        if (data?.rates) {
+          setRates({
+            XOF: 1,
+            GHS: data.rates['GHS'] ?? RATES_FALLBACK.GHS,
+            NGN: data.rates['NGN'] ?? RATES_FALLBACK.NGN,
+          });
+        }
+      })
+      .catch(() => {}) // garde les taux fallback
+      .finally(() => setRatesLoading(false));
+  }, []);
+
+  // Montants convertis dans la devise choisie
+  const fraisDevise   = convertFromXof(FRAIS_XOF,   devise, rates);
+  const cautionDevise = convertFromXof(CAUTION_XOF, devise, rates);
+  const totalDevise   = convertFromXof(FRAIS_XOF + CAUTION_XOF, devise, rates);
+  const soldeDevise   = normWalletLocal[devise] ?? 0;
+  const soldeInsuffisant = soldeDevise < totalDevise;
 
   const lookup = async () => {
     const id = qrCode.trim().toUpperCase();
     if (!id) { setError('Saisis le code QR du power bank.'); return; }
     setLoading(true); setError('');
     try {
-      // 1. Cherche par champ qrCode (ex: "PB-ABJ-000193")
       const q    = query(collection(db, 'powerBanks'), where('qrCode', '==', id));
       const snap = await getDocs(q);
       let docSnap = snap.empty ? null : snap.docs[0];
-
-      // 2. Fallback : cherche par document ID
       if (!docSnap) {
         const byId = await getDoc(doc(db, 'powerBanks', id));
         if (byId.exists()) docSnap = byId;
       }
-
       if (!docSnap) {
         setError(`Power bank "${id}" introuvable. Vérifie le code sur l'étiquette.`);
         setLoading(false); return;
       }
-
       const data  = docSnap.data();
       const docId = docSnap.id;
-
       if (data.state !== 'disponible') {
         const labels = { en_location: 'en cours de location', hors_service: 'hors service' };
         setError(`Ce power bank est ${labels[data.state] ?? data.state}.`);
@@ -468,17 +528,15 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
 
   const confirmRent = async () => {
     setLoading(true); setError('');
-    const xofBalance = toNum(wallet['XOF']);
-    const total      = FRAIS_XOF + CAUTION_XOF;
-
     try {
       // ── Paiement Wallet Fritok ───────────────────────────────────────────
       if (payMethod === 'wallet') {
-        if (xofBalance < total) {
-          setError(`Solde insuffisant. Requis : ${fmt(total)} FCFA · Solde actuel : ${fmt(xofBalance)} FCFA`);
+        if (soldeInsuffisant) {
+          setError(`Solde ${devise} insuffisant. Requis : ${fmtCur(totalDevise, devise)} · Solde : ${fmtCur(soldeDevise, devise)}`);
           setLoading(false); return;
         }
 
+        // Crée la Rental en Firestore
         const rentalRef = await addDoc(collection(db, 'rentals'), {
           userId        : user.uid,
           qrCode        : pbData.qrCode || pbData.docId,
@@ -487,35 +545,42 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
           paymentMethod : 'wallet',
           fraisXof      : FRAIS_XOF,
           cautionXof    : CAUTION_XOF,
-          devise        : 'XOF',
+          fraisDevise   : fraisDevise,
+          cautionDevise : cautionDevise,
+          devise,
           startTime     : serverTimestamp(),
         });
-        await updateDoc(doc(db, 'users', user.uid), { 'wallet.XOF': increment(-total) });
+
+        // Débite le wallet dans la devise choisie
+        await updateDoc(doc(db, 'users', user.uid), {
+          [`wallet.${devise}`]: increment(-totalDevise),
+        });
+
+        // Libère le power bank
         await updateDoc(doc(db, 'powerBanks', pbData.docId), {
           state: 'en_location', currentUserId: user.uid, updatedAt: serverTimestamp(),
         });
-        setRental({ id: rentalRef.id, qrCode: pbData.qrCode || pbData.docId, fraisXof: FRAIS_XOF, cautionXof: CAUTION_XOF, paymentMethod: 'wallet', batteryLevel: pbData.batteryLevel });
 
-        // ── TransfetMoney "rental" ── paiement wallet immédiat ────────────
+        // TransfetMoney "rental" — dans la devise choisie
         await writeTranstet(db, {
           type            : 'rental',
-          currency        : 'XOF',
-          montantEnvoye   : total,                           // frais + caution
+          currency        : devise,
+          montantEnvoye   : totalDevise,
           frais           : 0,
           expediteurId    : user.uid,
           expediteurEmail : user.email || '',
           expediteurPhoto : profile?.photoUrl || '',
           destinataireId  : pbData.currentPartnerId || 'fritok-system',
-          destinataireNom : pbData.currentPartnerId ? 'Partenaire' : 'Fritok',
+          destinataireNom : pbData.currentPartnerId ? 'Partenaire Fritok' : 'Fritok',
           destinataireTel : '',
           status          : 'completed',
         });
 
-        // ── TransfetMoney "restitution" ── caution future en pending ──────
+        // TransfetMoney "restitution" — caution future en pending (même devise)
         await writeTranstet(db, {
           type            : 'restitution',
-          currency        : 'XOF',
-          montantEnvoye   : CAUTION_XOF,
+          currency        : devise,
+          montantEnvoye   : cautionDevise,
           frais           : 0,
           expediteurId    : 'fritok-system',
           expediteurEmail : 'noreply@fritok.net',
@@ -526,25 +591,32 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
           status          : 'pending',
         });
 
+        setRental({
+          id: rentalRef.id,
+          qrCode      : pbData.qrCode || pbData.docId,
+          fraisXof    : FRAIS_XOF,
+          cautionXof  : CAUTION_XOF,
+          fraisDevise,
+          cautionDevise,
+          devise,
+          paymentMethod: 'wallet',
+          batteryLevel : pbData.batteryLevel,
+        });
         setStep('done');
 
       // ── Paiement Flutterwave ─────────────────────────────────────────────
       } else {
-        // La Netlify Function génère le lien de paiement et pré-enregistre
-        // la transaction. La Rental est créée CÔTÉ SERVEUR après vérification
-        // (verifyFlutterwaveRentalPayment) — jamais côté client.
         const result = await createFlutterwaveRentalPayment({
           powerBankId   : pbData.qrCode || pbData.docId,
           powerBankDocId: pbData.docId,
           partnerStartId: pbData.currentPartnerId || '',
           amountXof     : FRAIS_XOF,
           cautionXof    : CAUTION_XOF,
-          devise        : 'XOF',
+          devise,
+          amountDevise  : fraisDevise,
+          cautionDevise,
         });
-        // Redirige vers le checkout Flutterwave
-        // La page /app/payment-confirm gère le retour et la vérification
         window.location.href = result.payment_url;
-        // Ne pas setLoading(false) — la page va se décharger
         return;
       }
     } catch (e) {
@@ -567,7 +639,7 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
       {step === 'confirm' && pbData && (
         <>
           {/* Fiche power bank */}
-          <div style={{ background: D.surface, borderRadius: 16, padding: 20, border: `1px solid ${D.border}`, marginBottom: 20 }}>
+          <div style={{ background: D.surface, borderRadius: 16, padding: 20, border: `1px solid ${D.border}`, marginBottom: 16 }}>
             <div style={{ fontSize: 11, color: D.green, letterSpacing: 1, marginBottom: 12, fontWeight: 700 }}>✓ POWER BANK TROUVÉ</div>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
               <div>
@@ -588,28 +660,112 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
                 <div style={{ height: '100%', width: `${pbData.batteryLevel}%`, background: batteryColor(pbData.batteryLevel), borderRadius: 99, transition: 'width 0.4s' }} />
               </div>
             )}
+            {/* Montants en XOF de référence */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <AmountChip label="Frais de location" amount={FRAIS_XOF} />
+              <AmountChip label="Frais" amount={FRAIS_XOF} />
               <AmountChip label="Caution (remb.)" amount={CAUTION_XOF} amber />
+            </div>
+          </div>
+
+          {/* Sélecteur de devise */}
+          {availableDevises.length > 1 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: D.text2, fontWeight: 700, marginBottom: 10 }}>Devise de paiement</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {availableDevises.map(d => {
+                  const solde    = normWalletLocal[d] ?? 0;
+                  const totalD   = convertFromXof(FRAIS_XOF + CAUTION_XOF, d, rates);
+                  const suffisant = solde >= totalD;
+                  const selected  = devise === d;
+                  return (
+                    <button key={d} onClick={() => setDevise(d)} style={{
+                      flex: 1, padding: '12px 8px', borderRadius: 12, cursor: 'pointer', textAlign: 'center',
+                      border: `2px solid ${selected ? D.orange : suffisant ? D.border : D.red + '44'}`,
+                      background: selected ? D.orangeDim : D.surface,
+                    }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: selected ? D.orange : D.text1 }}>{d}</div>
+                      <div style={{ fontSize: 11, color: suffisant ? D.green : D.red, fontWeight: 600, marginTop: 2 }}>
+                        {fmtCur(solde, d)}
+                      </div>
+                      <div style={{ fontSize: 10, color: D.text3, marginTop: 1 }}>
+                        {suffisant ? '✓ suffisant' : '✗ insuffisant'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Récapitulatif converti */}
+          <div style={{ background: D.surface, borderRadius: 14, border: `1px solid ${D.border}`, padding: '14px 16px', marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: D.text3, fontWeight: 700, letterSpacing: 1.2, marginBottom: 12 }}>
+              TOTAL À PAYER {devise !== 'XOF' && <span style={{ color: D.orange }}>· Converti en {devise}</span>}
+              {ratesLoading && <span style={{ color: D.text3, fontWeight: 400, marginLeft: 6 }}>⟳ taux…</span>}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, color: D.text2 }}>Frais de location</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: D.text1 }}>{fmtCur(fraisDevise, devise)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 13, color: D.text2 }}>Caution (remboursable)</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: D.amber }}>{fmtCur(cautionDevise, devise)}</span>
+            </div>
+            <div style={{ height: 1, background: D.border, marginBottom: 10 }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: D.text1 }}>Total</span>
+              <span style={{ fontSize: 20, fontWeight: 800, color: D.orange }}>{fmtCur(totalDevise, devise)}</span>
+            </div>
+            {devise !== 'XOF' && (
+              <div style={{ fontSize: 11, color: D.text3, marginTop: 6, textAlign: 'right' }}>
+                = {fmt(FRAIS_XOF + CAUTION_XOF)} FCFA · taux 1 XOF = {(rates[devise] ?? 1).toFixed(4)} {devise}
+              </div>
+            )}
+            {/* Solde après paiement */}
+            <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: soldeInsuffisant ? '#FEE2E2' : D.greenLight }}>
+              <div style={{ fontSize: 12, color: soldeInsuffisant ? D.red : D.green, fontWeight: 600 }}>
+                {soldeInsuffisant
+                  ? `⚠️ Solde ${devise} insuffisant — manque ${fmtCur(totalDevise - soldeDevise, devise)}`
+                  : `✓ Solde après paiement : ${fmtCur(soldeDevise - totalDevise, devise)}`
+                }
+              </div>
             </div>
           </div>
 
           {/* Méthode de paiement */}
           <div style={{ fontSize: 13, color: D.text2, fontWeight: 700, marginBottom: 10 }}>Méthode de paiement</div>
           {['wallet', 'flutterwave'].map(m => (
-            <button key={m} onClick={() => setPayMethod(m)} style={{ width: '100%', padding: '13px 16px', marginBottom: 10, background: payMethod === m ? D.orangeDim : D.surface, border: `1.5px solid ${payMethod === m ? D.orange : D.border}`, borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, fontSize: 14, fontWeight: payMethod === m ? 700 : 400, color: D.text1 }}>
+            <button key={m} onClick={() => setPayMethod(m)} style={{
+              width: '100%', padding: '13px 16px', marginBottom: 10,
+              background: payMethod === m ? D.orangeDim : D.surface,
+              border: `1.5px solid ${payMethod === m ? D.orange : D.border}`,
+              borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
+              fontSize: 14, fontWeight: payMethod === m ? 700 : 400, color: D.text1,
+            }}>
               <span style={{ fontSize: 22 }}>{m === 'wallet' ? '👛' : '💳'}</span>
               <div style={{ textAlign: 'left' }}>
-                <div>{m === 'wallet' ? 'Wallet Fritok' : 'Flutterwave'}</div>
-                {m === 'wallet' && <div style={{ fontSize: 11, color: D.text3, marginTop: 1 }}>Solde XOF : {fmt(toNum(wallet['XOF']))} FCFA</div>}
+                <div>{m === 'wallet' ? `Wallet Fritok (${devise})` : 'Flutterwave'}</div>
+                {m === 'wallet' && (
+                  <div style={{ fontSize: 11, color: soldeInsuffisant ? D.red : D.text3, marginTop: 1, fontWeight: soldeInsuffisant ? 700 : 400 }}>
+                    Solde : {fmtCur(soldeDevise, devise)}{soldeInsuffisant ? ' — insuffisant' : ''}
+                  </div>
+                )}
+                {m === 'flutterwave' && (
+                  <div style={{ fontSize: 11, color: D.text3, marginTop: 1 }}>Carte, Mobile Money…</div>
+                )}
               </div>
               {payMethod === m && <span style={{ marginLeft: 'auto', color: D.orange, fontSize: 16 }}>✓</span>}
             </button>
           ))}
 
           {error && <div style={{ fontSize: 12, color: D.red, marginBottom: 12, padding: '10px 14px', background: '#FEE2E2', borderRadius: 10 }}>{error}</div>}
-          <button onClick={confirmRent} disabled={loading} style={primaryBtn(loading)}>
-            {loading ? <Spinner /> : `Payer ${fmt(FRAIS_XOF + CAUTION_XOF)} FCFA`}
+
+          <button
+            onClick={confirmRent}
+            disabled={loading || (payMethod === 'wallet' && soldeInsuffisant)}
+            style={primaryBtn(loading || (payMethod === 'wallet' && soldeInsuffisant))}
+          >
+            {loading ? <Spinner /> : `Payer ${fmtCur(totalDevise, devise)}`}
           </button>
           <button onClick={() => { setStep('scan'); setError(''); setPbData(null); }} style={ghostBtn}>Annuler</button>
         </>
