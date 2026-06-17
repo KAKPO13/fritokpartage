@@ -3,7 +3,6 @@
 // Miroir JS de WalletService.dart
 // Appelle les Netlify Functions avec le Firebase ID Token en Authorization.
 // ─────────────────────────────────────────────────────────────────────────────
-//
 
 import { getAuth } from 'firebase/auth';
 
@@ -59,4 +58,20 @@ export async function createFlutterwaveRentalPayment({
 // ─────────────────────────────────────────────────────────────────────────────
 export async function verifyFlutterwaveRentalPayment({ paymentRef, transactionId }) {
   return post('verifyFlutterwaveRentalPayment', { paymentRef, transactionId });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  4. confirmRestitution
+//  Retourne { success: bool, cautionRefunded?: number }
+// ─────────────────────────────────────────────────────────────────────────────
+export async function confirmRestitution({ rentalId }) {
+  return post('confirmRestitution', { rentalId });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  5. createWalletRentalRecord
+//  Enregistre TranstetMoney après paiement wallet (côté serveur)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function createWalletRentalRecord({ rentalId, powerBankId, partnerId }) {
+  return post('createWalletRentalRecord', { rentalId, powerBankId, partnerId: partnerId || null });
 }

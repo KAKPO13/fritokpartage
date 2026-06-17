@@ -1,72 +1,64 @@
 // netlify/functions/createFlutterwaveRentalPayment.js
 // ─────────────────────────────────────────────────────────────────────────────
-// Crée un lien de paiement Flutterwave pour une location de power bank.
-// La clé secrète FLW ne sort JAMAIS du serveur.
-//
-// POST body : {
-//   powerBankId    : string,   // QR code sticker  ex: "PB-ABJ-000193"
-//   powerBankDocId : string,   // doc ID Firestore  ex: "PB-ABJ-000193"
-//   partnerStartId : string,   // UID partenaire
-//   amountXof      : number,   // frais en XOF      ex: 100
-//   cautionXof     : number,   // caution en XOF    ex: 200
-//   devise         : string,   // 'XOF'|'GHS'|'NGN'
-//   amountDevise   : number,   // frais dans la devise
-//   cautionDevise  : number,   // caution dans la devise
-// }
-//
-// Réponse : { payment_url, payment_ref }
-//   payment_ref = identifiant interne Fritok à sauvegarder dans Rental
+// Crée un lien Flutterwave pour payer une location de power bank.
+// ➜ Enregistre une entrée TranstetMoney type "rental" en "pending"
 // ─────────────────────────────────────────────────────────────────────────────
 
-const { initializeApp, getApps, cert } = require('firebase-admin/app');
-const { getAuth }      = require('firebase-admin/auth');
-const { getFirestore } = require('firebase-admin/firestore');
+const admin = require('firebase-admin');
+const { createTranstetEntry } = require('./_transtet');
 
-function getAdminApp() {
-  if (getApps().length) return getApps()[0];
-  return initializeApp({
-    credential: cert({
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
       projectId  : process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey : process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      privateKey : (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
     }),
   });
 }
 
-function paymentRef(pbId) {
+const db   = admin.firestore();
+const auth = admin.auth();
+
+const HEADERS = {
+  'Access-Control-Allow-Origin' : '*',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Content-Type'                : 'application/json',
+};
+function ok(body)       { return { statusCode: 200, headers: HEADERS, body: JSON.stringify(body) }; }
+function err(code, msg) { return { statusCode: code, headers: HEADERS, body: JSON.stringify({ error: msg }) }; }
+
+function payRef() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   const rand  = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
   return `PB-PAY-${rand}`;
 }
 
 exports.handler = async (event) => {
-  const headers = {
-    'Access-Control-Allow-Origin' : '*',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Content-Type'                : 'application/json',
-  };
-
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers };
-  if (event.httpMethod !== 'POST')    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: HEADERS };
+  if (event.httpMethod !== 'POST')    return err(405, 'Method not allowed');
 
   try {
-    // 1. Auth Firebase
-    const token = (event.headers.authorization || '').replace('Bearer ', '');
-    if (!token) return { statusCode: 401, headers, body: JSON.stringify({ error: 'Token manquant' }) };
+    // 1. Auth
+    const authHeader = event.headers['authorization'] || event.headers['Authorization'] || '';
+    const idToken    = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (!idToken) return err(401, 'Token manquant');
 
-    const app     = getAdminApp();
-    const decoded = await getAuth(app).verifyIdToken(token);
-    const uid     = decoded.uid;
+    let decoded;
+    try { decoded = await auth.verifyIdToken(idToken); }
+    catch (e) { return err(401, `Token invalide : ${e.message}`); }
+    const uid = decoded.uid;
 
     // 2. Profil utilisateur
-    const db       = getFirestore(app);
     const userSnap = await db.collection('users').doc(uid).get();
-    if (!userSnap.exists) return { statusCode: 404, headers, body: JSON.stringify({ error: 'Utilisateur introuvable' }) };
+    if (!userSnap.exists) return err(404, 'Utilisateur introuvable');
     const user = userSnap.data();
 
-    // 3. Valider body
+    // 3. Body
     let body;
-    try { body = JSON.parse(event.body); } catch { return { statusCode: 400, headers, body: JSON.stringify({ error: 'Body invalide' }) }; }
+    try { body = JSON.parse(event.body || '{}'); }
+    catch { return err(400, 'Body JSON invalide'); }
 
     const {
       powerBankId, powerBankDocId, partnerStartId,
@@ -75,100 +67,113 @@ exports.handler = async (event) => {
     } = body;
 
     if (!powerBankId || !amountXof || !cautionXof) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Paramètres manquants' }) };
+      return err(400, 'Paramètres manquants : powerBankId, amountXof, cautionXof');
     }
 
-    // 4. Vérifier que le power bank est bien disponible (sécurité serveur)
-    const pbRef  = powerBankDocId || powerBankId;
-    const pbSnap = await db.collection('powerBanks').doc(pbRef).get();
-    if (!pbSnap.exists) {
-      // Essaie par champ qrCode
+    // 4. Vérifier disponibilité côté serveur
+    let pbDocRef, pbData;
+    const directSnap = await db.collection('powerBanks').doc(powerBankDocId || powerBankId).get();
+    if (directSnap.exists) {
+      pbDocRef = directSnap.ref;
+      pbData   = directSnap.data();
+    } else {
       const qSnap = await db.collection('powerBanks').where('qrCode', '==', powerBankId).limit(1).get();
-      if (qSnap.empty) return { statusCode: 404, headers, body: JSON.stringify({ error: 'Power bank introuvable' }) };
-      const realDoc = qSnap.docs[0];
-      if (realDoc.data().state !== 'disponible') return { statusCode: 409, headers, body: JSON.stringify({ error: 'Power bank non disponible' }) };
-    } else if (pbSnap.data().state !== 'disponible') {
-      return { statusCode: 409, headers, body: JSON.stringify({ error: 'Power bank non disponible' }) };
+      if (qSnap.empty) return err(404, `Power bank "${powerBankId}" introuvable`);
+      pbDocRef = qSnap.docs[0].ref;
+      pbData   = qSnap.docs[0].data();
+    }
+    if (pbData.state !== 'disponible') {
+      return err(409, `Power bank non disponible (état : ${pbData.state})`);
     }
 
-    // 5. Générer la référence de paiement
-    const ref     = paymentRef(powerBankId);
+    // 5. Récupérer le profil partenaire pour TranstetMoney
+    let partnerNom = 'Partenaire Fritok';
+    let partnerTel = '';
+    if (partnerStartId) {
+      const partSnap = await db.collection('users').doc(partnerStartId).get();
+      if (partSnap.exists) {
+        const p  = partSnap.data();
+        partnerNom = p.nomBoutique || p.username || partnerNom;
+        partnerTel = p.phone || '';
+      }
+    }
+
+    // 6. Montants
+    const totalXof    = Number(amountXof) + Number(cautionXof);
+    const totalDevise = devise === 'XOF'
+      ? totalXof
+      : (Number(amountDevise) || Number(amountXof)) + (Number(cautionDevise) || Number(cautionXof));
+
+    const ref     = payRef();
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://fritok.net';
 
-    // Montants dans la devise choisie
-    const totalDevise = (amountDevise  ?? amountXof)  + (cautionDevise ?? cautionXof);
-    const totalXof    = amountXof + cautionXof;
-
-    const flwPayload = {
-      tx_ref      : ref,
-      amount      : devise === 'XOF' ? totalXof : totalDevise,
-      currency    : devise,
-      redirect_url: `${baseUrl}/app/payment-confirm?ref=${ref}&pb=${encodeURIComponent(powerBankId)}`,
-      customer    : {
-        email      : user.email || decoded.email || '',
-        phonenumber: user.phone || '',
-        name       : user.username || uid,
-      },
-      customizations: {
-        title      : 'Location Power Bank Fritok',
-        description: `Location ${powerBankId} · Frais + Caution`,
-        logo       : `${baseUrl}/logo.png`,
-      },
-      // Subaccount partenaire (split paiement si configuré)
-      ...(user.flutterwave_subaccount_id
-        ? { subaccounts: [{ id: user.flutterwave_subaccount_id }] }
-        : {}),
-      meta: {
-        userId        : uid,
-        powerBankId,
-        powerBankDocId: pbRef,
-        partnerStartId: partnerStartId || '',
-        amountXof     : Number(amountXof),
-        cautionXof    : Number(cautionXof),
-        devise,
-        type          : 'rental',
-      },
-    };
-
-    const flwRes  = await fetch('https://api.flutterwave.com/v3/payments', {
+    // 7. Lien Flutterwave
+    const flwRes = await fetch('https://api.flutterwave.com/v3/payments', {
       method : 'POST',
       headers: { Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`, 'Content-Type': 'application/json' },
-      body   : JSON.stringify(flwPayload),
+      body: JSON.stringify({
+        tx_ref      : ref,
+        amount      : totalDevise,
+        currency    : devise,
+        redirect_url: `${baseUrl}/app/payment-confirm?ref=${ref}&pb=${encodeURIComponent(powerBankId)}`,
+        customer    : {
+          email      : user.email || decoded.email || '',
+          phonenumber: user.phone || '',
+          name       : user.username || uid,
+        },
+        customizations: {
+          title      : 'Location Power Bank Fritok',
+          description: `Location ${powerBankId}`,
+          logo       : `${baseUrl}/logo.png`,
+        },
+        meta: {
+          userId: uid, powerBankId, powerBankDocId: pbDocRef.id,
+          partnerStartId: partnerStartId || '', amountXof, cautionXof, devise, type: 'rental',
+        },
+      }),
     });
-    const flwData = await flwRes.json();
 
+    const flwData = await flwRes.json();
     if (flwData.status !== 'success' || !flwData.data?.link) {
-      console.error('FLW error:', flwData);
-      return { statusCode: 502, headers, body: JSON.stringify({ error: flwData.message || 'Erreur Flutterwave' }) };
+      return err(502, flwData.message || 'Erreur Flutterwave');
     }
 
-    // 6. Pré-enregistrer la transaction en attente
+    // 8. TranstetMoney — "rental" pending
+    const txId = await createTranstetEntry(db, {
+      type            : 'rental',
+      currency        : devise,
+      montantEnvoye   : totalDevise,
+      frais           : 0,
+      expediteurId    : uid,
+      expediteurEmail : user.email || decoded.email || '',
+      expediteurPhoto : user.photoUrl || '',
+      destinataireId  : partnerStartId || 'fritok-system',
+      destinataireNom : partnerNom,
+      destinataireTel : partnerTel,
+      status          : 'pending',
+    });
+
+    // 9. pendingRentalPayments
     await db.collection('pendingRentalPayments').doc(ref).set({
       userId        : uid,
       paymentRef    : ref,
+      transtetId    : txId,
       powerBankId,
-      powerBankDocId: pbRef,
+      powerBankDocId: pbDocRef.id,
       partnerStartId: partnerStartId || null,
       amountXof     : Number(amountXof),
       cautionXof    : Number(cautionXof),
       devise,
-      amountDevise  : amountDevise  ?? amountXof,
-      cautionDevise : cautionDevise ?? cautionXof,
+      amountDevise  : Number(amountDevise) || Number(amountXof),
+      cautionDevise : Number(cautionDevise) || Number(cautionXof),
       status        : 'pending',
-      createdAt     : new Date(),
+      createdAt     : admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        payment_url : flwData.data.link,
-        payment_ref : ref,
-      }),
-    };
+    return ok({ payment_url: flwData.data.link, payment_ref: ref });
 
-  } catch (err) {
-    console.error('createFlutterwaveRentalPayment error:', err);
-    return { statusCode: 500, headers, body: JSON.stringify({ error: err.message || 'Erreur interne' }) };
+  } catch (e) {
+    console.error('createFlutterwaveRentalPayment fatal:', e);
+    return err(500, e.message || 'Erreur interne');
   }
 };

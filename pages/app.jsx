@@ -10,8 +10,8 @@ import {
   onSnapshot, serverTimestamp, increment,
 } from 'firebase/firestore';
 import dynamic from 'next/dynamic';
-import { createFlutterwaveRentalPayment } from '../app/hooks/useWallet';;
-import useWallet from '../app/hooks/useWallet';
+import { createFlutterwaveRentalPayment, confirmRestitution, createWalletRentalRecord } from '../app/hooks/useWallet';
+
 
 // ─── Firebase ────────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -454,6 +454,12 @@ function RentTab({ db, user, wallet, onSuccess }) {
           state: 'en_location', currentUserId: user.uid, updatedAt: serverTimestamp(),
         });
         setRental({ id: rentalRef.id, qrCode: pbData.qrCode || pbData.docId, fraisXof: FRAIS_XOF, cautionXof: CAUTION_XOF, paymentMethod: 'wallet', batteryLevel: pbData.batteryLevel });
+        // Enregistrement TranstetMoney côté serveur (fire-and-forget)
+        createWalletRentalRecord({
+          rentalId    : rentalRef.id,
+          powerBankId : pbData.qrCode || pbData.docId,
+          partnerId   : pbData.currentPartnerId || null,
+        }).catch(e => console.warn('TranstetMoney wallet record:', e));
         setStep('done');
 
       // ── Paiement Flutterwave ─────────────────────────────────────────────
@@ -562,26 +568,17 @@ function ReturnTab({ db, user, activeRentals, onSuccess }) {
     const r = activeRentals.find(x => x.id === selected);
     setLoading(true); setError('');
     try {
-      await updateDoc(doc(db, 'rentals', selected), { status: 'restitue', endTime: serverTimestamp() });
-
-      const caution = r.cautionXof ?? CAUTION_XOF;
-      await updateDoc(doc(db, 'users', user.uid), { 'wallet.XOF': increment(caution) });
-
-      if (r.qrCode) {
-        // Cherche le doc powerBanks par champ qrCode
-        const q    = query(collection(db, 'powerBanks'), where('qrCode', '==', r.qrCode));
-        const snap = await getDocs(q);
-        const pbDoc = snap.empty
-          ? await getDoc(doc(db, 'powerBanks', r.qrCode)).then(d => d.exists() ? d : null)
-          : snap.docs[0];
-        if (pbDoc) {
-          await updateDoc(doc(db, 'powerBanks', pbDoc.id), { state: 'disponible', currentUserId: '', updatedAt: serverTimestamp() });
-        }
-      }
-
-      setRefund(r.cautionXof ?? CAUTION_XOF);
+      // confirmRestitution côté serveur :
+      // • clôture la Rental, rembourse la caution, libère le PB
+      // • crée/met à jour la TranstetMoney "restitution" → "completed"
+      const result = await confirmRestitution({ rentalId: r.id });
+      if (!result.success) throw new Error(result.error || 'Échec de la restitution');
+      setRefund(result.cautionRefunded ?? r.cautionXof ?? CAUTION_XOF);
       setDone(true);
-    } catch (e) { setError('Erreur : ' + e.message); }
+    } catch (e) {
+      console.error('doReturn:', e);
+      setError(e.message || 'Erreur lors de la restitution.');
+    }
     setLoading(false);
   };
 
