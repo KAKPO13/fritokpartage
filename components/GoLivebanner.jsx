@@ -161,7 +161,7 @@ export default function LiveBanner() {
 
         {/* ── CTA ── */}
         <div style={{ textAlign: 'center', display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <Link href="/live" style={{
+          <Link href="/golive" style={{
             display: 'inline-flex', alignItems: 'center', gap: 10,
             padding: '15px 36px', borderRadius: 50,
             background: 'linear-gradient(135deg, #EF4444, #DC2626)',
@@ -187,7 +187,7 @@ export default function LiveBanner() {
             Démarrer mon live
           </Link>
 
-          <Link href="/live/explore" style={{
+          <Link href="/golive/explore" style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
             padding: '15px 32px', borderRadius: 50,
             background: 'rgba(255,255,255,0.07)',
