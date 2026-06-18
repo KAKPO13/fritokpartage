@@ -604,14 +604,28 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
         });
 
         // Crédite l'Escrow Fritok : caution bloquée jusqu'à la restitution
-        // setDoc merge garantit que cautionEnAttente est toujours un map
-        // même si l'ancien document avait encore cautionEnAttente comme double
+        // Étape 1 : initialiser les sous-champs s'ils n'existent pas encore
+        // (setDoc mergeFields cible uniquement les champs listés — ne touche pas aux autres)
         const escrowRef = doc(db, 'users', ESCROW_UID);
         await setDoc(escrowRef, {
-          solde            : { [devise]: increment(cautionDevise) },
-          cautionEnAttente : { [devise]: increment(cautionDevise) },
-          updatedAt        : serverTimestamp(),
-        }, { merge: true });
+          [`cautionEnAttente.XOF`] : 0,
+          [`cautionEnAttente.GHS`] : 0,
+          [`cautionEnAttente.NGN`] : 0,
+          [`solde.XOF`]            : 0,
+          [`solde.GHS`]            : 0,
+          [`solde.NGN`]            : 0,
+        // mergeFields liste explicite — n'écrase QUE si le champ n'existe pas
+        }, { mergeFields: [
+          `cautionEnAttente.XOF`, `cautionEnAttente.GHS`, `cautionEnAttente.NGN`,
+          `solde.XOF`, `solde.GHS`, `solde.NGN`,
+        ]}).catch(() => {}); // silencieux si déjà initialisé
+
+        // Étape 2 : incrémenter avec dot notation (SDK Firebase JS)
+        await updateDoc(escrowRef, {
+          [`solde.${devise}`]            : increment(cautionDevise),
+          [`cautionEnAttente.${devise}`] : increment(cautionDevise),
+          updatedAt                      : serverTimestamp(),
+        });
 
         // Libère le power bank
         await updateDoc(doc(db, 'powerBanks', pbData.docId), {
@@ -878,11 +892,11 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
       });
 
       // 3. Débiter l'Escrow Fritok (caution libérée)
-      await setDoc(doc(db, 'users', ESCROW_UID), {
-        solde            : { [devise]: increment(-cautionDev) },
-        cautionEnAttente : { [devise]: increment(-cautionDev) },
-        updatedAt        : serverTimestamp(),
-      }, { merge: true });
+      await updateDoc(doc(db, 'users', ESCROW_UID), {
+        [`solde.${devise}`]            : increment(-cautionDev),
+        [`cautionEnAttente.${devise}`] : increment(-cautionDev),
+        updatedAt                      : serverTimestamp(),
+      });
 
       // 4. Libérer le power bank
       if (r.qrCode) {
