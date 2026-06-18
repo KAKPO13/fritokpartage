@@ -1,28 +1,35 @@
 'use client';
-// ─────────────────────────────────────────────────────────────
-// 🎥 components/GoLivePage.jsx
-// Miroir Flutter GoLivePage — FriTok Web
-// • Sélection produits via GoLiveProductSelector (sessionStorage)
-// • Agora Web SDK v4 via CDN (même appId que Flutter)
-// • Token via /.netlify/functions/agora-token (même endpoint)
-// • Co-hosts, commentaires, traduction 🇨🇳→🇫🇷
-// ─────────────────────────────────────────────────────────────
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { db, auth } from '../lib/firebaseClient';
+import {
+  collection, query, where, onSnapshot,
+} from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 
-// ── Constantes (miroir Flutter AgoraService + _fetchAgoraToken) ──
+// ─────────────────────────────────────────────────────────────
+// 🎥 components/GoLivePage.jsx — FriTok Web Live
+//
+// SOURCE DES PRODUITS : Firestore collection "video_playlist"
+// (miroir de videoProvider Riverpod Flutter)
+// Filtrés par userId du vendeur connecté (Firebase Auth web)
+// ─────────────────────────────────────────────────────────────
+
+// ── Firebase (à installer : npm i firebase) ───────────────────
+// Votre firebaseConfig doit être dans lib/firebase.js ou similaire
+// Adaptez ce chemin selon votre projet :
+
+// ── Agora ─────────────────────────────────────────────────────
 const AGORA_APP_ID   = '5bbfd51877e2435f87afef0f89cebda3';
 const TOKEN_ENDPOINT = 'https://fritok1.netlify.app/.netlify/functions/agora-token';
 const MAX_COHOSTS    = 3;
 
-// ── Fetch token — même logique que _fetchAgoraToken Flutter ──────
 async function fetchAgoraToken(channelName, uid, role = 'PUBLISHER') {
   try {
     const res = await fetch(TOKEN_ENDPOINT, {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ channelName, uid, role }),
+      body: JSON.stringify({ channelName, uid, role }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
@@ -34,28 +41,43 @@ async function fetchAgoraToken(channelName, uid, role = 'PUBLISHER') {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 📦 Product model (miroir Dart Product.fromMap)
+// 📦 videoPlaylistToProduct
+// Miroir de la logique Flutter dans _startGoLiveFlow :
+//   Product(
+//     refArticle:  v.id,
+//     name:        v.title,
+//     price:       v.product.price,
+//     description: v.product.name,
+//     imageUrl:    v.thumbnail,
+//     boutiqueId:  v.product.boutiqueId,
+//     productId:   v.product.productId,
+//     userIdVend:  v.product.userIdVend,
+//   )
 // ─────────────────────────────────────────────────────────────
-function productFromMap(data) {
+function videoDocToProduct(doc) {
+  const d = doc.data ? doc.data() : doc; // supporte doc Firestore ou plain obj
+  const id = doc.id ?? d.id ?? '';
+
+  // v.product peut être un sous-objet ou à plat selon votre schéma
+  const p = d.product ?? {};
+
   return {
-    refArticle:  data.ref_article  ?? data.refArticle  ?? '',
-    name:        data.name         ?? '',
-    description: data.description  ?? null,
-    price:       typeof data.price === 'number'
-                   ? data.price
-                   : parseFloat(data.price ?? '0') || 0,
-    imageUrl:    data.imageUrl ?? data.image ?? data.thumbnail ?? null,
-    boutiqueId:  data.boutiqueId   ?? data.id_boutique ?? '',
-    productId:   data.productId    ?? data.id ?? data.product_id ?? '',
-    userIdVend:  data.vendeurId    ?? data.ownerId ?? null,
+    refArticle:  id,                                          // v.id
+    name:        d.title        ?? d.name        ?? '',       // v.title
+    price:       p.price        ?? d.price       ?? 0,        // v.product.price
+    description: p.name         ?? d.description ?? '',       // v.product.name
+    imageUrl:    d.thumbnail    ?? d.imageUrl    ?? null,     // v.thumbnail
+    boutiqueId:  p.boutiqueId   ?? d.boutiqueId  ?? '',       // v.product.boutiqueId
+    productId:   p.productId    ?? d.productId   ?? id,       // v.product.productId
+    userIdVend:  p.userIdVend   ?? d.userIdVend  ?? null,     // v.product.userIdVend
   };
 }
 
 // ─────────────────────────────────────────────────────────────
 // 🛍️ GoLiveProductSelector
-// Miroir exact de _startGoLiveFlow / AlertDialog Flutter
+// Miroir exact de l'AlertDialog Flutter _startGoLiveFlow
 // ─────────────────────────────────────────────────────────────
-function GoLiveProductSelector({ products, isOpen, onClose, onStart }) {
+function GoLiveProductSelector({ products, loading, isOpen, onClose, onStart }) {
   const [selected, setSelected] = useState(new Set());
 
   useEffect(() => { if (!isOpen) setSelected(new Set()); }, [isOpen]);
@@ -71,12 +93,6 @@ function GoLiveProductSelector({ products, isOpen, onClose, onStart }) {
   };
 
   const canStart = selected.size > 0;
-
-  const handleStart = () => {
-    if (!canStart) return;
-    const picked = products.filter(p => selected.has(p.refArticle));
-    onStart(picked);
-  };
 
   return (
     <div
@@ -94,7 +110,7 @@ function GoLiveProductSelector({ products, isOpen, onClose, onStart }) {
         maxHeight: '88vh', overflowY: 'auto',
         boxSizing: 'border-box',
       }}>
-        {/* Titre — miroir AlertDialog title */}
+        {/* Titre */}
         <p style={{ color: '#fff', fontWeight: 800, fontSize: 17, margin: '0 0 4px' }}>
           Sélectionner les produits
         </p>
@@ -102,58 +118,92 @@ function GoLiveProductSelector({ products, isOpen, onClose, onStart }) {
           {selected.size} / {products.length} sélectionné{selected.size > 1 ? 's' : ''}
         </p>
 
+        {/* Chargement */}
+        {loading && (
+          <div style={{ textAlign: 'center', padding: '24px 0', color: '#ffffff70' }}>
+            <Spinner /> Chargement de vos vidéos...
+          </div>
+        )}
+
+        {/* Aucun produit — miroir du toast Flutter */}
+        {!loading && products.length === 0 && (
+          <div style={{
+            textAlign: 'center', padding: '28px 16px',
+            background: 'rgba(239,68,68,0.08)',
+            borderRadius: 12, border: '1px solid rgba(239,68,68,0.2)',
+            marginBottom: 16,
+          }}>
+            <p style={{ fontSize: 32, margin: '0 0 10px' }}>📭</p>
+            <p style={{ color: '#FCA5A5', fontWeight: 700, fontSize: 15, margin: '0 0 6px' }}>
+              Aucune vidéo publiée
+            </p>
+            <p style={{ color: '#ffffff70', fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+              Ajoutez un produit depuis l'app mobile<br />
+              avant de lancer un live.
+            </p>
+          </div>
+        )}
+
         {/* Liste — miroir ListView.builder + CheckboxListTile */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
-          {products.map(p => {
-            const isChecked = selected.has(p.refArticle);
-            return (
-              <button
-                key={p.refArticle}
-                onClick={() => toggle(p.refArticle)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  background: isChecked ? 'rgba(249,115,22,0.12)' : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${isChecked ? 'rgba(249,115,22,0.45)' : 'rgba(255,255,255,0.1)'}`,
-                  borderRadius: 12, padding: '10px 12px',
-                  cursor: 'pointer', textAlign: 'left', width: '100%',
-                  transition: 'all .15s',
-                }}
-              >
-                {/* secondary: CachedNetworkImage miroir */}
-                <ProductThumb src={p.imageUrl} name={p.name} size={48} />
+        {!loading && products.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
+            {products.map(p => {
+              const isChecked = selected.has(p.refArticle);
+              return (
+                <button
+                  key={p.refArticle}
+                  onClick={() => toggle(p.refArticle)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    background: isChecked
+                      ? 'rgba(249,115,22,0.12)'
+                      : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${isChecked
+                      ? 'rgba(249,115,22,0.45)'
+                      : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: 12, padding: '10px 12px',
+                    cursor: 'pointer', textAlign: 'left', width: '100%',
+                    transition: 'all .15s',
+                  }}
+                >
+                  {/* secondary: thumbnail — miroir CachedNetworkImage */}
+                  <ProductThumb src={p.imageUrl} name={p.name} size={48} />
 
-                {/* title + subtitle miroir */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{
-                    color: '#fff', fontSize: 13, fontWeight: 600,
-                    margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>{p.name}</p>
-                  <p style={{ color: '#ffffff80', fontSize: 11, margin: '2px 0 0' }}>
-                    {p.description ? `${p.description} · ` : ''}
-                    <span style={{ color: '#F97316', fontWeight: 700 }}>
-                      {Number(p.price).toLocaleString('fr-FR')} FCFA
-                    </span>
-                  </p>
-                </div>
+                  {/* title + subtitle — miroir CheckboxListTile */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{
+                      color: '#fff', fontSize: 13, fontWeight: 600, margin: 0,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{p.name}</p>
+                    <p style={{ color: '#ffffff80', fontSize: 11, margin: '2px 0 0' }}>
+                      {p.description ? `${p.description} · ` : ''}
+                      <span style={{ color: '#F97316', fontWeight: 700 }}>
+                        {Number(p.price).toLocaleString('fr-FR')} FCFA
+                      </span>
+                    </p>
+                  </div>
 
-                {/* Checkbox — miroir activeColor: _D.orange */}
-                <div style={{
-                  width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-                  border: `2px solid ${isChecked ? '#F97316' : 'rgba(255,255,255,0.3)'}`,
-                  background: isChecked ? '#F97316' : 'transparent',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'all .15s',
-                }}>
-                  {isChecked && <span style={{ color: '#fff', fontSize: 13, lineHeight: 1 }}>✓</span>}
-                </div>
-              </button>
-            );
-          })}
-        </div>
+                  {/* Checkbox — miroir activeColor: _D.orange */}
+                  <div style={{
+                    width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                    border: `2px solid ${isChecked ? '#F97316' : 'rgba(255,255,255,0.3)'}`,
+                    background: isChecked ? '#F97316' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all .15s',
+                  }}>
+                    {isChecked && (
+                      <span style={{ color: '#fff', fontSize: 13, lineHeight: 1 }}>✓</span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Actions — miroir AlertDialog actions */}
         <div style={{ display: 'flex', gap: 10 }}>
-          {/* Annuler — miroir TextButton */}
+          {/* Annuler */}
           <button onClick={onClose} style={{
             flex: 1, padding: '11px 0', borderRadius: 12,
             background: 'rgba(255,255,255,0.07)',
@@ -161,9 +211,9 @@ function GoLiveProductSelector({ products, isOpen, onClose, onStart }) {
             color: '#ffffff80', fontWeight: 600, fontSize: 14, cursor: 'pointer',
           }}>Annuler</button>
 
-          {/* Démarrer — miroir GestureDetector + LinearGradient / color: _D.border */}
+          {/* Démarrer — grisé si rien sélectionné, miroir Flutter */}
           <button
-            onClick={handleStart}
+            onClick={() => canStart && onStart(products.filter(p => selected.has(p.refArticle)))}
             disabled={!canStart}
             style={{
               flex: 2, padding: '11px 0', borderRadius: 12, border: 'none',
@@ -173,7 +223,8 @@ function GoLiveProductSelector({ products, isOpen, onClose, onStart }) {
               color: canStart ? '#fff' : 'rgba(255,255,255,0.3)',
               fontWeight: 800, fontSize: 15,
               cursor: canStart ? 'pointer' : 'not-allowed',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              display: 'flex', alignItems: 'center',
+              justifyContent: 'center', gap: 8,
               transition: 'all .15s',
             }}
           >
@@ -197,21 +248,22 @@ function GoLiveProductSelector({ products, isOpen, onClose, onStart }) {
 export default function GoLivePage() {
   const router = useRouter();
 
-  // ── Produits (depuis sessionStorage, mis par la page appelante) ──
-  const [allProducts,    setAllProducts]    = useState([]);
-  const [liveProducts,   setLiveProducts]   = useState([]);
-  const [showSelector,   setShowSelector]   = useState(false);
-  const [productIndex,   setProductIndex]   = useState(0);
-  const [showProductCard,setShowProductCard]= useState(true);
+  // ── Auth & produits (depuis Firestore video_playlist) ─────
+  const [userId,       setUserId]       = useState(null);
+  const [allProducts,  setAllProducts]  = useState([]);
+  const [loadingProds, setLoadingProds] = useState(true);
+  const [showSelector, setShowSelector] = useState(false);
 
-  // ── Langue vendeur (fr | zh) ──────────────────────────────────
-  const [sellerLang, setSellerLang] = useState('fr');
+  // ── Live state ────────────────────────────────────────────
+  const [liveProducts,    setLiveProducts]    = useState([]);
+  const [productIndex,    setProductIndex]    = useState(0);
+  const [showProductCard, setShowProductCard] = useState(true);
+  const [sellerLang,      setSellerLang]      = useState('fr');
   const isChinese = sellerLang === 'zh';
 
-  // ── Phase (pre | live | ended) ────────────────────────────────
-  const [phase, setPhase] = useState('pre');
+  const [phase, setPhase] = useState('pre'); // pre | live | ended
 
-  // ── Agora ─────────────────────────────────────────────────────
+  // ── Agora ─────────────────────────────────────────────────
   const agoraClientRef  = useRef(null);
   const localVideoRef   = useRef(null);
   const localTrackRef   = useRef({ video: null, audio: null });
@@ -220,13 +272,13 @@ export default function GoLivePage() {
   const [isEngineReady, setIsEngineReady] = useState(false);
   const [channelId,     setChannelId]     = useState(null);
 
-  // ── Co-hosts { [agoraUid]: CoHost } ──────────────────────────
+  // ── Co-hosts ──────────────────────────────────────────────
   const [coHosts,          setCoHosts]          = useState({});
   const [showCoHostPanel,  setShowCoHostPanel]  = useState(false);
   const [pendingRequest,   setPendingRequest]   = useState(null);
   const [showRemoveDialog, setShowRemoveDialog] = useState(null);
 
-  // ── UI ────────────────────────────────────────────────────────
+  // ── UI ────────────────────────────────────────────────────
   const [viewerCount,  setViewerCount]  = useState(1);
   const [likeCount,    setLikeCount]    = useState(0);
   const [giftCount,    setGiftCount]    = useState(0);
@@ -236,45 +288,85 @@ export default function GoLivePage() {
   const [comments,     setComments]     = useState([
     { id: 'sys0', sender: 'FriTok', text: 'Bienvenue dans votre live ! 🎉', lang: 'fr' },
   ]);
-  const [liveSeconds,  setLiveSeconds]  = useState(0);
-  const [isEnding,     setIsEnding]     = useState(false);
-  const [showEndDlg,   setShowEndDlg]   = useState(false);
-  const [translationActive, setTranslationActive] = useState(false);
+  const [liveSeconds,          setLiveSeconds]          = useState(0);
+  const [isEnding,             setIsEnding]             = useState(false);
+  const [showEndDlg,           setShowEndDlg]           = useState(false);
+  const [translationActive,    setTranslationActive]    = useState(false);
 
   const commentsEndRef = useRef(null);
   const viewerTimerRef = useRef(null);
   const liveTimerRef   = useRef(null);
 
-  // ── 1. Charger Agora Web SDK v4 via CDN ───────────────────────
+  // ──────────────────────────────────────────────────────────
+  // 1. Observer auth Firebase → récupérer userId
+  // ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, user => {
+      setUserId(user?.uid ?? null);
+    });
+    return unsub;
+  }, []);
+
+  // ──────────────────────────────────────────────────────────
+  // 2. Charger video_playlist depuis Firestore
+  //    Miroir de videoProvider.start(userId) Flutter
+  //    Collection : video_playlist, where userId == vendeur
+  // ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!userId) return;
+
+    setLoadingProds(true);
+
+    // Essai 1 : champ "userId"
+    // Si votre collection utilise un autre champ (vendeurId, ownerId…)
+    // remplacez 'userId' par le bon nom ci-dessous :
+    const OWNER_FIELD = 'userId'; // ← adapter si besoin
+
+    const q = query(
+      collection(db, 'video_playlist'),
+      where(OWNER_FIELD, '==', userId)
+    );
+
+    const unsub = onSnapshot(q,
+      snap => {
+        const prods = snap.docs.map(doc => videoDocToProduct(doc));
+        setAllProducts(prods);
+        setLoadingProds(false);
+      },
+      err => {
+        console.error('❌ Firestore video_playlist:', err);
+        setLoadingProds(false);
+      }
+    );
+
+    return unsub;
+  }, [userId]);
+
+  // ──────────────────────────────────────────────────────────
+  // 3. Charger Agora SDK via CDN
+  // ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (window.AgoraRTC) { setSdkLoaded(true); return; }
     const s = document.createElement('script');
     s.src   = 'https://download.agora.io/sdk/release/AgoraRTC_N-4.22.1.js';
     s.async = true;
     s.onload  = () => setSdkLoaded(true);
-    s.onerror = () => console.error('❌ Agora SDK load failed');
+    s.onerror = () => console.error('❌ Agora SDK failed to load');
     document.head.appendChild(s);
   }, []);
 
-  // ── 2. Lire les produits depuis sessionStorage ─────────────────
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem('golive_products');
-      if (raw) {
-        const arr = JSON.parse(raw).map(productFromMap);
-        setAllProducts(arr);
-      }
-    } catch (e) { console.error('sessionStorage:', e); }
-  }, []);
-
-  // ── 3. Timer live ──────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────
+  // 4. Timer live
+  // ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (phase !== 'live') return;
     liveTimerRef.current = setInterval(() => setLiveSeconds(s => s + 1), 1000);
     return () => clearInterval(liveTimerRef.current);
   }, [phase]);
 
-  // ── 4. Audience simulée ────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────
+  // 5. Audience simulée
+  // ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (phase !== 'live') return;
     viewerTimerRef.current = setInterval(
@@ -283,22 +375,29 @@ export default function GoLivePage() {
     return () => clearInterval(viewerTimerRef.current);
   }, [phase]);
 
-  // ── 5. Auto-scroll commentaires ───────────────────────────────
+  // ──────────────────────────────────────────────────────────
+  // 6. Auto-scroll commentaires
+  // ──────────────────────────────────────────────────────────
   useEffect(() => {
     commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [comments]);
 
-  // ── 6. Cleanup ────────────────────────────────────────────────
-  useEffect(() => () => { _releaseAgora(); clearInterval(viewerTimerRef.current); clearInterval(liveTimerRef.current); }, []);
+  // ──────────────────────────────────────────────────────────
+  // 7. Cleanup
+  // ──────────────────────────────────────────────────────────
+  useEffect(() => () => {
+    _releaseAgora();
+    clearInterval(viewerTimerRef.current);
+    clearInterval(liveTimerRef.current);
+  }, []);
 
-  // ─────────────────────────────────────────────────────────────
-  // 🔴 START LIVE — miroir _initLive + _createLiveSession Flutter
-  // ─────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────
+  // 🔴 START LIVE
+  // ──────────────────────────────────────────────────────────
   const startLive = useCallback(async (products) => {
     if (!sdkLoaded || !window.AgoraRTC) {
       alert('SDK Agora pas encore prêt, réessayez dans 2s.'); return;
     }
-    // Permissions navigateur (miroir _requestPermissions)
     try {
       await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     } catch {
@@ -308,22 +407,17 @@ export default function GoLivePage() {
     setLiveProducts(products);
     setShowSelector(false);
 
-    // channelId — miroir "live_${user.uid}_$timestamp"
-    const ts  = Date.now();
-    const cId = `live_web_${ts}`;
+    const cId = `live_web_${Date.now()}`;
     setChannelId(cId);
 
-    // Token hôte uid=0 — miroir _fetchAgoraToken(_currentChannelName!, 0)
     const token = await fetchAgoraToken(cId, 0, 'PUBLISHER');
     if (!token) { alert("Impossible d'obtenir le token Agora."); return; }
 
-    // Créer client Agora en mode live broadcaster
     const AgoraRTC = window.AgoraRTC;
-    AgoraRTC.setLogLevel(3); // warn seulement
+    AgoraRTC.setLogLevel(3);
     const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
     agoraClientRef.current = client;
 
-    // ── Event handlers (miroir RtcEngineEventHandler Flutter) ────
     client.on('user-published', async (user, mediaType) => {
       await client.subscribe(user, mediaType);
       if (mediaType === 'video') {
@@ -333,8 +427,6 @@ export default function GoLivePage() {
         }, 400);
       }
       if (mediaType === 'audio') user.audioTrack?.play();
-
-      // Mettre à jour co-host status → 'active' (miroir onUserJoined)
       setCoHosts(prev => {
         const entry = Object.values(prev).find(c => c.agoraUid === user.uid);
         if (!entry) return prev;
@@ -342,44 +434,33 @@ export default function GoLivePage() {
       });
     });
 
-    // Miroir onUserOffline
     client.on('user-unpublished', (user) => {
-      setCoHosts(prev => {
-        const next = { ...prev };
-        delete next[user.uid];
-        return next;
-      });
+      setCoHosts(prev => { const n = { ...prev }; delete n[user.uid]; return n; });
     });
 
-    // Rejoindre canal en broadcaster
     await client.setClientRole('host');
     await client.join(AGORA_APP_ID, cId, token, 0);
 
-    // Tracks locaux — miroir enableVideo + enableLocalAudio
     const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
       { encoderConfig: 'music_standard' },
       { encoderConfig: { width: 1280, height: 720, frameRate: 30, bitrateMax: 2000 } }
     );
     localTrackRef.current = { audio: audioTrack, video: videoTrack };
     await client.publish([audioTrack, videoTrack]);
-
-    // Jouer la vidéo locale dans le div dédié
     if (localVideoRef.current) videoTrack.play(localVideoRef.current);
 
     setIsEngineReady(true);
     setPhase('live');
     if (isChinese) setTranslationActive(true);
 
-    // Commentaire système
-    setTimeout(() => addComment('FriTok Bot', `Canal ouvert : ${cId}`, 'fr'), 1500);
-
-    // Demo : demande co-host après 10s (en prod → listener Firestore)
-    setTimeout(() => setPendingRequest({ uid: 'viewer-demo', displayName: 'Kadiatou S.' }), 10000);
+    setTimeout(() => addComment('FriTok', `Canal : ${cId}`, 'fr'), 1500);
+    // Demo co-host request (remplacer par listener Firestore en prod)
+    setTimeout(() => setPendingRequest({ uid: 'viewer-demo', displayName: 'Kadiatou S.' }), 12000);
   }, [sdkLoaded, isChinese]);
 
-  // ─────────────────────────────────────────────────────────────
-  // ⏹ END LIVE — miroir _endLive Flutter
-  // ─────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────
+  // ⏹ END LIVE
+  // ──────────────────────────────────────────────────────────
   const endLive = useCallback(async () => {
     setIsEnding(true);
     clearInterval(viewerTimerRef.current);
@@ -406,45 +487,34 @@ export default function GoLivePage() {
     } catch (e) { console.warn('Cleanup Agora:', e); }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // 👥 CO-HOSTS — miroir _acceptCoHost / _declineCoHost / _removeCoHost
-  // ─────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────
+  // 👥 CO-HOSTS
+  // ──────────────────────────────────────────────────────────
   const acceptCoHost = async (coHost) => {
     if (Object.keys(coHosts).length >= MAX_COHOSTS) {
       alert(`Maximum ${MAX_COHOSTS} co-hosts atteint.`); return;
     }
-    // agoraUid — miroir Flutter : coHost.uid.hashCode.abs() % 100000 + 1000
     const agoraUid = Math.abs(
       [...coHost.uid].reduce((a, c) => Math.imul(31, a) + c.charCodeAt(0) | 0, 0)
     ) % 100000 + 1000;
-
-    // Fetch token pour ce co-host (miroir _acceptCoHost)
     const token = await fetchAgoraToken(channelId, agoraUid, 'PUBLISHER');
-    // → En prod : écrire dans Firestore live_sessions/channelId/co_hosts/uid
-    //   { status: 'active', agoraUid, token }  → le viewer lit et rejoint
-
     setCoHosts(prev => ({
       ...prev,
-      [agoraUid]: {
-        uid: coHost.uid, displayName: coHost.displayName,
-        agoraUid, status: 'active', token,
-      },
+      [agoraUid]: { uid: coHost.uid, displayName: coHost.displayName, agoraUid, status: 'active', token },
     }));
     setPendingRequest(null);
     addComment('🎙️', `${coHost.displayName} a rejoint la scène`, 'fr');
   };
 
   const declineCoHost = () => setPendingRequest(null);
-
-  const removeCoHost = (agoraUid) => {
-    // → En prod : Firestore update { status: 'removed' }
+  const removeCoHost  = (agoraUid) => {
     setCoHosts(prev => { const n = { ...prev }; delete n[agoraUid]; return n; });
     setShowRemoveDialog(null);
   };
 
-  // ── Helpers ───────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────
   const addComment = (sender, text, lang = 'fr') =>
-    setComments(prev => [...prev, { id: `${Date.now()}`, sender, text, lang }]);
+    setComments(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, sender, text, lang }]);
 
   const sendComment = () => {
     if (!commentText.trim()) return;
@@ -452,38 +522,34 @@ export default function GoLivePage() {
     setCommentText('');
   };
 
-  const toggleLike = () => {
+  const toggleLike = () =>
     setLiked(p => { setLikeCount(c => p ? Math.max(0, c - 1) : c + 1); return !p; });
-  };
 
-  const fmt = (s) =>
+  const fmt = s =>
     `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
   const activeCoHosts = Object.values(coHosts).filter(c => c.status === 'active');
 
-  // ─────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────
   // 🎨 RENDER
-  // ─────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────
 
-  // ── PRE-LIVE ──────────────────────────────────────────────────
+  // ── PRE-LIVE ──────────────────────────────────────────────
   if (phase === 'pre') return (
     <>
       <PreLiveScreen
         products={allProducts}
+        loading={loadingProds}
+        userId={userId}
         sellerLang={sellerLang}
         setSellerLang={setSellerLang}
         sdkReady={sdkLoaded}
-        onOpenSelector={() => {
-          if (allProducts.length === 0) {
-            alert('Ajoutez un produit avant de lancer un live');
-            return;
-          }
-          setShowSelector(true);
-        }}
+        onOpenSelector={() => setShowSelector(true)}
       />
       {/* Sélecteur produits — miroir _startGoLiveFlow AlertDialog */}
       <GoLiveProductSelector
         products={allProducts}
+        loading={loadingProds}
         isOpen={showSelector}
         onClose={() => setShowSelector(false)}
         onStart={startLive}
@@ -491,7 +557,7 @@ export default function GoLivePage() {
     </>
   );
 
-  // ── POST-LIVE ─────────────────────────────────────────────────
+  // ── POST-LIVE ─────────────────────────────────────────────
   if (phase === 'ended') return (
     <EndedScreen
       likeCount={likeCount} giftCount={giftCount}
@@ -500,15 +566,14 @@ export default function GoLivePage() {
     />
   );
 
-  // ── LIVE ──────────────────────────────────────────────────────
+  // ── LIVE ──────────────────────────────────────────────────
   return (
     <div style={{
       position: 'relative', width: '100%', maxWidth: 430,
       margin: '0 auto', height: '100dvh', background: '#000',
       overflow: 'hidden', fontFamily: 'system-ui, sans-serif',
     }}>
-
-      {/* ── Layout vidéo (miroir _buildVideoLayout) ── */}
+      {/* Vidéo layout */}
       <VideoLayout
         localVideoRef={localVideoRef}
         remoteVideoRefs={remoteVideoRefs}
@@ -517,14 +582,14 @@ export default function GoLivePage() {
         isEngineReady={isEngineReady}
       />
 
-      {/* Gradient overlay bottom */}
+      {/* Gradient overlay */}
       <div style={{
         position: 'absolute', bottom: 0, left: 0, right: 0, height: '55%',
         background: 'linear-gradient(to top, rgba(0,0,0,.88), transparent)',
         pointerEvents: 'none',
       }} />
 
-      {/* ── AppBar (miroir _buildAppBar) ── */}
+      {/* Top bar */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0,
         padding: '13px 12px 0',
@@ -542,7 +607,7 @@ export default function GoLivePage() {
         </div>
       </div>
 
-      {/* ── Badges (miroir _buildViewerBadge, _buildCoHostBadge) ── */}
+      {/* Badges */}
       <div style={{
         position: 'absolute', top: 56, left: 12,
         display: 'flex', gap: 6, flexWrap: 'wrap',
@@ -561,7 +626,7 @@ export default function GoLivePage() {
         )}
       </div>
 
-      {/* ── Boutons droite (miroir _buildActionButtons) ── */}
+      {/* Boutons droite */}
       <div style={{
         position: 'absolute', right: 10, top: 104,
         display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center',
@@ -579,7 +644,7 @@ export default function GoLivePage() {
         <ABtn icon="🔗" onClick={() => navigator.share?.({ title: 'FriTok Live', url: window.location.href })} />
       </div>
 
-      {/* ── Carte produit (miroir _buildProductCard) ── */}
+      {/* Carte produit */}
       {showProductCard && liveProducts.length > 0 && (
         <ProductCard
           product={liveProducts[productIndex]}
@@ -590,7 +655,7 @@ export default function GoLivePage() {
         />
       )}
 
-      {/* ── Commentaires (miroir _buildCommentsPanel) ── */}
+      {/* Commentaires */}
       {showComments && (
         <div style={{
           position: 'absolute', bottom: 72, left: 12, right: 66,
@@ -630,7 +695,7 @@ export default function GoLivePage() {
         </div>
       )}
 
-      {/* ── Panel co-hosts (miroir _buildCoHostPanel) ── */}
+      {/* Panel co-hosts */}
       {showCoHostPanel && (
         <CoHostPanel
           activeCoHosts={activeCoHosts}
@@ -640,7 +705,7 @@ export default function GoLivePage() {
         />
       )}
 
-      {/* ── Barre bas ── */}
+      {/* Barre bas */}
       <div style={{
         position: 'absolute', bottom: 0, left: 0, right: 0,
         padding: '10px 12px 20px', display: 'flex', gap: 8,
@@ -665,23 +730,21 @@ export default function GoLivePage() {
         }}>⏹ Fin</button>
       </div>
 
-      {/* ─── MODALS ─── */}
-
-      {/* Terminer le live */}
+      {/* Modal : terminer */}
       {showEndDlg && (
         <LiveModal>
           <ModalTitle>Terminer le live ?</ModalTitle>
           <ModalSub>Le live sera clôturé pour tous les spectateurs.</ModalSub>
           <ModalRow>
-            <BtnSecondary onClick={() => setShowEndDlg(false)}>Annuler</BtnSecondary>
-            <BtnPrimary onClick={endLive} disabled={isEnding} color="#EF4444">
+            <BtnSec onClick={() => setShowEndDlg(false)}>Annuler</BtnSec>
+            <BtnPri onClick={endLive} disabled={isEnding} color="#EF4444">
               {isEnding ? 'Fermeture...' : 'Terminer'}
-            </BtnPrimary>
+            </BtnPri>
           </ModalRow>
         </LiveModal>
       )}
 
-      {/* Demande co-host (miroir _showCoHostRequestDialog / _CoHostRequestDialog) */}
+      {/* Modal : demande co-host */}
       {pendingRequest && !showEndDlg && (
         <LiveModal>
           <div style={{ textAlign: 'center' }}>
@@ -690,33 +753,34 @@ export default function GoLivePage() {
               background: 'rgba(124,58,237,0.25)',
               border: '2px solid rgba(124,58,237,0.4)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 28, margin: '0 auto 12px', color: '#A855F7', fontWeight: 700,
+              fontSize: 28, margin: '0 auto 12px',
+              color: '#A855F7', fontWeight: 700,
             }}>
               {pendingRequest.displayName[0].toUpperCase()}
             </div>
             <ModalTitle>{pendingRequest.displayName}</ModalTitle>
             <ModalSub>souhaite rejoindre le live en vidéo</ModalSub>
             <ModalRow>
-              <BtnSecondary onClick={declineCoHost}>Refuser</BtnSecondary>
-              <BtnPrimary
+              <BtnSec onClick={declineCoHost}>Refuser</BtnSec>
+              <BtnPri
                 onClick={() => acceptCoHost(pendingRequest)}
                 color="linear-gradient(135deg,#7C3AED,#A855F7)"
-              >Accepter</BtnPrimary>
+              >Accepter</BtnPri>
             </ModalRow>
           </div>
         </LiveModal>
       )}
 
-      {/* Retirer co-host (miroir _showRemoveCoHostDialog) */}
+      {/* Modal : retirer co-host */}
       {showRemoveDialog !== null && (
         <LiveModal>
           <ModalTitle>Retirer {coHosts[showRemoveDialog]?.displayName} ?</ModalTitle>
           <ModalSub>Ce participant sera retiré du live vidéo.</ModalSub>
           <ModalRow>
-            <BtnSecondary onClick={() => setShowRemoveDialog(null)}>Annuler</BtnSecondary>
-            <BtnPrimary onClick={() => removeCoHost(showRemoveDialog)} color="#EF4444">
+            <BtnSec onClick={() => setShowRemoveDialog(null)}>Annuler</BtnSec>
+            <BtnPri onClick={() => removeCoHost(showRemoveDialog)} color="#EF4444">
               Retirer
-            </BtnPrimary>
+            </BtnPri>
           </ModalRow>
         </LiveModal>
       )}
@@ -725,16 +789,14 @@ export default function GoLivePage() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 🖼️ Sous-composants
+// 📺 VideoLayout — miroir _buildVideoLayout Flutter
 // ─────────────────────────────────────────────────────────────
-
-// Miroir _buildVideoLayout Flutter
 function VideoLayout({ localVideoRef, remoteVideoRefs, activeCoHosts, onRemove, isEngineReady }) {
   if (!isEngineReady) return (
     <div style={{
       position: 'absolute', inset: 0, background: '#0a0a1e',
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', gap: 14,
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', gap: 14,
     }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <div style={{
@@ -746,20 +808,16 @@ function VideoLayout({ localVideoRef, remoteVideoRefs, activeCoHosts, onRemove, 
     </div>
   );
 
-  // Pas de co-host → plein écran (miroir fullScreen: true)
   if (activeCoHosts.length === 0) return (
     <div ref={localVideoRef} style={{ position: 'absolute', inset: 0, background: '#111' }} />
   );
 
-  // Co-hosts → split (miroir Column hôte + Row co-hosts)
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-      {/* Hôte — flex 2 */}
       <div style={{ flex: 2, position: 'relative' }}>
         <div ref={localVideoRef} style={{ position: 'absolute', inset: 0, background: '#111' }} />
         <VLabel label="Hôte" color="#F97316" />
       </div>
-      {/* Co-hosts — flex 1 */}
       <div style={{ flex: 1, display: 'flex' }}>
         {activeCoHosts.map(c => (
           <div key={c.agoraUid} style={{ flex: 1, position: 'relative', background: '#1a1a2e' }}>
@@ -768,7 +826,6 @@ function VideoLayout({ localVideoRef, remoteVideoRefs, activeCoHosts, onRemove, 
               style={{ position: 'absolute', inset: 0 }}
             />
             <VLabel label={c.displayName} />
-            {/* Bouton ✕ retirer (miroir Positioned top:4, right:4) */}
             <button onClick={() => onRemove(c.agoraUid)} style={{
               position: 'absolute', top: 5, right: 5,
               width: 22, height: 22, borderRadius: '50%',
@@ -783,17 +840,245 @@ function VideoLayout({ localVideoRef, remoteVideoRefs, activeCoHosts, onRemove, 
   );
 }
 
-function VLabel({ label, color = '#fff' }) {
+// ─────────────────────────────────────────────────────────────
+// Pre-live screen
+// ─────────────────────────────────────────────────────────────
+function PreLiveScreen({ products, loading, userId, sellerLang, setSellerLang, sdkReady, onOpenSelector }) {
   return (
     <div style={{
-      position: 'absolute', bottom: 7, left: 7,
-      background: 'rgba(0,0,0,.55)', borderRadius: 7,
-      padding: '2px 7px', fontSize: 11, fontWeight: 700, color,
-    }}>{label}</div>
+      minHeight: '100vh', background: '#0a0a0a',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'system-ui, sans-serif', color: '#fff', padding: 24,
+    }}>
+      <div style={{ maxWidth: 440, width: '100%' }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <div style={{ fontSize: 52, marginBottom: 8 }}>🎬</div>
+          <h1 style={{ fontSize: 30, fontWeight: 900, margin: '0 0 6px', letterSpacing: -1 }}>
+            FriTok <span style={{ color: '#F97316' }}>Live</span>
+          </h1>
+          <p style={{ color: '#ffffff70', fontSize: 15 }}>Vendez en direct. Connectez vos clients.</p>
+        </div>
+
+        {/* Sélecteur langue */}
+        <p style={{ fontSize: 13, color: '#ffffff60', textAlign: 'center', marginBottom: 10 }}>
+          Langue du vendeur
+        </p>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 28 }}>
+          {[
+            { code: 'fr', label: '🇫🇷 Français', sub: 'Direct' },
+            { code: 'zh', label: '🇨🇳 中文',      sub: 'Trad. auto → FR' },
+          ].map(l => (
+            <button key={l.code} onClick={() => setSellerLang(l.code)} style={{
+              flex: 1, padding: '12px', borderRadius: 14,
+              border: `2px solid ${sellerLang === l.code ? '#F97316' : 'rgba(255,255,255,.15)'}`,
+              background: sellerLang === l.code ? 'rgba(249,115,22,.1)' : 'transparent',
+              color: '#fff', cursor: 'pointer', transition: 'all .2s',
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{l.label}</div>
+              <div style={{ fontSize: 11, color: '#ffffff70', marginTop: 3 }}>{l.sub}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* État des produits */}
+        <div style={{
+          background: 'rgba(255,255,255,.06)', borderRadius: 14,
+          padding: 16, marginBottom: 24,
+          border: '1px solid rgba(255,255,255,.1)',
+        }}>
+          {/* Titre avec compteur */}
+          <div style={{
+            display: 'flex', alignItems: 'center',
+            justifyContent: 'space-between', marginBottom: 12,
+          }}>
+            <p style={{
+              fontSize: 11, color: '#ffffff50',
+              textTransform: 'uppercase', letterSpacing: 1, margin: 0,
+            }}>
+              Mes vidéos / produits
+            </p>
+            {!loading && (
+              <span style={{
+                background: products.length > 0 ? 'rgba(249,115,22,.2)' : 'rgba(239,68,68,.2)',
+                color: products.length > 0 ? '#F97316' : '#FCA5A5',
+                fontSize: 11, fontWeight: 700,
+                padding: '2px 8px', borderRadius: 10,
+              }}>
+                {products.length} vidéo{products.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+
+          {/* Chargement */}
+          {loading && !userId && (
+            <div style={{ textAlign: 'center', padding: '16px 0', color: '#ffffff60' }}>
+              <p style={{ fontSize: 13, margin: 0 }}>
+                🔐 Connexion requise — veuillez vous connecter.
+              </p>
+            </div>
+          )}
+
+          {loading && userId && (
+            <div style={{
+              display: 'flex', alignItems: 'center',
+              gap: 10, padding: '12px 0', color: '#ffffff70',
+            }}>
+              <Spinner />
+              <span style={{ fontSize: 13 }}>Chargement de vos vidéos depuis Firestore...</span>
+            </div>
+          )}
+
+          {/* Aucun produit */}
+          {!loading && products.length === 0 && (
+            <div style={{
+              textAlign: 'center', padding: '16px 0',
+              borderRadius: 10,
+            }}>
+              <p style={{ fontSize: 28, margin: '0 0 8px' }}>📭</p>
+              <p style={{ color: '#FCA5A5', fontWeight: 700, fontSize: 14, margin: '0 0 6px' }}>
+                Aucune vidéo publiée
+              </p>
+              <p style={{ color: '#ffffff60', fontSize: 12, margin: 0, lineHeight: 1.6 }}>
+                Publiez une vidéo produit depuis l'app mobile<br />
+                pour pouvoir démarrer un live.
+              </p>
+            </div>
+          )}
+
+          {/* Liste des produits */}
+          {!loading && products.length > 0 && products.slice(0, 5).map(p => (
+            <div key={p.refArticle} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '7px 0',
+              borderBottom: '1px solid rgba(255,255,255,.06)',
+            }}>
+              <ProductThumb src={p.imageUrl} name={p.name} size={36} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{
+                  fontSize: 13, color: '#fff', margin: 0, fontWeight: 600,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>{p.name}</p>
+                {p.description && (
+                  <p style={{ fontSize: 11, color: '#ffffff60', margin: '1px 0 0' }}>
+                    {p.description}
+                  </p>
+                )}
+              </div>
+              <span style={{ fontSize: 13, color: '#F97316', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                {Number(p.price).toLocaleString('fr-FR')} FCFA
+              </span>
+            </div>
+          ))}
+          {!loading && products.length > 5 && (
+            <p style={{ color: '#ffffff40', fontSize: 11, marginTop: 8, textAlign: 'center' }}>
+              +{products.length - 5} autre{products.length - 5 > 1 ? 's' : ''}
+            </p>
+          )}
+        </div>
+
+        {/* SDK warning */}
+        {!sdkReady && (
+          <p style={{ color: '#ffffff60', fontSize: 12, textAlign: 'center', marginBottom: 10 }}>
+            ⏳ Chargement SDK Agora...
+          </p>
+        )}
+
+        {/* Bouton principal */}
+        <button
+          onClick={onOpenSelector}
+          disabled={!sdkReady || loading || products.length === 0}
+          style={{
+            width: '100%', padding: '15px 0', borderRadius: 16,
+            background: (!sdkReady || loading || products.length === 0)
+              ? '#333'
+              : 'linear-gradient(135deg, #EF4444, #DC2626)',
+            border: 'none', color: '#fff', fontSize: 17, fontWeight: 800,
+            cursor: (!sdkReady || loading || products.length === 0)
+              ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center',
+            justifyContent: 'center', gap: 10,
+            opacity: (!sdkReady || loading || products.length === 0) ? 0.5 : 1,
+            transition: 'all .2s',
+          }}
+        >
+          <PulseDot />
+          {loading
+            ? 'Chargement...'
+            : products.length === 0
+              ? 'Aucune vidéo disponible'
+              : 'Sélectionner les produits'}
+        </button>
+
+        {/* Hint sous le bouton si pas de produits */}
+        {!loading && products.length === 0 && (
+          <p style={{
+            color: '#ffffff40', fontSize: 12,
+            textAlign: 'center', marginTop: 12,
+          }}>
+            👆 Publiez d'abord une vidéo depuis l'app mobile FriTok
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
-// Miroir _buildProductCard
+// ─────────────────────────────────────────────────────────────
+// Post-live screen
+// ─────────────────────────────────────────────────────────────
+function EndedScreen({ likeCount, giftCount, viewerCount, duration, onBack }) {
+  return (
+    <div style={{
+      minHeight: '100vh', background: '#0a0a0a',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'system-ui, sans-serif',
+      color: '#fff', padding: 24, textAlign: 'center',
+    }}>
+      <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
+      <h2 style={{ fontSize: 26, fontWeight: 900, marginBottom: 8 }}>Live terminé !</h2>
+      <p style={{ color: '#ffffff70', marginBottom: 32 }}>Durée : {duration}</p>
+      <div style={{ display: 'flex', gap: 28, marginBottom: 36, justifyContent: 'center' }}>
+        {[
+          { v: viewerCount, l: '👁️ Spectateurs' },
+          { v: likeCount,   l: '❤️ Likes' },
+          { v: giftCount,   l: '🎁 Cadeaux' },
+        ].map(s => (
+          <div key={s.l}>
+            <p style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>{s.v}</p>
+            <p style={{ color: '#ffffff60', fontSize: 12, margin: '4px 0 0' }}>{s.l}</p>
+          </div>
+        ))}
+      </div>
+      <button onClick={onBack} style={{
+        padding: '13px 32px', borderRadius: 40,
+        background: '#F97316', border: 'none',
+        color: '#fff', fontWeight: 700, fontSize: 16, cursor: 'pointer',
+      }}>← Retour</button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Atoms
+// ─────────────────────────────────────────────────────────────
+function ProductThumb({ src, name, size = 48 }) {
+  const [err, setErr] = useState(false);
+  if (src && !err) return (
+    <img src={src} alt={name || ''} onError={() => setErr(true)}
+      style={{ width: size, height: size, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+  );
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: 8, flexShrink: 0,
+      background: 'rgba(249,115,22,.15)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: size * 0.45,
+    }}>🛍️</div>
+  );
+}
+
 function ProductCard({ product, index, total, onClose, onChange }) {
   return (
     <div style={{
@@ -816,11 +1101,9 @@ function ProductCard({ product, index, total, onClose, onChange }) {
             {Number(product.price).toLocaleString('fr-FR')} FCFA
           </p>
           {product.description && (
-            <p style={{
-              color: '#ffffff80', fontSize: 11, margin: '0 0 7px', lineHeight: 1.4,
-              overflow: 'hidden', display: '-webkit-box',
-              WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-            }}>{product.description}</p>
+            <p style={{ color: '#ffffff80', fontSize: 11, margin: '0 0 7px', lineHeight: 1.4 }}>
+              {product.description}
+            </p>
           )}
           <button style={{
             width: '100%', padding: '6px 0', borderRadius: 8,
@@ -845,7 +1128,6 @@ function ProductCard({ product, index, total, onClose, onChange }) {
   );
 }
 
-// Miroir _buildCoHostPanel
 function CoHostPanel({ activeCoHosts, maxCoHosts, onClose, onRemove }) {
   return (
     <div style={{
@@ -888,151 +1170,13 @@ function CoHostPanel({ activeCoHosts, maxCoHosts, onClose, onRemove }) {
   );
 }
 
-// ── Pre-live screen ───────────────────────────────────────────
-function PreLiveScreen({ products, sellerLang, setSellerLang, sdkReady, onOpenSelector }) {
+function VLabel({ label, color = '#fff' }) {
   return (
     <div style={{
-      minHeight: '100vh', background: '#0a0a0a',
-      display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'system-ui, sans-serif', color: '#fff', padding: 24,
-    }}>
-      <div style={{ maxWidth: 440, width: '100%' }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ fontSize: 52, marginBottom: 8 }}>🎬</div>
-          <h1 style={{ fontSize: 30, fontWeight: 900, margin: '0 0 6px', letterSpacing: -1 }}>
-            FriTok <span style={{ color: '#F97316' }}>Live</span>
-          </h1>
-          <p style={{ color: '#ffffff70', fontSize: 15 }}>Vendez en direct. Connectez vos clients.</p>
-        </div>
-
-        {/* Sélecteur langue */}
-        <p style={{ fontSize: 13, color: '#ffffff60', textAlign: 'center', marginBottom: 10 }}>Langue du vendeur</p>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 28 }}>
-          {[
-            { code: 'fr', label: '🇫🇷 Français', sub: 'Direct' },
-            { code: 'zh', label: '🇨🇳 中文',      sub: 'Trad. auto → FR' },
-          ].map(l => (
-            <button key={l.code} onClick={() => setSellerLang(l.code)} style={{
-              flex: 1, padding: '12px', borderRadius: 14,
-              border: `2px solid ${sellerLang === l.code ? '#F97316' : 'rgba(255,255,255,.15)'}`,
-              background: sellerLang === l.code ? 'rgba(249,115,22,.1)' : 'transparent',
-              color: '#fff', cursor: 'pointer', transition: 'all .2s',
-            }}>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{l.label}</div>
-              <div style={{ fontSize: 11, color: '#ffffff70', marginTop: 3 }}>{l.sub}</div>
-            </button>
-          ))}
-        </div>
-
-        {/* Résumé produits */}
-        <div style={{
-          background: 'rgba(255,255,255,.06)', borderRadius: 14,
-          padding: 14, marginBottom: 24,
-          border: '1px solid rgba(255,255,255,.1)',
-        }}>
-          <p style={{ fontSize: 11, color: '#ffffff50', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
-            {products.length} produit{products.length !== 1 ? 's' : ''} disponible{products.length !== 1 ? 's' : ''}
-          </p>
-          {products.length === 0
-            ? <p style={{ color: '#EF4444', fontSize: 13 }}>
-                ⚠️ Aucun produit — retournez en arrière pour en ajouter.
-              </p>
-            : products.slice(0, 4).map(p => (
-              <div key={p.productId} style={{
-                display: 'flex', justifyContent: 'space-between',
-                padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,.06)',
-              }}>
-                <span style={{ fontSize: 13, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                  {p.name}
-                </span>
-                <span style={{ fontSize: 13, color: '#F97316', fontWeight: 700, marginLeft: 10, whiteSpace: 'nowrap' }}>
-                  {Number(p.price).toLocaleString('fr-FR')} FCFA
-                </span>
-              </div>
-            ))
-          }
-          {products.length > 4 && (
-            <p style={{ color: '#ffffff50', fontSize: 11, marginTop: 6 }}>
-              +{products.length - 4} autre{products.length - 4 > 1 ? 's' : ''}
-            </p>
-          )}
-        </div>
-
-        {!sdkReady && (
-          <p style={{ color: '#ffffff60', fontSize: 12, textAlign: 'center', marginBottom: 10 }}>
-            ⏳ Chargement du SDK Agora...
-          </p>
-        )}
-
-        <button
-          onClick={onOpenSelector}
-          disabled={!sdkReady || products.length === 0}
-          style={{
-            width: '100%', padding: '15px 0', borderRadius: 16,
-            background: (!sdkReady || products.length === 0)
-              ? '#444'
-              : 'linear-gradient(135deg, #EF4444, #DC2626)',
-            border: 'none', color: '#fff', fontSize: 17, fontWeight: 800,
-            cursor: (!sdkReady || products.length === 0) ? 'not-allowed' : 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-          }}
-        >
-          <PulseDot /> Sélectionner les produits
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Post-live screen ──────────────────────────────────────────
-function EndedScreen({ likeCount, giftCount, viewerCount, duration, onBack }) {
-  return (
-    <div style={{
-      minHeight: '100vh', background: '#0a0a0a',
-      display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'system-ui, sans-serif', color: '#fff',
-      padding: 24, textAlign: 'center',
-    }}>
-      <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
-      <h2 style={{ fontSize: 26, fontWeight: 900, marginBottom: 8 }}>Live terminé !</h2>
-      <p style={{ color: '#ffffff70', marginBottom: 32 }}>Durée : {duration}</p>
-      <div style={{ display: 'flex', gap: 28, marginBottom: 36, justifyContent: 'center' }}>
-        {[
-          { v: viewerCount, l: '👁️ Spectateurs' },
-          { v: likeCount,   l: '❤️ Likes' },
-          { v: giftCount,   l: '🎁 Cadeaux' },
-        ].map(s => (
-          <div key={s.l}>
-            <p style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>{s.v}</p>
-            <p style={{ color: '#ffffff60', fontSize: 12, margin: '4px 0 0' }}>{s.l}</p>
-          </div>
-        ))}
-      </div>
-      <button onClick={onBack} style={{
-        padding: '13px 32px', borderRadius: 40,
-        background: '#F97316', border: 'none',
-        color: '#fff', fontWeight: 700, fontSize: 16, cursor: 'pointer',
-      }}>← Retour</button>
-    </div>
-  );
-}
-
-// ── Atoms ─────────────────────────────────────────────────────
-
-function ProductThumb({ src, name, size = 48 }) {
-  const [err, setErr] = useState(false);
-  if (src && !err) return (
-    <img src={src} alt={name || ''} onError={() => setErr(true)}
-      style={{ width: size, height: size, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-  );
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: 8, flexShrink: 0,
-      background: 'rgba(249,115,22,.15)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.45,
-    }}>🛍️</div>
+      position: 'absolute', bottom: 7, left: 7,
+      background: 'rgba(0,0,0,.55)', borderRadius: 7,
+      padding: '2px 7px', fontSize: 11, fontWeight: 700, color,
+    }}>{label}</div>
   );
 }
 
@@ -1053,6 +1197,19 @@ function PulseDot() {
       <span style={{
         width: 8, height: 8, borderRadius: '50%', background: '#fff',
         display: 'inline-block', animation: 'fpulse 1.4s ease-in-out infinite', flexShrink: 0,
+      }} />
+    </>
+  );
+}
+
+function Spinner() {
+  return (
+    <>
+      <style>{`@keyframes spin2{to{transform:rotate(360deg)}}`}</style>
+      <div style={{
+        width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+        border: '2px solid rgba(249,115,22,.3)', borderTopColor: '#F97316',
+        animation: 'spin2 .7s linear infinite',
       }} />
     </>
   );
@@ -1108,7 +1265,7 @@ function ModalSub({ children }) {
 function ModalRow({ children }) {
   return <div style={{ display: 'flex', gap: 10 }}>{children}</div>;
 }
-function BtnSecondary({ children, onClick }) {
+function BtnSec({ children, onClick }) {
   return (
     <button onClick={onClick} style={{
       flex: 1, padding: '11px 0', borderRadius: 12,
@@ -1117,12 +1274,12 @@ function BtnSecondary({ children, onClick }) {
     }}>{children}</button>
   );
 }
-function BtnPrimary({ children, onClick, disabled, color }) {
+function BtnPri({ children, onClick, disabled, color }) {
   return (
     <button onClick={onClick} disabled={disabled} style={{
       flex: 1, padding: '11px 0', borderRadius: 12, border: 'none',
-      background: color ?? '#F97316',
-      color: '#fff', fontWeight: 700, fontSize: 14,
+      background: color ?? '#F97316', color: '#fff',
+      fontWeight: 700, fontSize: 14,
       cursor: disabled ? 'not-allowed' : 'pointer',
     }}>{children}</button>
   );
