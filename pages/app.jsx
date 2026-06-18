@@ -42,7 +42,8 @@ const CAUTION_XOF = 200;
 
 // ── Compte Escrow Fritok ──────────────────────────────────────────────────────
 // Collection "users", document uid = "escrow_fritok"
-// Schéma : { solde:{XOF,GHS,NGN}, cautionEnAttente:{XOF,GHS,NGN}, displayName, email, role }
+// Schéma Flutter (ensureEscrowExists) : { uid, displayName, email, role, solde:{XOF,GHS,NGN} }
+// totalCaution:{XOF,GHS,NGN} créé/mis à jour par le web lors des locations/restitutions
 const ESCROW_UID = 'escrow_fritok';
 
 // ─── Leaflet (SSR disabled) ──────────────────────────────────────────────────
@@ -603,27 +604,29 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
           [`wallet.${devise}`]: increment(-totalDevise),
         });
 
-        // Crédite l'Escrow Fritok : caution bloquée jusqu'à la restitution
-        // Lecture → reconstruction du map → écriture atomique
-        // (seule approche fiable pour les maps imbriqués en SDK Firebase JS client)
+        // Crédite l'Escrow Fritok : caution reçue → totalCaution.{devise}
+        // Le document Escrow est créé par Flutter (ensureEscrowExists) avec solde:{XOF,GHS,NGN}
+        // Le web crée/met à jour totalCaution map par lecture-modification-écriture
         const escrowRef  = doc(db, 'users', ESCROW_UID);
         const escrowSnap = await getDoc(escrowRef);
         const escrowData = escrowSnap.exists() ? escrowSnap.data() : {};
 
-        // Récupérer les maps existants (ou initialiser à zéro)
-        const oldSolde   = (typeof escrowData.solde === 'object' && escrowData.solde !== null)
-          ? escrowData.solde : { XOF: 0, GHS: 0, NGN: 0 };
-        const oldCaution = (typeof escrowData.cautionEnAttente === 'object' && escrowData.cautionEnAttente !== null)
-          ? escrowData.cautionEnAttente : { XOF: 0, GHS: 0, NGN: 0 };
+        // totalCaution peut ne pas exister encore — on l'initialise si absent
+        const oldTotal = (escrowData.totalCaution && typeof escrowData.totalCaution === 'object')
+          ? escrowData.totalCaution
+          : {};
 
-        // Construire les nouveaux maps en ajoutant le montant à la devise
-        const newSolde   = { ...oldSolde,   [devise]: toNum(oldSolde[devise])   + cautionDevise };
-        const newCaution = { ...oldCaution, [devise]: toNum(oldCaution[devise]) + cautionDevise };
+        // Ajouter la caution à la devise concernée
+        const newTotal = {
+          XOF: toNum(oldTotal.XOF),
+          GHS: toNum(oldTotal.GHS),
+          NGN: toNum(oldTotal.NGN),
+          [devise]: toNum(oldTotal[devise]) + cautionDevise,
+        };
 
         await updateDoc(escrowRef, {
-          solde           : newSolde,
-          cautionEnAttente: newCaution,
-          updatedAt       : serverTimestamp(),
+          totalCaution: newTotal,
+          updatedAt   : serverTimestamp(),
         });
 
         // Libère le power bank
@@ -890,23 +893,25 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
         [`wallet.${devise}`]: increment(cautionDev),
       });
 
-      // 3. Débiter l'Escrow Fritok (caution libérée) — read-modify-write
+      // 3. Restitution : décrémenter totalCaution.{devise} dans l'Escrow
       const escrowRef2  = doc(db, 'users', ESCROW_UID);
       const escrowSnap2 = await getDoc(escrowRef2);
       const escrowData2 = escrowSnap2.exists() ? escrowSnap2.data() : {};
 
-      const oldSolde2   = (typeof escrowData2.solde === 'object' && escrowData2.solde !== null)
-        ? escrowData2.solde : { XOF: 0, GHS: 0, NGN: 0 };
-      const oldCaution2 = (typeof escrowData2.cautionEnAttente === 'object' && escrowData2.cautionEnAttente !== null)
-        ? escrowData2.cautionEnAttente : { XOF: 0, GHS: 0, NGN: 0 };
+      const oldTotal2 = (escrowData2.totalCaution && typeof escrowData2.totalCaution === 'object')
+        ? escrowData2.totalCaution
+        : {};
 
-      const newSolde2   = { ...oldSolde2,   [devise]: Math.max(0, toNum(oldSolde2[devise])   - cautionDev) };
-      const newCaution2 = { ...oldCaution2, [devise]: Math.max(0, toNum(oldCaution2[devise]) - cautionDev) };
+      const newTotal2 = {
+        XOF: toNum(oldTotal2.XOF),
+        GHS: toNum(oldTotal2.GHS),
+        NGN: toNum(oldTotal2.NGN),
+        [devise]: Math.max(0, toNum(oldTotal2[devise]) - cautionDev),
+      };
 
       await updateDoc(escrowRef2, {
-        solde           : newSolde2,
-        cautionEnAttente: newCaution2,
-        updatedAt       : serverTimestamp(),
+        totalCaution: newTotal2,
+        updatedAt   : serverTimestamp(),
       });
 
       // 4. Libérer le power bank
