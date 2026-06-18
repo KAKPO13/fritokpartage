@@ -501,34 +501,60 @@ export default function GoLivePage() {
       await client.setClientRole('host');
       await client.join(AGORA_APP_ID, cId, token, 0);
 
-      // ── Contraintes caméra adaptées mobile ────────────────────
-      // Sur mobile, éviter des résolutions fixes qui font échouer
-      // createMicrophoneAndCameraTracks sur certains appareils
+      // ── Création tracks avec fallback progressif ──────────────
+      // Niveau 1 : qualité adaptée desktop/mobile
+      // Niveau 2 : contraintes minimales (si caméra occupée ou refusée)
+      // Niveau 3 : audio seulement (si caméra totalement inaccessible)
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const videoConfig = isMobile
-        ? {
-            // Mobile : laisser le navigateur choisir la résolution
-            encoderConfig: {
-              width:       { ideal: 720 },
-              height:      { ideal: 1280 },
-              frameRate:   { ideal: 24, max: 30 },
-              bitrateMax:  1000,
-              facingMode:  'user', // caméra frontale par défaut
-            },
-          }
-        : {
-            encoderConfig: {
-              width: 1280, height: 720,
-              frameRate: 30, bitrateMax: 2000,
-            },
-          };
 
-      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-        { encoderConfig: 'music_standard' },
-        videoConfig
-      );
+      let audioTrack = null;
+      let videoTrack = null;
+
+      // Tentative 1 — qualité optimale selon l'appareil
+      try {
+        [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
+          { encoderConfig: 'music_standard' },
+          isMobile
+            ? { encoderConfig: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { max: 24 }, bitrateMax: 800 } }
+            : { encoderConfig: { width: 1280, height: 720, frameRate: 30, bitrateMax: 2000 } }
+        );
+      } catch (e1) {
+        console.warn('⚠️ Tentative 1 échouée:', e1.message);
+
+        // Tentative 2 — contraintes minimales, pas de résolution fixe
+        try {
+          [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
+            {},
+            {}  // laisser Agora/navigateur tout choisir
+          );
+        } catch (e2) {
+          console.warn('⚠️ Tentative 2 échouée:', e2.message);
+
+          // Tentative 3 — audio seulement (caméra indisponible)
+          try {
+            audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+            videoTrack = null;
+            // Afficher un avertissement mais continuer sans vidéo
+            console.warn('📵 Live audio seulement — caméra inaccessible');
+            // On crée un track vidéo vide pour ne pas planter le reste du code
+          } catch (e3) {
+            // Rien ne fonctionne → erreur fatale
+            throw new Error(
+              `Impossible d'accéder à la caméra ou au microphone.\n` +
+              `Fermez les autres apps qui utilisent la caméra et réessayez.\n` +
+              `(${e3.message})`
+            );
+          }
+        }
+      }
+
       localTrackRef.current = { audio: audioTrack, video: videoTrack };
-      await client.publish([audioTrack, videoTrack]);
+
+      // Publier uniquement les tracks disponibles
+      const tracksToPublish = [audioTrack, videoTrack].filter(Boolean);
+      if (tracksToPublish.length > 0) {
+        await client.publish(tracksToPublish);
+      }
 
       // ⚠️ setIsEngineReady(true) → VideoLayout monte le <div>
       // → useEffect joue la vidéo locale une fois le div présent
