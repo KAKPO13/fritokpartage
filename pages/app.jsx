@@ -604,27 +604,26 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
         });
 
         // Crédite l'Escrow Fritok : caution bloquée jusqu'à la restitution
-        // Étape 1 : initialiser les sous-champs s'ils n'existent pas encore
-        // (setDoc mergeFields cible uniquement les champs listés — ne touche pas aux autres)
-        const escrowRef = doc(db, 'users', ESCROW_UID);
-        await setDoc(escrowRef, {
-          [`cautionEnAttente.XOF`] : 0,
-          [`cautionEnAttente.GHS`] : 0,
-          [`cautionEnAttente.NGN`] : 0,
-          [`solde.XOF`]            : 0,
-          [`solde.GHS`]            : 0,
-          [`solde.NGN`]            : 0,
-        // mergeFields liste explicite — n'écrase QUE si le champ n'existe pas
-        }, { mergeFields: [
-          `cautionEnAttente.XOF`, `cautionEnAttente.GHS`, `cautionEnAttente.NGN`,
-          `solde.XOF`, `solde.GHS`, `solde.NGN`,
-        ]}).catch(() => {}); // silencieux si déjà initialisé
+        // Lecture → reconstruction du map → écriture atomique
+        // (seule approche fiable pour les maps imbriqués en SDK Firebase JS client)
+        const escrowRef  = doc(db, 'users', ESCROW_UID);
+        const escrowSnap = await getDoc(escrowRef);
+        const escrowData = escrowSnap.exists() ? escrowSnap.data() : {};
 
-        // Étape 2 : incrémenter avec dot notation (SDK Firebase JS)
+        // Récupérer les maps existants (ou initialiser à zéro)
+        const oldSolde   = (typeof escrowData.solde === 'object' && escrowData.solde !== null)
+          ? escrowData.solde : { XOF: 0, GHS: 0, NGN: 0 };
+        const oldCaution = (typeof escrowData.cautionEnAttente === 'object' && escrowData.cautionEnAttente !== null)
+          ? escrowData.cautionEnAttente : { XOF: 0, GHS: 0, NGN: 0 };
+
+        // Construire les nouveaux maps en ajoutant le montant à la devise
+        const newSolde   = { ...oldSolde,   [devise]: toNum(oldSolde[devise])   + cautionDevise };
+        const newCaution = { ...oldCaution, [devise]: toNum(oldCaution[devise]) + cautionDevise };
+
         await updateDoc(escrowRef, {
-          [`solde.${devise}`]            : increment(cautionDevise),
-          [`cautionEnAttente.${devise}`] : increment(cautionDevise),
-          updatedAt                      : serverTimestamp(),
+          solde           : newSolde,
+          cautionEnAttente: newCaution,
+          updatedAt       : serverTimestamp(),
         });
 
         // Libère le power bank
@@ -891,11 +890,23 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
         [`wallet.${devise}`]: increment(cautionDev),
       });
 
-      // 3. Débiter l'Escrow Fritok (caution libérée)
-      await updateDoc(doc(db, 'users', ESCROW_UID), {
-        [`solde.${devise}`]            : increment(-cautionDev),
-        [`cautionEnAttente.${devise}`] : increment(-cautionDev),
-        updatedAt                      : serverTimestamp(),
+      // 3. Débiter l'Escrow Fritok (caution libérée) — read-modify-write
+      const escrowRef2  = doc(db, 'users', ESCROW_UID);
+      const escrowSnap2 = await getDoc(escrowRef2);
+      const escrowData2 = escrowSnap2.exists() ? escrowSnap2.data() : {};
+
+      const oldSolde2   = (typeof escrowData2.solde === 'object' && escrowData2.solde !== null)
+        ? escrowData2.solde : { XOF: 0, GHS: 0, NGN: 0 };
+      const oldCaution2 = (typeof escrowData2.cautionEnAttente === 'object' && escrowData2.cautionEnAttente !== null)
+        ? escrowData2.cautionEnAttente : { XOF: 0, GHS: 0, NGN: 0 };
+
+      const newSolde2   = { ...oldSolde2,   [devise]: Math.max(0, toNum(oldSolde2[devise])   - cautionDev) };
+      const newCaution2 = { ...oldCaution2, [devise]: Math.max(0, toNum(oldCaution2[devise]) - cautionDev) };
+
+      await updateDoc(escrowRef2, {
+        solde           : newSolde2,
+        cautionEnAttente: newCaution2,
+        updatedAt       : serverTimestamp(),
       });
 
       // 4. Libérer le power bank
