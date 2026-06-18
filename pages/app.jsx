@@ -139,7 +139,8 @@ export default function FritokApp() {
   const [wallet,        setWallet]        = useState({});
   const [currency,      setCurrency]      = useState('XOF');
   const [activeRentals, setActiveRentals] = useState([]);
-  const [history,       setHistory]       = useState([]);
+  const [history,       setHistory]       = useState([]); // rentals
+  const [txHistory,     setTxHistory]     = useState([]); // TransfetMoney client
 
   // ── Auth: redirige vers /login si non authentifié ────────────────────────
   useEffect(() => {
@@ -180,6 +181,7 @@ export default function FritokApp() {
     );
 
     // Historique
+    // Rentals (pour les locations actives et l'accueil)
     const unsubHist = onSnapshot(
       query(collection(db, 'rentals'),
         where('userId', '==', user.uid),
@@ -188,7 +190,47 @@ export default function FritokApp() {
       (snap) => setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
     );
 
-    return () => { unsubUser(); unsubActive(); unsubHist(); };
+    // TransfetMoney — uniquement les transactions du CLIENT
+    // Règle : on affiche les entrées où le client est expediteurId (il paie)
+    // OU destinataireId (il reçoit un remboursement) MAIS JAMAIS quand
+    // expediteurId === ESCROW_UID (ces entrées appartiennent au compte Escrow)
+    const unsubTx = onSnapshot(
+      query(
+        collection(db, 'TransfetMoney'),
+        where('expediteurId', '==', user.uid),
+        orderBy('timestamp', 'desc'),
+        limit(50)
+      ),
+      (snapExp) => {
+        // Entrées où le client EST l'expéditeur (paiements : rental, caution)
+        const sent = snapExp.docs.map(d => ({ id: d.id, ...d.data(), _dir: 'out' }));
+
+        // Entrées où le client est destinataire ET expéditeur ≠ escrow
+        // (remboursements de caution — expediteurId = ESCROW_UID sont exclus)
+        getDocs(query(
+          collection(db, 'TransfetMoney'),
+          where('destinataireId', '==', user.uid),
+          where('expediteurId',   '!=', ESCROW_UID),
+          orderBy('expediteurId'),
+          orderBy('timestamp', 'desc'),
+          limit(20)
+        )).then(snapDest => {
+          const received = snapDest.docs
+            .map(d => ({ id: d.id, ...d.data(), _dir: 'in' }));
+          // Fusionner, dédupliquer et trier par timestamp desc
+          const all = [...sent, ...received];
+          const seen = new Set();
+          const deduped = all.filter(tx => {
+            if (seen.has(tx.id)) return false;
+            seen.add(tx.id); return true;
+          });
+          deduped.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+          setTxHistory(deduped);
+        }).catch(console.error);
+      }
+    );
+
+    return () => { unsubUser(); unsubActive(); unsubHist(); unsubTx(); };
   }, [user]);
 
   if (loading || !user) return <Splash />;
@@ -210,7 +252,7 @@ export default function FritokApp() {
         {tab === 'map'     && <MapTab     db={db} />}
         {tab === 'rent'    && <RentTab    db={db} user={user} wallet={wallet} profile={profile} onSuccess={() => setTab('home')} />}
         {tab === 'return'  && <ReturnTab  db={db} user={user} activeRentals={activeRentals} profile={profile} onSuccess={() => setTab('home')} />}
-        {tab === 'history' && <HistoryTab history={history} />}
+        {tab === 'history' && <HistoryTab txHistory={txHistory} />}
         {tab === 'profile' && <ProfileTab profile={profile} user={user} onSignOut={handleSignOut} onNav={setTab} />}
       </div>
       <BottomNav tab={tab} onNav={setTab} hasActive={activeRentals.length > 0} profile={profile} />
@@ -948,16 +990,104 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
 // ─────────────────────────────────────────────────────────────────────────────
 //  HistoryTab
 // ─────────────────────────────────────────────────────────────────────────────
-function HistoryTab({ history }) {
+// Types et icônes pour TransfetMoney
+const TX_META = {
+  rental     : { icon: '🔋', label: 'Location',           dir: 'out', color: (D) => D.text2 },
+  caution    : { icon: '🔒', label: 'Caution bloquée',    dir: 'out', color: (D) => D.amber  },
+  restitution: { icon: '↩️', label: 'Caution remboursée', dir: 'in',  color: (D) => D.green  },
+  topup      : { icon: '💳', label: 'Recharge wallet',    dir: 'in',  color: (D) => D.green  },
+  transfer   : { icon: '↗️', label: 'Transfert',          dir: 'out', color: (D) => D.text2  },
+};
+
+function HistoryTab({ txHistory }) {
+  const [filter, setFilter] = useState('tous');
+
+  const filters = [
+    { key: 'tous',        label: 'Tout' },
+    { key: 'rental',      label: '🔋 Locations' },
+    { key: 'restitution', label: '↩️ Remboursements' },
+    { key: 'topup',       label: '💳 Recharges' },
+  ];
+
+  const filtered = filter === 'tous'
+    ? txHistory
+    : txHistory.filter(tx => tx.type === filter);
+
   return (
     <div style={{ padding: '24px 0 0' }}>
-      <div style={{ padding: '0 24px 16px', fontSize: 20, fontWeight: 800, color: D.text1 }}>Historique</div>
-      {history.length === 0
+      <div style={{ padding: '0 24px 12px', fontSize: 20, fontWeight: 800, color: D.text1 }}>
+        Historique
+      </div>
+
+      {/* Filtres */}
+      <div style={{ display: 'flex', gap: 8, padding: '0 24px 16px', overflowX: 'auto' }}>
+        {filters.map(f => (
+          <button key={f.key} onClick={() => setFilter(f.key)} style={{
+            padding: '5px 14px', borderRadius: 99, whiteSpace: 'nowrap', cursor: 'pointer',
+            border: `1px solid ${filter === f.key ? D.orange : D.border}`,
+            background: filter === f.key ? D.orangeDim : D.surface,
+            color: filter === f.key ? D.orange : D.text2,
+            fontWeight: filter === f.key ? 700 : 400, fontSize: 12,
+          }}>{f.label}</button>
+        ))}
+      </div>
+
+      {filtered.length === 0
         ? <div style={{ textAlign: 'center', padding: '60px 24px', color: D.text2, fontSize: 13 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🧾</div>Aucune location
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🧾</div>
+            Aucune transaction
           </div>
-        : history.map(r => <HistoryRow key={r.id} rental={r} />)
+        : filtered.map(tx => <TxRow key={tx.id} tx={tx} />)
       }
+    </div>
+  );
+}
+
+function TxRow({ tx }) {
+  const meta    = TX_META[tx.type] ?? TX_META.transfer;
+  const isIn    = tx._dir === 'in' || tx.type === 'restitution' || tx.type === 'topup';
+  const isPend  = tx.status === 'pending';
+  const amount  = isIn
+    ? `+${fmtCur(tx.montantRecu ?? tx.montantEnvoye, tx.currency)}`
+    : `-${fmtCur(tx.montantEnvoye, tx.currency)}`;
+  const color   = isPend ? D.text3 : (isIn ? D.green : D.text2);
+  const fmtTs   = (ts) => {
+    if (!ts) return '–';
+    const d = new Date(typeof ts === 'number' ? ts : ts?.toDate?.() ?? ts);
+    return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div style={{ padding: '14px 24px', borderBottom: `0.5px solid ${D.border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+      {/* Icône */}
+      <div style={{
+        width: 42, height: 42, borderRadius: 12, flexShrink: 0,
+        background: isPend ? '#F5F5F5' : (isIn ? D.greenLight : D.orangeDim),
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
+      }}>
+        {meta.icon}
+      </div>
+
+      {/* Infos */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: D.text1 }}>{meta.label}</div>
+          {isPend && (
+            <div style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: D.amberLight, color: D.amber }}>
+              EN ATTENTE
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: D.text2, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {tx.destinataireNom || tx.expediteurId} · {fmtTs(tx.timestamp)}
+        </div>
+      </div>
+
+      {/* Montant */}
+      <div style={{ fontSize: 14, fontWeight: 700, color, flexShrink: 0 }}>
+        {amount}
+        {isPend && <div style={{ fontSize: 10, color: D.text3, textAlign: 'right', fontWeight: 400 }}>pending</div>}
+      </div>
     </div>
   );
 }
