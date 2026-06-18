@@ -376,14 +376,66 @@ export default function GoLivePage() {
   }, [phase]);
 
   // ──────────────────────────────────────────────────────────
-  // 6. Auto-scroll commentaires
+  // 6. Jouer la vidéo locale dès que le <div> est monté
+  //    (isEngineReady passe à true → VideoLayout rend le <div>
+  //     → ce useEffect s'exécute et peut appeler .play())
+  // ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isEngineReady) return;
+    const video = localTrackRef.current?.video;
+    if (!video) return;
+
+    // Le DOM vient d'être monté, on attend un tick pour être sûr
+    const t = setTimeout(() => {
+      if (localVideoRef.current && localTrackRef.current?.video) {
+        localTrackRef.current.video.play(localVideoRef.current);
+      }
+    }, 100);
+    return () => clearTimeout(t);
+  }, [isEngineReady]);
+
+  // ──────────────────────────────────────────────────────────
+  // 7. Reconnexion Agora si l'onglet était caché (visibility)
+  //    Évite l'erreur WebSocket "closed before established"
+  // ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (phase !== 'live') return;
+
+    const handleVisibility = async () => {
+      if (document.visibilityState !== 'visible') return;
+      const client = agoraClientRef.current;
+      if (!client) return;
+
+      // Si déconnecté pendant que l'onglet était caché → reconnecter
+      if (client.connectionState === 'DISCONNECTED' ||
+          client.connectionState === 'DISCONNECTING') {
+        console.log('🔄 Reconnexion Agora après retour onglet...');
+        try {
+          const token = await fetchAgoraToken(channelId, 0, 'PUBLISHER');
+          if (token) await client.join(AGORA_APP_ID, channelId, token, 0);
+          const { audio, video } = localTrackRef.current;
+          if (audio && video) await client.publish([audio, video]);
+          // Rejouer la vidéo locale
+          if (localVideoRef.current && video) video.play(localVideoRef.current);
+        } catch (e) {
+          console.warn('⚠️ Reconnexion Agora échouée:', e);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [phase, channelId]);
+
+  // ──────────────────────────────────────────────────────────
+  // 8. Auto-scroll commentaires
   // ──────────────────────────────────────────────────────────
   useEffect(() => {
     commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [comments]);
 
   // ──────────────────────────────────────────────────────────
-  // 7. Cleanup
+  // 9. Cleanup
   // ──────────────────────────────────────────────────────────
   useEffect(() => () => {
     _releaseAgora();
@@ -447,8 +499,9 @@ export default function GoLivePage() {
     );
     localTrackRef.current = { audio: audioTrack, video: videoTrack };
     await client.publish([audioTrack, videoTrack]);
-    if (localVideoRef.current) videoTrack.play(localVideoRef.current);
 
+    // ⚠️  On monte d'abord le DOM (setIsEngineReady → VideoLayout affiche le <div>)
+    // puis on joue la vidéo dans le useEffect ci-dessous qui surveille isEngineReady
     setIsEngineReady(true);
     setPhase('live');
     if (isChinese) setTranslationActive(true);
@@ -1284,3 +1337,4 @@ function BtnPri({ children, onClick, disabled, color }) {
     }}>{children}</button>
   );
 }
+
