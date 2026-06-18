@@ -450,61 +450,101 @@ export default function GoLivePage() {
     if (!sdkLoaded || !window.AgoraRTC) {
       alert('SDK Agora pas encore prêt, réessayez dans 2s.'); return;
     }
+
+    // ── Vérification permissions caméra/micro ─────────────────
     try {
       await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    } catch {
-      alert('Accès caméra/micro refusé. Autorisez dans les paramètres du navigateur.'); return;
+    } catch (permErr) {
+      console.error('Permission refusée:', permErr);
+      alert('Accès caméra/micro refusé. Autorisez dans les paramètres du navigateur.');
+      return;
     }
 
+    // ── Passer en écran live AVANT les opérations async ───────
+    // Évite que le sélecteur reste affiché sur mobile pendant le chargement
     setLiveProducts(products);
     setShowSelector(false);
+    setPhase('live'); // ← affiche le spinner "Démarrage..." tout de suite
 
     const cId = `live_web_${Date.now()}`;
     setChannelId(cId);
 
-    const token = await fetchAgoraToken(cId, 0, 'PUBLISHER');
-    if (!token) { alert("Impossible d'obtenir le token Agora."); return; }
+    try {
+      const token = await fetchAgoraToken(cId, 0, 'PUBLISHER');
+      if (!token) throw new Error("Token Agora introuvable");
 
-    const AgoraRTC = window.AgoraRTC;
-    AgoraRTC.setLogLevel(3);
-    const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
-    agoraClientRef.current = client;
+      const AgoraRTC = window.AgoraRTC;
+      AgoraRTC.setLogLevel(3);
+      const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+      agoraClientRef.current = client;
 
-    client.on('user-published', async (user, mediaType) => {
-      await client.subscribe(user, mediaType);
-      if (mediaType === 'video') {
-        setTimeout(() => {
-          const el = remoteVideoRefs.current[user.uid];
-          if (el) user.videoTrack?.play(el);
-        }, 400);
-      }
-      if (mediaType === 'audio') user.audioTrack?.play();
-      setCoHosts(prev => {
-        const entry = Object.values(prev).find(c => c.agoraUid === user.uid);
-        if (!entry) return prev;
-        return { ...prev, [user.uid]: { ...entry, status: 'active' } };
+      client.on('user-published', async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+        if (mediaType === 'video') {
+          setTimeout(() => {
+            const el = remoteVideoRefs.current[user.uid];
+            if (el) user.videoTrack?.play(el);
+          }, 400);
+        }
+        if (mediaType === 'audio') user.audioTrack?.play();
+        setCoHosts(prev => {
+          const entry = Object.values(prev).find(c => c.agoraUid === user.uid);
+          if (!entry) return prev;
+          return { ...prev, [user.uid]: { ...entry, status: 'active' } };
+        });
       });
-    });
 
-    client.on('user-unpublished', (user) => {
-      setCoHosts(prev => { const n = { ...prev }; delete n[user.uid]; return n; });
-    });
+      client.on('user-unpublished', (user) => {
+        setCoHosts(prev => { const n = { ...prev }; delete n[user.uid]; return n; });
+      });
 
-    await client.setClientRole('host');
-    await client.join(AGORA_APP_ID, cId, token, 0);
+      await client.setClientRole('host');
+      await client.join(AGORA_APP_ID, cId, token, 0);
 
-    const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-      { encoderConfig: 'music_standard' },
-      { encoderConfig: { width: 1280, height: 720, frameRate: 30, bitrateMax: 2000 } }
-    );
-    localTrackRef.current = { audio: audioTrack, video: videoTrack };
-    await client.publish([audioTrack, videoTrack]);
+      // ── Contraintes caméra adaptées mobile ────────────────────
+      // Sur mobile, éviter des résolutions fixes qui font échouer
+      // createMicrophoneAndCameraTracks sur certains appareils
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      const videoConfig = isMobile
+        ? {
+            // Mobile : laisser le navigateur choisir la résolution
+            encoderConfig: {
+              width:       { ideal: 720 },
+              height:      { ideal: 1280 },
+              frameRate:   { ideal: 24, max: 30 },
+              bitrateMax:  1000,
+              facingMode:  'user', // caméra frontale par défaut
+            },
+          }
+        : {
+            encoderConfig: {
+              width: 1280, height: 720,
+              frameRate: 30, bitrateMax: 2000,
+            },
+          };
 
-    // ⚠️  On monte d'abord le DOM (setIsEngineReady → VideoLayout affiche le <div>)
-    // puis on joue la vidéo dans le useEffect ci-dessous qui surveille isEngineReady
-    setIsEngineReady(true);
-    setPhase('live');
-    if (isChinese) setTranslationActive(true);
+      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
+        { encoderConfig: 'music_standard' },
+        videoConfig
+      );
+      localTrackRef.current = { audio: audioTrack, video: videoTrack };
+      await client.publish([audioTrack, videoTrack]);
+
+      // ⚠️ setIsEngineReady(true) → VideoLayout monte le <div>
+      // → useEffect joue la vidéo locale une fois le div présent
+      setIsEngineReady(true);
+      if (isChinese) setTranslationActive(true);
+
+    } catch (err) {
+      console.error('❌ Erreur démarrage live:', err);
+      // Revenir à l'écran pré-live proprement
+      await _releaseAgora();
+      setPhase('pre');
+      setIsEngineReady(false);
+      setLiveProducts([]);
+      alert(`Erreur démarrage : ${err.message ?? err}`);
+      return;
+    }
 
     setTimeout(() => addComment('FriTok', `Canal : ${cId}`, 'fr'), 1500);
     // Demo co-host request (remplacer par listener Firestore en prod)
@@ -623,7 +663,12 @@ export default function GoLivePage() {
   return (
     <div style={{
       position: 'relative', width: '100%', maxWidth: 430,
-      margin: '0 auto', height: '100dvh', background: '#000',
+      margin: '0 auto',
+      // 100dvh ne fonctionne pas sur Safari iOS < 15.4
+      // Fallback : 100vh puis écrasé par dvh si supporté
+      height: '100vh',
+      minHeight: '-webkit-fill-available',
+      background: '#000',
       overflow: 'hidden', fontFamily: 'system-ui, sans-serif',
     }}>
       {/* Vidéo layout */}
@@ -899,10 +944,14 @@ function VideoLayout({ localVideoRef, remoteVideoRefs, activeCoHosts, onRemove, 
 function PreLiveScreen({ products, loading, userId, sellerLang, setSellerLang, sdkReady, onOpenSelector }) {
   return (
     <div style={{
-      minHeight: '100vh', background: '#0a0a0a',
+      minHeight: '100vh',
+      minHeight: '-webkit-fill-available',
+      background: '#0a0a0a',
       display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'system-ui, sans-serif', color: '#fff', padding: 24,
+      fontFamily: 'system-ui, sans-serif', color: '#fff',
+      padding: '24px 24px env(safe-area-inset-bottom, 24px)', // safe area iOS
+      boxSizing: 'border-box',
     }}>
       <div style={{ maxWidth: 440, width: '100%' }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
@@ -1337,4 +1386,3 @@ function BtnPri({ children, onClick, disabled, color }) {
     }}>{children}</button>
   );
 }
-
