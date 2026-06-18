@@ -15,7 +15,6 @@ import AppBanner from '../components/AppBanner';
 
 
 
-
 export default function Home() {
   return (
     <>

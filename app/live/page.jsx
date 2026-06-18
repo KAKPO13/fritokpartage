@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   collection, query, orderBy,
   onSnapshot, doc, updateDoc, increment,
-  addDoc, serverTimestamp,
+  addDoc, setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../../lib/firebaseClient';
@@ -12,7 +12,7 @@ import { useAgoraPlayer } from '../../lib/useAgoraPlayer';
 import styles from './live.module.css';
 
 /* ══════════════════════════════════════════════════════════
-   CONSTANTES LIVRAISON (copiées depuis shop.js)
+   CONSTANTES LIVRAISON
 ══════════════════════════════════════════════════════════ */
 const VILLES_CI = [
   'Abidjan','Bouaké','Daloa','Korhogo','Yamoussoukro','San-Pédro',
@@ -20,20 +20,16 @@ const VILLES_CI = [
   'Bondoukou','Mankono','Séguéla','Touba','Ferkessédougou','Katiola',
   'Agboville','Adzopé','Tiassalé','Lakota','Issia','Sassandra',
 ];
-
 const TARIFS = {
   'Abidjan': { 'Abidjan': 1500, 'Bouaké': 2500, default: 3000 },
   'Bouaké':  { 'Bouaké':  1500, 'Abidjan': 2500, default: 3500 },
   default:   { default: 3000 },
 };
-
 function getFrais(villeVendeur, villeClient, typeLivr) {
   const base = (TARIFS[villeVendeur] ?? TARIFS.default)[villeClient]
-            ?? (TARIFS[villeVendeur] ?? TARIFS.default).default
-            ?? 8000;
+            ?? (TARIFS[villeVendeur] ?? TARIFS.default).default ?? 8000;
   return typeLivr === 'groupee' ? Math.round(base * 0.8) : base;
 }
-
 const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' XOF';
 
 /* ══════════════════════════════════════════════════════════
@@ -65,14 +61,6 @@ function IconShare() {
       <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
       <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
       <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-    </svg>
-  );
-}
-function IconCart() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
-      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
     </svg>
   );
 }
@@ -132,6 +120,17 @@ function IconUserCheck() {
     </svg>
   );
 }
+// 🆕 Icône micro pour co-host
+function IconMic() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+      <line x1="12" y1="19" x2="12" y2="23"/>
+      <line x1="8" y1="23" x2="16" y2="23"/>
+    </svg>
+  );
+}
 
 /* ══════════════════════════════════════════════════════════
    PETITS COMPOSANTS
@@ -139,28 +138,19 @@ function IconUserCheck() {
 function FieldLabel({ text }) {
   return <p className={styles.fieldLabel}>{text}</p>;
 }
-
 function ToggleOpt({ label, sub, selected, onTap }) {
   return (
-    <button
-      className={selected ? styles.toggleSel : styles.toggleOpt}
-      onClick={onTap}
-    >
+    <button className={selected ? styles.toggleSel : styles.toggleOpt} onClick={onTap}>
       <span className={styles.toggleLabel}>{label}</span>
       <span className={styles.toggleSub}>{sub}</span>
     </button>
   );
 }
-
-function Spinner() {
-  return <span className={styles.spinnerSm}/>;
-}
-
+function Spinner() { return <span className={styles.spinnerSm}/>; }
 function Toast({ msg }) {
   if (!msg) return null;
   return <div className={styles.toast}>{msg}</div>;
 }
-
 function ChatBubble({ msg }) {
   return (
     <div className={styles.chatBubble}>
@@ -171,9 +161,164 @@ function ChatBubble({ msg }) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   MODAL : CONNEXION REQUISE (depuis shop.js AuthRequiredModal)
+   🆕 BOUTON CO-HOST — demande temps réel
+   Cycle : idle → pending → accepted | declined | removed
 ══════════════════════════════════════════════════════════ */
-function AuthRequiredModal({ onClose, onContinue }) {
+function CoHostButton({ session, authUser }) {
+  // coHostStatus : 'idle' | 'pending' | 'accepted' | 'declined' | 'removed'
+  const [coHostStatus, setCoHostStatus] = useState('idle');
+  const [agoraToken,   setAgoraToken]   = useState(null);
+  const unsubRef = useRef(null);
+
+  // Nettoyage listener au démontage
+  useEffect(() => () => { unsubRef.current?.(); }, []);
+
+  // Live non actif ou co-host désactivé → on n'affiche rien
+  if (!session.isLive || session.coHostEnabled === false) return null;
+  // Non connecté → on n'affiche rien (AuthRequiredModal géré par handleOrder)
+  if (!authUser) return null;
+  // Vendeur lui-même → pas de bouton
+  if (authUser.uid === session.sellerId) return null;
+
+  const channelId = session.channelId;
+  const uid       = authUser.uid;
+
+  // ── Envoyer la demande ────────────────────────────────────
+  const requestCoHost = async () => {
+    if (coHostStatus !== 'idle') return;
+    try {
+      // Écrire dans live_sessions/{channelId}/co_hosts/{uid}
+      // Le vendeur (GoLivePage) écoute cette sous-collection
+      await setDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
+        uid,
+        displayName: authUser.displayName || authUser.email?.split('@')[0] || 'Viewer',
+        avatarUrl:   authUser.photoURL ?? null,
+        agoraUid:    0,          // le vendeur génère l'uid Agora
+        status:      'pending',
+        requestedAt: serverTimestamp(),
+        token:       null,
+      });
+      setCoHostStatus('pending');
+
+      // ── Écouter la réponse du vendeur en temps réel ───────
+      unsubRef.current = onSnapshot(
+        doc(db, 'live_sessions', channelId, 'co_hosts', uid),
+        (snap) => {
+          if (!snap.exists()) {
+            setCoHostStatus('idle');
+            return;
+          }
+          const data   = snap.data();
+          const status = data.status;
+
+          if (status === 'active') {
+            // Vendeur a accepté → récupérer le token Agora
+            setAgoraToken(data.token ?? null);
+            setCoHostStatus('accepted');
+            unsubRef.current?.();
+          } else if (status === 'declined') {
+            setCoHostStatus('declined');
+            unsubRef.current?.();
+            // Remettre à idle après 3s
+            setTimeout(() => setCoHostStatus('idle'), 3000);
+          } else if (status === 'removed') {
+            setCoHostStatus('removed');
+            unsubRef.current?.();
+            setTimeout(() => setCoHostStatus('idle'), 3000);
+          }
+        },
+        (err) => console.warn('co_host listener:', err)
+      );
+    } catch (e) {
+      console.error('requestCoHost:', e);
+    }
+  };
+
+  // ── Annuler la demande ────────────────────────────────────
+  const cancelRequest = async () => {
+    try {
+      await deleteDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid));
+    } catch (_) {}
+    unsubRef.current?.();
+    setCoHostStatus('idle');
+  };
+
+  // ── Quitter la scène ──────────────────────────────────────
+  const leaveStage = async () => {
+    try {
+      await updateDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
+        status: 'removed', leftAt: serverTimestamp(),
+      });
+    } catch (_) {}
+    unsubRef.current?.();
+    setAgoraToken(null);
+    setCoHostStatus('idle');
+  };
+
+  // ── Rendu selon le statut ─────────────────────────────────
+  if (coHostStatus === 'idle') {
+    return (
+      <button onClick={requestCoHost} style={coHostBtnStyle('#7C3AED')}>
+        <IconMic/>
+        <span style={{ fontSize: 11, color: '#fff', marginTop: 2 }}>Sur scène</span>
+      </button>
+    );
+  }
+
+  if (coHostStatus === 'pending') {
+    return (
+      <button onClick={cancelRequest} style={coHostBtnStyle('#F97316')}>
+        <span style={{ fontSize: 18 }}>⏳</span>
+        <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Annuler</span>
+      </button>
+    );
+  }
+
+  if (coHostStatus === 'accepted') {
+    return (
+      <button onClick={leaveStage} style={coHostBtnStyle('#22C55E')}>
+        <span style={{ fontSize: 18 }}>🎙️</span>
+        <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Quitter</span>
+      </button>
+    );
+  }
+
+  if (coHostStatus === 'declined') {
+    return (
+      <div style={coHostBtnStyle('#EF4444', true)}>
+        <span style={{ fontSize: 15 }}>❌</span>
+        <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Refusé</span>
+      </div>
+    );
+  }
+
+  if (coHostStatus === 'removed') {
+    return (
+      <div style={coHostBtnStyle('#666', true)}>
+        <span style={{ fontSize: 15 }}>🚫</span>
+        <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Retiré</span>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function coHostBtnStyle(color, noClick = false) {
+  return {
+    background: 'none', border: 'none',
+    display: 'flex', flexDirection: 'column',
+    alignItems: 'center', gap: 1, padding: '5px 0',
+    cursor: noClick ? 'default' : 'pointer',
+    filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.6))',
+    position: 'relative',
+  };
+}
+
+/* ══════════════════════════════════════════════════════════
+   MODAL AUTH REQUISE
+══════════════════════════════════════════════════════════ */
+function AuthRequiredModal({ onClose }) {
   return (
     <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.modalSheet}>
@@ -181,18 +326,10 @@ function AuthRequiredModal({ onClose, onContinue }) {
         <div className={styles.authModalBody}>
           <div className={styles.authIconWrap}><IconLock/></div>
           <h2 className={styles.authTitle}>Connexion requise</h2>
-          <p className={styles.authSub}>
-            Connectez-vous pour passer une commande sur FriTok.
-          </p>
-          <a className={styles.authBtnPrimary} href="/login">
-            <IconUser/> Se connecter
-          </a>
-          <a className={styles.authBtnOutline} href="/register">
-            Créer un compte gratuit
-          </a>
-          <button className={styles.authSkip} onClick={onClose}>
-            Continuer à regarder
-          </button>
+          <p className={styles.authSub}>Connectez-vous pour passer une commande sur FriTok.</p>
+          <a className={styles.authBtnPrimary} href="/login"><IconUser/> Se connecter</a>
+          <a className={styles.authBtnOutline} href="/register">Créer un compte gratuit</a>
+          <button className={styles.authSkip} onClick={onClose}>Continuer à regarder</button>
         </div>
       </div>
     </div>
@@ -200,40 +337,33 @@ function AuthRequiredModal({ onClose, onContinue }) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   MODAL : COMMANDE + LIVRAISON (depuis shop.js OrderModal)
+   MODAL COMMANDE
 ══════════════════════════════════════════════════════════ */
 function OrderModal({ product, sellerId, authUser, onClose }) {
-  const [step,        setStep]        = useState('form');
-  const [telephone,   setTelephone]   = useState(authUser?.phoneNumber ?? '');
-  const [adresse,     setAdresse]     = useState('');
-  const [villeClient, setVilleClient] = useState('');
-  const [typeLivr,    setTypeLivr]    = useState('solo');
-  const [modePaiem,   setModePaiem]   = useState('livraison');
-  const [locLoading,  setLocLoading]  = useState(false);
-  const [gpsCoords,   setGpsCoords]   = useState(null);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [errors,      setErrors]      = useState({});
-  const [commandeId,  setCommandeId]  = useState(null);
-  const [qrData,      setQrData]      = useState(null);
-  const [toast,       setToast]       = useState(null);
+  const [step,       setStep]       = useState('form');
+  const [telephone,  setTelephone]  = useState(authUser?.phoneNumber ?? '');
+  const [adresse,    setAdresse]    = useState('');
+  const [villeClient,setVilleClient]= useState('');
+  const [typeLivr,   setTypeLivr]   = useState('solo');
+  const [modePaiem,  setModePaiem]  = useState('livraison');
+  const [locLoading, setLocLoading] = useState(false);
+  const [gpsCoords,  setGpsCoords]  = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [errors,     setErrors]     = useState({});
+  const [commandeId, setCommandeId] = useState(null);
+  const [qrData,     setQrData]     = useState(null);
+  const [toast,      setToast]      = useState(null);
 
   const prix     = Number(product?.price ?? 0);
   const fraisXof = villeClient ? getFrais('Abidjan', villeClient, typeLivr) : 0;
   const totalXof = prix + fraisXof;
 
-  const showToast = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
 
   const localiser = () => {
     setLocLoading(true);
     navigator.geolocation.getCurrentPosition(
-      pos => {
-        setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        showToast('Position capturée !');
-        setLocLoading(false);
-      },
+      pos => { setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); showToast('Position capturée !'); setLocLoading(false); },
       err => { showToast('GPS refusé : ' + err.message); setLocLoading(false); },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -243,8 +373,8 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
     const e = {};
     const digits = telephone.replace(/\D/g, '');
     if (!digits || digits.length < 8) e.telephone = 'Numéro invalide (min 8 chiffres)';
-    if (!adresse.trim())               e.adresse   = 'Adresse obligatoire';
-    if (!villeClient)                  e.ville     = 'Choisissez une ville';
+    if (!adresse.trim())              e.adresse   = 'Adresse obligatoire';
+    if (!villeClient)                 e.ville     = 'Choisissez une ville';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -254,7 +384,6 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
     setSubmitting(true);
     try {
       const codeVerification = String(Math.floor(100000 + Math.random() * 900000));
-
       const articles = [{
         boutiqueId  : sellerId,
         imageUrl    : product?.image ?? product?.thumbnail ?? '',
@@ -263,73 +392,38 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
         ref_article : product?.productId ?? product?.refArticle ?? '',
         userIdVend  : sellerId,
       }];
-
       const refArticles = [product?.productId ?? product?.refArticle ?? ''];
-
       const payload = {
-        clientId         : authUser?.uid ?? null,
-        userIdVend       : sellerId,
-        articles,
-        refArticles,
-        adresse          : adresse.trim(),
-        villeDepart      : 'Abidjan',
-        villeDestination : villeClient,
-        typeLivraison    : typeLivr,
-        telephoneClient  : telephone.trim(),
-        clientLat        : gpsCoords?.lat ?? null,
-        clientLng        : gpsCoords?.lng ?? null,
-        latLivraison     : null,
-        lngLivraison     : null,
-        fraisLivraison   : fraisXof,
-        totalXof,
-        totalDevise      : totalXof,
-        devise           : 'XOF',
-        modePaiement     : modePaiem === 'immediat' ? 'enLigne' : 'aLaLivraison',
-        transactionId    : null,
-        livreurId        : null,
-        livreur          : null,
-        batchId          : null,
-        statut           : 'en_attente',
-        codeVerification,
-        source           : 'live_shop',
+        clientId: authUser?.uid ?? null, userIdVend: sellerId,
+        articles, refArticles,
+        adresse: adresse.trim(), villeDepart: 'Abidjan',
+        villeDestination: villeClient, typeLivraison: typeLivr,
+        telephoneClient: telephone.trim(),
+        clientLat: gpsCoords?.lat ?? null, clientLng: gpsCoords?.lng ?? null,
+        latLivraison: null, lngLivraison: null,
+        fraisLivraison: fraisXof, totalXof, totalDevise: totalXof, devise: 'XOF',
+        modePaiement: modePaiem === 'immediat' ? 'enLigne' : 'aLaLivraison',
+        transactionId: null, livreurId: null, livreur: null, batchId: null,
+        statut: 'en_attente', codeVerification, source: 'live_shop',
         extraData: {
-          clientLat        : gpsCoords?.lat ?? null,
-          clientLng        : gpsCoords?.lng ?? null,
-          devise           : 'XOF',
-          fraisLivraison   : fraisXof,
-          refArticles,
-          telephoneClient  : telephone.trim(),
-          userIdVend       : sellerId,
-          villeDepart      : 'Abidjan',
-          villeDestination : villeClient,
+          clientLat: gpsCoords?.lat ?? null, clientLng: gpsCoords?.lng ?? null,
+          devise: 'XOF', fraisLivraison: fraisXof, refArticles,
+          telephoneClient: telephone.trim(), userIdVend: sellerId,
+          villeDepart: 'Abidjan', villeDestination: villeClient,
         },
-        createdAt        : serverTimestamp(),
-        updatedAt        : null,
-        collecteValideeAt: null,
+        createdAt: serverTimestamp(), updatedAt: null, collecteValideeAt: null,
       };
-
       const docRef = await addDoc(collection(db, 'commandes'), payload);
-      const cId    = docRef.id;
-
+      const cId = docRef.id;
       const qrPayload = JSON.stringify({
-        commandeId : cId,
-        userIdVend : sellerId,
-        client     : telephone.trim(),
-        adresse    : adresse.trim(),
+        commandeId: cId, userIdVend: sellerId, client: telephone.trim(),
+        adresse: adresse.trim(),
         ...(gpsCoords ? { lat: gpsCoords.lat.toFixed(6), lng: gpsCoords.lng.toFixed(6) } : {}),
-        total      : fmt(totalXof),
-        ts         : Date.now(),
+        total: fmt(totalXof), ts: Date.now(),
       });
-
-      setCommandeId(cId);
-      setQrData(qrPayload);
-      setStep('qr');
-
-    } catch (e) {
-      showToast('Erreur : ' + e.message);
-    } finally {
-      setSubmitting(false);
-    }
+      setCommandeId(cId); setQrData(qrPayload); setStep('qr');
+    } catch (e) { showToast('Erreur : ' + e.message); }
+    finally { setSubmitting(false); }
   };
 
   if (!product) return null;
@@ -338,158 +432,97 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
     <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.modalSheet}>
         <div className={styles.modalHandle}/>
-
         <div className={styles.modalHeader}>
           <div>
-            <p className={styles.modalTitle}>
-              {step === 'qr' ? 'Commande confirmée' : 'Commander avec livraison'}
-            </p>
+            <p className={styles.modalTitle}>{step === 'qr' ? 'Commande confirmée' : 'Commander avec livraison'}</p>
             <p className={styles.modalSub}>{product?.name ?? ''}</p>
           </div>
           <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
         </div>
-
-        {/* Badge utilisateur connecté */}
         {step === 'form' && authUser && (
-          <div className={styles.authBadge}>
-            <IconUserCheck/>
-            <span>Connecté : <strong>{authUser.email}</strong></span>
-          </div>
+          <div className={styles.authBadge}><IconUserCheck/><span>Connecté : <strong>{authUser.email}</strong></span></div>
         )}
-
         {step === 'form' && (
           <div className={styles.modalBody}>
-
-            {/* Récap produit */}
             <div className={styles.recapCard}>
-              {(product?.image || product?.thumbnail) && (
-                <img className={styles.recapImg} src={product.image || product.thumbnail} alt=""/>
-              )}
+              {(product?.image || product?.thumbnail) && <img className={styles.recapImg} src={product.image || product.thumbnail} alt=""/>}
               <div className={styles.recapInfo}>
                 <p className={styles.recapName}>{product?.name}</p>
                 <p className={styles.recapPrice}>{fmt(prix)}</p>
               </div>
             </div>
-
-            {/* Type livraison */}
             <FieldLabel text="TYPE DE LIVRAISON"/>
             <div className={styles.toggleRow}>
               <ToggleOpt label="Solo"    sub="Livreur dédié"    selected={typeLivr === 'solo'}    onTap={() => setTypeLivr('solo')}/>
               <ToggleOpt label="Groupée" sub="Tournée partagée" selected={typeLivr === 'groupee'} onTap={() => setTypeLivr('groupee')}/>
             </div>
-
-            {/* Mode paiement */}
             <FieldLabel text="MODE DE PAIEMENT"/>
             <div className={styles.toggleRow}>
               <ToggleOpt label="À la livraison" sub="Cash"               selected={modePaiem === 'livraison'} onTap={() => setModePaiem('livraison')}/>
               <ToggleOpt label="En ligne"        sub="Paiement sécurisé" selected={modePaiem === 'immediat'}  onTap={() => setModePaiem('immediat')}/>
             </div>
-
-            {/* Téléphone */}
             <FieldLabel text="TÉLÉPHONE DE CONTACT"/>
-            <input
-              className={`${styles.formInput}${errors.telephone ? ' ' + styles.inputErr : ''}`}
+            <input className={`${styles.formInput}${errors.telephone ? ' ' + styles.inputErr : ''}`}
               type="tel" placeholder="07 XX XX XX XX"
-              value={telephone} onChange={e => setTelephone(e.target.value)}
-            />
+              value={telephone} onChange={e => setTelephone(e.target.value)}/>
             {errors.telephone && <p className={styles.errMsg}>{errors.telephone}</p>}
-
-            {/* Ville */}
             <FieldLabel text="VILLE DE LIVRAISON"/>
-            <select
-              className={`${styles.formInput}${errors.ville ? ' ' + styles.inputErr : ''}`}
-              value={villeClient} onChange={e => setVilleClient(e.target.value)}
-            >
+            <select className={`${styles.formInput}${errors.ville ? ' ' + styles.inputErr : ''}`}
+              value={villeClient} onChange={e => setVilleClient(e.target.value)}>
               <option value="">Sélectionnez votre ville…</option>
               {VILLES_CI.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             {errors.ville && <p className={styles.errMsg}>{errors.ville}</p>}
-
-            {/* Récap frais */}
             {villeClient && (
               <div className={styles.fraisCard}>
                 <div className={styles.fraisRow}><span>Articles</span><span>{fmt(prix)}</span></div>
-                <div className={styles.fraisRow}>
-                  <span>Livraison{typeLivr === 'groupee' ? ' (-20%)' : ''}</span>
-                  <span>{fmt(fraisXof)}</span>
-                </div>
+                <div className={styles.fraisRow}><span>Livraison{typeLivr === 'groupee' ? ' (-20%)' : ''}</span><span>{fmt(fraisXof)}</span></div>
                 <div className={styles.fraisDivider}/>
-                <div className={`${styles.fraisRow} ${styles.fraisTotal}`}>
-                  <span>Total</span><span>{fmt(totalXof)}</span>
-                </div>
+                <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{fmt(totalXof)}</span></div>
               </div>
             )}
-
-            {/* Adresse */}
             <FieldLabel text="ADRESSE DE LIVRAISON"/>
-            <textarea
-              className={`${styles.formInput} ${styles.formTextarea}${errors.adresse ? ' ' + styles.inputErr : ''}`}
+            <textarea className={`${styles.formInput} ${styles.formTextarea}${errors.adresse ? ' ' + styles.inputErr : ''}`}
               placeholder="Quartier, rue, point de repère…"
-              value={adresse} onChange={e => setAdresse(e.target.value)} rows={2}
-            />
+              value={adresse} onChange={e => setAdresse(e.target.value)} rows={2}/>
             {errors.adresse && <p className={styles.errMsg}>{errors.adresse}</p>}
-
-            {/* GPS */}
-            <button
-              className={`${styles.locBtn}${gpsCoords ? ' ' + styles.locOk : ''}`}
-              onClick={localiser} disabled={locLoading}
-            >
-              {locLoading
-                ? <Spinner/>
-                : gpsCoords
-                  ? `${gpsCoords.lat.toFixed(4)}, ${gpsCoords.lng.toFixed(4)}`
-                  : <><IconPin/> Localiser mon adresse</>
-              }
+            <button className={`${styles.locBtn}${gpsCoords ? ' ' + styles.locOk : ''}`}
+              onClick={localiser} disabled={locLoading}>
+              {locLoading ? <Spinner/> : gpsCoords
+                ? `${gpsCoords.lat.toFixed(4)}, ${gpsCoords.lng.toFixed(4)}`
+                : <><IconPin/> Localiser mon adresse</>}
             </button>
-
-            {/* Confirmer */}
             <button className={styles.confirmBtn} onClick={confirmer} disabled={submitting}>
-              {submitting
-                ? <Spinner/>
-                : modePaiem === 'immediat'
-                  ? `Payer ${fmt(totalXof)}`
-                  : 'Commander — payer à la livraison'
-              }
+              {submitting ? <Spinner/> : modePaiem === 'immediat' ? `Payer ${fmt(totalXof)}` : 'Commander — payer à la livraison'}
             </button>
           </div>
         )}
-
-        {/* ── QR CODE ── */}
         {step === 'qr' && commandeId && (
           <div className={`${styles.modalBody} ${styles.qrStep}`}>
             <p className={styles.qrHint}>Le livreur scannera ce code pour récupérer votre commande</p>
             <div className={styles.qrWrap}>
-              <img
-                className={styles.qrImg}
+              <img className={styles.qrImg}
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrData)}`}
-                alt="QR commande"
-              />
+                alt="QR commande"/>
             </div>
-            <div className={styles.cidCard} onClick={() => {
-              navigator.clipboard?.writeText(commandeId);
-              showToast('ID copié !');
-            }}>
+            <div className={styles.cidCard} onClick={() => { navigator.clipboard?.writeText(commandeId); showToast('ID copié !'); }}>
               <span className={styles.cidLabel}>Commande #</span>
               <span className={styles.cidValue}>{commandeId}</span>
               <IconCopy/>
             </div>
-            {gpsCoords && (
-              <p className={styles.gpsTag}>{gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}</p>
-            )}
+            {gpsCoords && <p className={styles.gpsTag}>{gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}</p>}
             <div className={styles.fraisCard} style={{ width: '100%' }}>
               <div className={styles.fraisRow}><span>{product?.name}</span><span>{fmt(prix)}</span></div>
               <div className={styles.fraisRow}><span>Livraison {villeClient}</span><span>{fmt(fraisXof)}</span></div>
               <div className={styles.fraisDivider}/>
               <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{fmt(totalXof)}</span></div>
               <div className={styles.fraisRow} style={{ opacity: 0.65, fontSize: '.75rem', marginTop: 6 }}>
-                <span>Paiement</span>
-                <span>{modePaiem === 'immediat' ? 'En ligne' : 'À la livraison'}</span>
+                <span>Paiement</span><span>{modePaiem === 'immediat' ? 'En ligne' : 'À la livraison'}</span>
               </div>
             </div>
             <button className={styles.confirmBtn} onClick={onClose}>Fermer</button>
           </div>
         )}
-
         <Toast msg={toast}/>
       </div>
     </div>
@@ -511,17 +544,17 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
   const { videoContainerRef, remoteUsers, status, error: agoraError } =
     useAgoraPlayer(session.channelId, session.isLive);
 
-  const [liked,        setLiked]        = useState(false);
-  const [likeCount,    setLikeCount]    = useState(session.likeCount ?? 0);
-  const [activeProduct,setActiveProduct]= useState(session.products?.[0] ?? null);
-  const [messages,     setMessages]     = useState([]);
-  const [inputMsg,     setInputMsg]     = useState('');
-  const [orderProduct, setOrderProduct] = useState(null);  // → ouvre OrderModal
-  const [authPrompt,   setAuthPrompt]   = useState(false); // → ouvre AuthRequiredModal
+  const [liked,         setLiked]         = useState(false);
+  const [likeCount,     setLikeCount]     = useState(session.likeCount ?? 0);
+  const [activeProduct, setActiveProduct] = useState(session.products?.[0] ?? null);
+  const [messages,      setMessages]      = useState([]);
+  const [inputMsg,      setInputMsg]      = useState('');
+  const [orderProduct,  setOrderProduct]  = useState(null);
+  const [authPrompt,    setAuthPrompt]    = useState(false);
   const chatRef  = useRef(null);
   const msgIdRef = useRef(10);
 
-  // Simulated chat
+  // Chat demo
   useEffect(() => {
     setMessages(DEMO_CHAT.slice(0, 2));
     const timers = DEMO_CHAT.slice(2).map((m, i) =>
@@ -534,14 +567,9 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
-  // Clic Commander — même logique que shop.js handleOrder
   const handleOrder = (product) => {
     if (!authReady) return;
-    if (!authUser) {
-      setAuthPrompt(true);
-    } else {
-      setOrderProduct(product);
-    }
+    if (!authUser) { setAuthPrompt(true); } else { setOrderProduct(product); }
   };
 
   const handleLike = async () => {
@@ -607,13 +635,12 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
         <div className={styles.playerHeaderRight}>
           {session.isLive
             ? <span className={styles.liveIndicator}>LIVE</span>
-            : <span className={styles.replayLabel}>TERMINÉ</span>
-          }
+            : <span className={styles.replayLabel}>TERMINÉ</span>}
           <button className={styles.closeBtn} onClick={onClose}><IconClose/></button>
         </div>
       </div>
 
-      {/* Actions droite */}
+      {/* ── Actions droite — avec bouton co-host 🆕 ── */}
       <div className={styles.playerActions}>
         <button className={styles.playerActionBtn} onClick={handleLike}>
           <IconHeart filled={liked}/>
@@ -626,6 +653,9 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
         <button className={styles.playerActionBtn}>
           <IconShare/>
         </button>
+
+        {/* 🆕 Bouton co-host — temps réel Firestore */}
+        <CoHostButton session={session} authUser={authUser} />
       </div>
 
       {/* Chat */}
@@ -633,17 +663,15 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
         {messages.map(m => <ChatBubble key={m.id} msg={m}/>)}
       </div>
       <div className={styles.chatInput}>
-        <input
-          className={styles.chatField}
+        <input className={styles.chatField}
           placeholder="Écrire un commentaire…"
           value={inputMsg}
           onChange={e => setInputMsg(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && sendMessage()}
-        />
+          onKeyDown={e => e.key === 'Enter' && sendMessage()}/>
         <button className={styles.chatSend} onClick={sendMessage}>↑</button>
       </div>
 
-      {/* Carousel produits avec bouton Commander sur chaque tuile */}
+      {/* Carousel produits */}
       {products.length > 0 && (
         <div className={styles.productCarousel}>
           <div className={styles.carouselLabel}>Produits ({products.length})</div>
@@ -659,12 +687,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
                   </div>
                   <span className={styles.carouselName}>{p.name}</span>
                   <span className={styles.carouselPrice}>{Number(p.price).toLocaleString('fr-FR')} F</span>
-                  <button
-                    className={styles.carouselOrderBtn}
-                    onClick={() => handleOrder(p)}
-                  >
-                    Commander
-                  </button>
+                  <button className={styles.carouselOrderBtn} onClick={() => handleOrder(p)}>Commander</button>
                 </div>
               );
             })}
@@ -672,15 +695,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
         </div>
       )}
 
-      {/* Modal connexion requise */}
-      {authPrompt && (
-        <AuthRequiredModal
-          onClose={() => setAuthPrompt(false)}
-          onContinue={() => setAuthPrompt(false)}
-        />
-      )}
-
-      {/* Modal commande + livraison */}
+      {authPrompt && <AuthRequiredModal onClose={() => setAuthPrompt(false)}/>}
       {orderProduct && (
         <OrderModal
           product={orderProduct}
@@ -694,7 +709,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   LIVE CARD (liste)
+   LIVE CARD
 ══════════════════════════════════════════════════════════ */
 const GRADIENTS = [
   'linear-gradient(135deg,#1e3a5f,#0d1b2a)',
@@ -717,8 +732,7 @@ function LiveCard({ session, onSelect }) {
         )}
         {session.isLive
           ? <span className={styles.liveBadge}>LIVE</span>
-          : <span className={styles.replayBadge}>REPLAY</span>
-        }
+          : <span className={styles.replayBadge}>REPLAY</span>}
         <span className={styles.viewerBadge}><IconEye/> {session.viewerCount ?? 0}</span>
       </div>
       <div className={styles.liveInfo}>
@@ -729,10 +743,7 @@ function LiveCard({ session, onSelect }) {
             {session.products?.length ?? 0} produit{session.products?.length !== 1 ? 's' : ''}
           </div>
         </div>
-        <div className={styles.liveLikes}>
-          <IconHeart filled={false}/>
-          <span>{session.likeCount ?? 0}</span>
-        </div>
+        <div className={styles.liveLikes}><IconHeart filled={false}/><span>{session.likeCount ?? 0}</span></div>
       </div>
     </div>
   );
@@ -766,8 +777,6 @@ export default function LivePage() {
   const [error,     setError]     = useState(null);
   const [selected,  setSelected]  = useState(null);
   const [filter,    setFilter]    = useState('all');
-
-  // Auth state — même pattern que shop.js
   const [authUser,  setAuthUser]  = useState(null);
   const [authReady, setAuthReady] = useState(false);
 
@@ -779,7 +788,6 @@ export default function LivePage() {
     return unsub;
   }, []);
 
-  // Firestore live_sessions
   useEffect(() => {
     const q = query(collection(db, 'live_sessions'), orderBy('startedAt', 'desc'));
     const unsub = onSnapshot(q,
@@ -839,8 +847,7 @@ export default function LivePage() {
         {loading && <Skeleton/>}
         {error && (
           <div className={styles.errorBox}>
-            <p>{error}</p>
-            <a href="/" className={styles.errorBack}>Retour</a>
+            <p>{error}</p><a href="/" className={styles.errorBack}>Retour</a>
           </div>
         )}
         {!loading && !error && filtered.length === 0 && (
@@ -848,9 +855,7 @@ export default function LivePage() {
         )}
         {!loading && !error && filtered.length > 0 && (
           <div className={styles.grid}>
-            {filtered.map(s => (
-              <LiveCard key={s.id} session={s} onSelect={setSelected}/>
-            ))}
+            {filtered.map(s => <LiveCard key={s.id} session={s} onSelect={setSelected}/>)}
           </div>
         )}
       </div>
