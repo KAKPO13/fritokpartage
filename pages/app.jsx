@@ -631,11 +631,12 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
           [devise]: toNum(oldFrais[devise]) + fraisDevise,
         };
 
-        await updateDoc(escrowRef, {
+        // setDoc merge: crée les champs s'ils n'existent pas, met à jour sinon
+        await setDoc(escrowRef, {
           totalCaution: newTotal,
           totalFrais  : newFrais,
           updatedAt   : serverTimestamp(),
-        });
+        }, { merge: true });
 
         // Libère le power bank
         await updateDoc(doc(db, 'powerBanks', pbData.docId), {
@@ -917,10 +918,10 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
         [devise]: Math.max(0, toNum(oldTotal2[devise]) - cautionDev),
       };
 
-      await updateDoc(escrowRef2, {
+      await setDoc(escrowRef2, {
         totalCaution: newTotal2,
         updatedAt   : serverTimestamp(),
-      });
+      }, { merge: true });
 
       // 4. Libérer le power bank
       if (r.qrCode) {
