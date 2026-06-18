@@ -42,7 +42,7 @@ const CAUTION_XOF = 200;
 
 // ── Compte Escrow Fritok ──────────────────────────────────────────────────────
 // Collection "users", document uid = "escrow_fritok"
-// Schéma : { solde:{XOF,GHS,NGN}, cautionEnAttente, displayName, email, role }
+// Schéma : { solde:{XOF,GHS,NGN}, cautionEnAttente:{XOF,GHS,NGN}, displayName, email, role }
 const ESCROW_UID = 'escrow_fritok';
 
 // ─── Leaflet (SSR disabled) ──────────────────────────────────────────────────
@@ -606,7 +606,7 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
         // Crédite l'Escrow Fritok : caution bloquée jusqu'à la restitution
         await updateDoc(doc(db, 'users', ESCROW_UID), {
           [`solde.${devise}`] : increment(cautionDevise),
-          cautionEnAttente    : increment(cautionDevise),
+          [`cautionEnAttente.${devise}`] : increment(cautionDevise),
           updatedAt           : serverTimestamp(),
         });
 
@@ -877,7 +877,7 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
       // 3. Débiter l'Escrow Fritok (caution libérée)
       await updateDoc(doc(db, 'users', ESCROW_UID), {
         [`solde.${devise}`] : increment(-cautionDev),
-        cautionEnAttente    : increment(-cautionDev),
+        [`cautionEnAttente.${devise}`] : increment(-cautionDev),
         updatedAt           : serverTimestamp(),
       });
 
