@@ -3,7 +3,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { db, auth } from '../lib/firebaseClient';
 import {
-  collection, query, where, onSnapshot,
+  collection, doc, query, where,
+  onSnapshot, setDoc, updateDoc,
+  serverTimestamp, increment, deleteDoc,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -365,15 +367,88 @@ export default function GoLivePage() {
   }, [phase]);
 
   // ──────────────────────────────────────────────────────────
-  // 5. Audience simulée
+  // 5. Listeners Firestore temps réel (viewers + commentaires)
+  //    Miroir _listenViewers + _registerViewer Flutter
   // ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (phase !== 'live') return;
-    viewerTimerRef.current = setInterval(
-      () => setViewerCount(v => v + Math.floor(Math.random() * 3)), 5000
+    if (phase !== 'live' || !channelId) return;
+
+    // ── Enregistrer le vendeur comme viewer ───────────────────
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      setDoc(doc(db, 'live_sessions', channelId, 'viewers', uid), {
+        joinedAt: serverTimestamp(),
+        role:     'host',
+      }).catch(() => {});
+
+      // Incrémenter viewerCount dans le doc principal
+      updateDoc(doc(db, 'live_sessions', channelId), {
+        viewerCount: increment(1),
+      }).catch(() => {});
+    }
+
+    // ── Écouter la sous-collection viewers (compte en temps réel) ──
+    const unsubViewers = onSnapshot(
+      collection(db, 'live_sessions', channelId, 'viewers'),
+      snap => setViewerCount(snap.docs.length),
+      err  => console.warn('viewers listener:', err)
     );
-    return () => clearInterval(viewerTimerRef.current);
-  }, [phase]);
+
+    // ── Écouter les commentaires live en temps réel ───────────
+    const unsubComments = onSnapshot(
+      query(
+        collection(db, 'live_comments'),
+        where('channelId', '==', channelId)
+      ),
+      snap => {
+        const docs = snap.docs.map(d => ({
+          id:     d.id,
+          sender: d.data().sender ?? '?',
+          text:   d.data().textFr ?? d.data().text ?? '',
+          lang:   d.data().lang   ?? 'fr',
+        }));
+        // Trier par timestamp si disponible, sinon garder l'ordre Firestore
+        setComments(docs.sort((a, b) =>
+          (a.time ?? 0) - (b.time ?? 0)
+        ));
+      },
+      err => console.warn('comments listener:', err)
+    );
+
+    // ── Écouter les demandes co-host (status = pending) ───────
+    const unsubCoHost = onSnapshot(
+      query(
+        collection(db, 'live_sessions', channelId, 'co_hosts'),
+        where('status', '==', 'pending')
+      ),
+      snap => {
+        snap.docChanges().forEach(change => {
+          if (change.type === 'added') {
+            const d = change.doc.data();
+            setPendingRequest({
+              uid:         change.doc.id,
+              displayName: d.displayName ?? 'Viewer',
+              avatarUrl:   d.avatarUrl   ?? null,
+            });
+          }
+        });
+      },
+      err => console.warn('co_hosts listener:', err)
+    );
+
+    return () => {
+      unsubViewers();
+      unsubComments();
+      unsubCoHost();
+      // Retirer le viewer du compteur à la déconnexion
+      if (uid) {
+        deleteDoc(doc(db, 'live_sessions', channelId, 'viewers', uid)).catch(() => {});
+        updateDoc(doc(db, 'live_sessions', channelId), {
+          viewerCount: increment(-1),
+        }).catch(() => {});
+      }
+    };
+  }, [phase, channelId]);
 
   // ──────────────────────────────────────────────────────────
   // 6. Jouer la vidéo locale dès que le <div> est monté
@@ -439,7 +514,6 @@ export default function GoLivePage() {
   // ──────────────────────────────────────────────────────────
   useEffect(() => () => {
     _releaseAgora();
-    clearInterval(viewerTimerRef.current);
     clearInterval(liveTimerRef.current);
   }, []);
 
@@ -561,6 +635,43 @@ export default function GoLivePage() {
       setIsEngineReady(true);
       if (isChinese) setTranslationActive(true);
 
+      // ── Créer le document live_sessions dans Firestore ────────
+      // Miroir exact de _createLiveSession() Flutter
+      try {
+        const user = auth.currentUser;
+        const productsData = products.map(p => ({
+          refArticle: p.refArticle,
+          name:       p.name,
+          price:      p.price,
+          image:      p.imageUrl ?? '',
+          description:p.description ?? '',
+          productId:  p.productId,
+          boutiqueId: p.boutiqueId,
+        }));
+
+        await setDoc(doc(db, 'live_sessions', cId), {
+          channelId:          cId,
+          sellerId:           user?.uid ?? '',
+          sellerName:         user?.displayName ?? '',
+          sellerAvatar:       user?.photoURL ?? null,
+          sellerLanguage:     isChinese ? 'zh' : 'fr',
+          translationEnabled: isChinese,
+          coHostEnabled:      true,
+          maxCoHosts:         MAX_COHOSTS,
+          products:           productsData,
+          isLive:             true,
+          startedAt:          serverTimestamp(),
+          viewerCount:        1,
+          likeCount:          0,
+          giftCount:          0,
+          engagementScore:    0,
+        });
+        console.log('✅ live_sessions créé :', cId);
+      } catch (fsErr) {
+        // Non bloquant : le live continue même si Firestore échoue
+        console.warn('⚠️ Firestore live_sessions:', fsErr);
+      }
+
     } catch (err) {
       console.error('❌ Erreur démarrage live:', err);
       // Revenir à l'écran pré-live proprement
@@ -572,26 +683,42 @@ export default function GoLivePage() {
       return;
     }
 
-    setTimeout(() => addComment('FriTok', `Canal : ${cId}`, 'fr'), 1500);
+    setTimeout(() => addComment('FriTok', `Live démarré 🎉`, 'fr'), 1500);
     // Demo co-host request (remplacer par listener Firestore en prod)
     setTimeout(() => setPendingRequest({ uid: 'viewer-demo', displayName: 'Kadiatou S.' }), 12000);
   }, [sdkLoaded, isChinese]);
 
   // ──────────────────────────────────────────────────────────
-  // ⏹ END LIVE
+  // ──────────────────────────────────────────────────────────
+  // ⏹ END LIVE — miroir _endLive + _endLiveSession Flutter
   // ──────────────────────────────────────────────────────────
   const endLive = useCallback(async () => {
     setIsEnding(true);
-    clearInterval(viewerTimerRef.current);
     clearInterval(liveTimerRef.current);
     await _releaseAgora();
+
+    // Marquer isLive: false dans Firestore (miroir _endLiveSession)
+    if (channelId) {
+      try {
+        await updateDoc(doc(db, 'live_sessions', channelId), {
+          isLive:    false,
+          endedAt:   serverTimestamp(),
+        });
+        // Supprimer le viewer courant (miroir Flutter)
+        const uid = auth.currentUser?.uid;
+        if (uid) {
+          await deleteDoc(doc(db, 'live_sessions', channelId, 'viewers', uid));
+        }
+      } catch (e) { console.warn('⚠️ Firestore endLive:', e); }
+    }
+
     setPhase('ended');
     setIsEnding(false);
     setShowEndDlg(false);
     setCoHosts({});
     setPendingRequest(null);
     setIsEngineReady(false);
-  }, []);
+  }, [channelId]);
 
   async function _releaseAgora() {
     try {
@@ -607,6 +734,20 @@ export default function GoLivePage() {
   }
 
   // ──────────────────────────────────────────────────────────
+  // 📊 UPDATE ENGAGEMENT — miroir _updateEngagement Flutter
+  // ──────────────────────────────────────────────────────────
+  const _updateEngagement = useCallback(async (newLike, newGift) => {
+    if (!channelId) return;
+    try {
+      await updateDoc(doc(db, 'live_sessions', channelId), {
+        likeCount:       newLike,
+        giftCount:       newGift,
+        engagementScore: newLike + newGift + viewerCount,
+      });
+    } catch (e) { console.warn('⚠️ updateEngagement:', e); }
+  }, [channelId, viewerCount]);
+
+  // ──────────────────────────────────────────────────────────
   // 👥 CO-HOSTS
   // ──────────────────────────────────────────────────────────
   const acceptCoHost = async (coHost) => {
@@ -617,6 +758,23 @@ export default function GoLivePage() {
       [...coHost.uid].reduce((a, c) => Math.imul(31, a) + c.charCodeAt(0) | 0, 0)
     ) % 100000 + 1000;
     const token = await fetchAgoraToken(channelId, agoraUid, 'PUBLISHER');
+
+    // Écrire dans Firestore — le viewer lit ça et rejoint en broadcaster
+    if (channelId) {
+      try {
+        await setDoc(
+          doc(db, 'live_sessions', channelId, 'co_hosts', coHost.uid),
+          {
+            status:      'active',
+            agoraUid,
+            token,
+            displayName: coHost.displayName,
+            acceptedAt:  serverTimestamp(),
+          }
+        );
+      } catch (e) { console.warn('⚠️ co_hosts Firestore:', e); }
+    }
+
     setCoHosts(prev => ({
       ...prev,
       [agoraUid]: { uid: coHost.uid, displayName: coHost.displayName, agoraUid, status: 'active', token },
@@ -625,8 +783,28 @@ export default function GoLivePage() {
     addComment('🎙️', `${coHost.displayName} a rejoint la scène`, 'fr');
   };
 
-  const declineCoHost = () => setPendingRequest(null);
-  const removeCoHost  = (agoraUid) => {
+  const declineCoHost = async () => {
+    if (channelId && pendingRequest) {
+      try {
+        await updateDoc(
+          doc(db, 'live_sessions', channelId, 'co_hosts', pendingRequest.uid),
+          { status: 'declined' }
+        );
+      } catch (_) {}
+    }
+    setPendingRequest(null);
+  };
+
+  const removeCoHost = async (agoraUid) => {
+    const coHost = coHosts[agoraUid];
+    if (channelId && coHost) {
+      try {
+        await updateDoc(
+          doc(db, 'live_sessions', channelId, 'co_hosts', coHost.uid),
+          { status: 'removed', removedAt: serverTimestamp() }
+        );
+      } catch (_) {}
+    }
     setCoHosts(prev => { const n = { ...prev }; delete n[agoraUid]; return n; });
     setShowRemoveDialog(null);
   };
@@ -635,14 +813,48 @@ export default function GoLivePage() {
   const addComment = (sender, text, lang = 'fr') =>
     setComments(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, sender, text, lang }]);
 
-  const sendComment = () => {
+  const sendComment = async () => {
     if (!commentText.trim()) return;
-    addComment('Moi', commentText.trim(), isChinese ? 'zh' : 'fr');
+    const text = commentText.trim();
+    addComment('Moi', text, isChinese ? 'zh' : 'fr');
     setCommentText('');
+    // Écrire dans live_comments (miroir _sendComment Flutter)
+    if (channelId) {
+      try {
+        const ref = doc(collection(db, 'live_comments'));
+        await setDoc(ref, {
+          commentId:  ref.id,
+          sender:     auth.currentUser?.displayName ?? 'Vendeur',
+          text,
+          timestamp:  serverTimestamp(),
+          channelId,
+          lang:       isChinese ? 'zh' : 'fr',
+        });
+      } catch (_) {}
+    }
   };
 
-  const toggleLike = () =>
-    setLiked(p => { setLikeCount(c => p ? Math.max(0, c - 1) : c + 1); return !p; });
+  // Likes avec mise à jour Firestore
+  const toggleLike = () => {
+    setLiked(prev => {
+      const newLiked = !prev;
+      setLikeCount(c => {
+        const newCount = newLiked ? c + 1 : Math.max(0, c - 1);
+        _updateEngagement(newCount, giftCount);
+        return newCount;
+      });
+      return newLiked;
+    });
+  };
+
+  // Cadeaux avec mise à jour Firestore
+  const sendGift = () => {
+    setGiftCount(c => {
+      const newCount = c + 1;
+      _updateEngagement(likeCount, newCount);
+      return newCount;
+    });
+  };
 
   const fmt = s =>
     `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -762,7 +974,7 @@ export default function GoLivePage() {
           fontSize: 22, marginBottom: 6,
         }}>🎙️</div>
         <ABtn icon={liked ? '❤️' : '🤍'} label={String(likeCount)} onClick={toggleLike} active={liked} />
-        <ABtn icon="🎁" label={String(giftCount)} onClick={() => setGiftCount(c => c + 1)} />
+        <ABtn icon="🎁" label={String(giftCount)} onClick={sendGift} />
         <ABtn icon={showComments ? '💬' : '💭'} onClick={() => setShowComments(v => !v)} active={showComments} />
         <ABtn icon="👥" onClick={() => setShowCoHostPanel(v => !v)} active={showCoHostPanel} />
         <ABtn icon="🔗" onClick={() => navigator.share?.({ title: 'FriTok Live', url: window.location.href })} />
