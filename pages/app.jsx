@@ -629,6 +629,44 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
           updatedAt   : serverTimestamp(),
         });
 
+        // Crédite les frais de location au wallet du partenaire (ou solde Escrow Fritok)
+        // Read-modify-write : garantit le type map et préserve toutes les devises
+        const partnerUid = pbData.currentPartnerId || null;
+        if (partnerUid) {
+          // Partenaire trouvé → crédite son wallet (champ "wallet" dans users)
+          const partnerRef  = doc(db, 'users', partnerUid);
+          const partnerSnap = await getDoc(partnerRef);
+          const partnerData = partnerSnap.exists() ? partnerSnap.data() : {};
+          const oldPartnerWallet = (partnerData.wallet && typeof partnerData.wallet === 'object')
+            ? partnerData.wallet : {};
+          const newPartnerWallet = {
+            XOF: toNum(oldPartnerWallet.XOF),
+            GHS: toNum(oldPartnerWallet.GHS),
+            NGN: toNum(oldPartnerWallet.NGN),
+            [devise]: toNum(oldPartnerWallet[devise]) + fraisDevise,
+          };
+          await updateDoc(partnerRef, {
+            wallet   : newPartnerWallet,
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          // Pas de partenaire → frais versés au solde Escrow Fritok (champ "solde")
+          const escrowFraisSnap = await getDoc(escrowRef);
+          const escrowFraisData = escrowFraisSnap.exists() ? escrowFraisSnap.data() : {};
+          const oldEscrowSolde  = (escrowFraisData.solde && typeof escrowFraisData.solde === 'object')
+            ? escrowFraisData.solde : {};
+          const newEscrowSolde  = {
+            XOF: toNum(oldEscrowSolde.XOF),
+            GHS: toNum(oldEscrowSolde.GHS),
+            NGN: toNum(oldEscrowSolde.NGN),
+            [devise]: toNum(oldEscrowSolde[devise]) + fraisDevise,
+          };
+          await updateDoc(escrowRef, {
+            solde    : newEscrowSolde,
+            updatedAt: serverTimestamp(),
+          });
+        }
+
         // Libère le power bank
         await updateDoc(doc(db, 'powerBanks', pbData.docId), {
           state: 'en_location', currentUserId: user.uid, updatedAt: serverTimestamp(),
