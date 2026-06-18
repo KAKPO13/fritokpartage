@@ -604,19 +604,24 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
           [`wallet.${devise}`]: increment(-totalDevise),
         });
 
-        // Crédite l'Escrow Fritok : caution reçue → totalCaution.{devise}
-        // Le document Escrow est créé par Flutter (ensureEscrowExists) avec solde:{XOF,GHS,NGN}
-        // Le web crée/met à jour totalCaution map par lecture-modification-écriture
+        // Mise à jour Escrow — UNE SEULE lecture + UNE SEULE écriture
+        // solde.{devise}        += fraisDevise   (frais de location)
+        // totalCaution.{devise} += cautionDevise (caution bloquée)
         const escrowRef  = doc(db, 'users', ESCROW_UID);
         const escrowSnap = await getDoc(escrowRef);
         const escrowData = escrowSnap.exists() ? escrowSnap.data() : {};
 
-        // totalCaution peut ne pas exister encore — on l'initialise si absent
+        const oldSolde = (escrowData.solde && typeof escrowData.solde === 'object')
+          ? escrowData.solde : {};
         const oldTotal = (escrowData.totalCaution && typeof escrowData.totalCaution === 'object')
-          ? escrowData.totalCaution
-          : {};
+          ? escrowData.totalCaution : {};
 
-        // Ajouter la caution à la devise concernée
+        const newSolde = {
+          XOF: toNum(oldSolde.XOF),
+          GHS: toNum(oldSolde.GHS),
+          NGN: toNum(oldSolde.NGN),
+          [devise]: toNum(oldSolde[devise]) + fraisDevise,
+        };
         const newTotal = {
           XOF: toNum(oldTotal.XOF),
           GHS: toNum(oldTotal.GHS),
@@ -625,24 +630,9 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
         };
 
         await updateDoc(escrowRef, {
+          solde       : newSolde,
           totalCaution: newTotal,
           updatedAt   : serverTimestamp(),
-        });
-
-        // Frais de location → solde.{devise} Escrow Fritok (toujours, même avec partenaire)
-        const escrowFraisSnap = await getDoc(escrowRef);
-        const escrowFraisData = escrowFraisSnap.exists() ? escrowFraisSnap.data() : {};
-        const oldEscrowSolde  = (escrowFraisData.solde && typeof escrowFraisData.solde === 'object')
-          ? escrowFraisData.solde : {};
-        const newEscrowSolde  = {
-          XOF: toNum(oldEscrowSolde.XOF),
-          GHS: toNum(oldEscrowSolde.GHS),
-          NGN: toNum(oldEscrowSolde.NGN),
-          [devise]: toNum(oldEscrowSolde[devise]) + fraisDevise,
-        };
-        await updateDoc(escrowRef, {
-          solde    : newEscrowSolde,
-          updatedAt: serverTimestamp(),
         });
 
         // Libère le power bank
