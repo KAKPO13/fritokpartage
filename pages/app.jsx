@@ -604,11 +604,14 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
         });
 
         // Crédite l'Escrow Fritok : caution bloquée jusqu'à la restitution
-        await updateDoc(doc(db, 'users', ESCROW_UID), {
-          [`solde.${devise}`] : increment(cautionDevise),
-          [`cautionEnAttente.${devise}`] : increment(cautionDevise),
-          updatedAt           : serverTimestamp(),
-        });
+        // setDoc merge garantit que cautionEnAttente est toujours un map
+        // même si l'ancien document avait encore cautionEnAttente comme double
+        const escrowRef = doc(db, 'users', ESCROW_UID);
+        await setDoc(escrowRef, {
+          solde            : { [devise]: increment(cautionDevise) },
+          cautionEnAttente : { [devise]: increment(cautionDevise) },
+          updatedAt        : serverTimestamp(),
+        }, { merge: true });
 
         // Libère le power bank
         await updateDoc(doc(db, 'powerBanks', pbData.docId), {
@@ -875,11 +878,11 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
       });
 
       // 3. Débiter l'Escrow Fritok (caution libérée)
-      await updateDoc(doc(db, 'users', ESCROW_UID), {
-        [`solde.${devise}`] : increment(-cautionDev),
-        [`cautionEnAttente.${devise}`] : increment(-cautionDev),
-        updatedAt           : serverTimestamp(),
-      });
+      await setDoc(doc(db, 'users', ESCROW_UID), {
+        solde            : { [devise]: increment(-cautionDev) },
+        cautionEnAttente : { [devise]: increment(-cautionDev) },
+        updatedAt        : serverTimestamp(),
+      }, { merge: true });
 
       // 4. Libérer le power bank
       if (r.qrCode) {
