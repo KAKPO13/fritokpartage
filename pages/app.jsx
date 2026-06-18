@@ -611,27 +611,29 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
         const escrowSnap = await getDoc(escrowRef);
         const escrowData = escrowSnap.exists() ? escrowSnap.data() : {};
 
-        const oldSolde = (escrowData.solde && typeof escrowData.solde === 'object')
-          ? escrowData.solde : {};
+
         const oldTotal = (escrowData.totalCaution && typeof escrowData.totalCaution === 'object')
           ? escrowData.totalCaution : {};
 
-        const newSolde = {
-          XOF: toNum(oldSolde.XOF),
-          GHS: toNum(oldSolde.GHS),
-          NGN: toNum(oldSolde.NGN),
-          [devise]: toNum(oldSolde[devise]) + fraisDevise,
-        };
+        const oldFrais = (escrowData.totalFrais && typeof escrowData.totalFrais === 'object')
+          ? escrowData.totalFrais : {};
+
         const newTotal = {
           XOF: toNum(oldTotal.XOF),
           GHS: toNum(oldTotal.GHS),
           NGN: toNum(oldTotal.NGN),
           [devise]: toNum(oldTotal[devise]) + cautionDevise,
         };
+        const newFrais = {
+          XOF: toNum(oldFrais.XOF),
+          GHS: toNum(oldFrais.GHS),
+          NGN: toNum(oldFrais.NGN),
+          [devise]: toNum(oldFrais[devise]) + fraisDevise,
+        };
 
         await updateDoc(escrowRef, {
-          solde       : newSolde,
           totalCaution: newTotal,
+          totalFrais  : newFrais,
           updatedAt   : serverTimestamp(),
         });
 
