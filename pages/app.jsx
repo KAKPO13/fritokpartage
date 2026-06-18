@@ -40,6 +40,11 @@ const D = {
 const FRAIS_XOF   = 100;
 const CAUTION_XOF = 200;
 
+// ── Compte Escrow Fritok ──────────────────────────────────────────────────────
+// Collection "users", document uid = "escrow_fritok"
+// Schéma : { solde:{XOF,GHS,NGN}, cautionEnAttente, displayName, email, role }
+const ESCROW_UID = 'escrow_fritok';
+
 // ─── Leaflet (SSR disabled) ──────────────────────────────────────────────────
 const MapView = dynamic(() => import('../components/app/MapView'), { ssr: false });
 
@@ -551,9 +556,16 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
           startTime     : serverTimestamp(),
         });
 
-        // Débite le wallet dans la devise choisie
+        // Débite le wallet client dans la devise choisie (frais + caution)
         await updateDoc(doc(db, 'users', user.uid), {
           [`wallet.${devise}`]: increment(-totalDevise),
+        });
+
+        // Crédite l'Escrow Fritok : caution bloquée jusqu'à la restitution
+        await updateDoc(doc(db, 'users', ESCROW_UID), {
+          [`solde.${devise}`] : increment(cautionDevise),
+          cautionEnAttente    : increment(cautionDevise),
+          updatedAt           : serverTimestamp(),
         });
 
         // Libère le power bank
@@ -561,11 +573,11 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
           state: 'en_location', currentUserId: user.uid, updatedAt: serverTimestamp(),
         });
 
-        // TransfetMoney "rental" — dans la devise choisie
+        // TransfetMoney "rental" — frais de location → partenaire/Fritok
         await writeTranstet(db, {
           type            : 'rental',
           currency        : devise,
-          montantEnvoye   : totalDevise,
+          montantEnvoye   : fraisDevise,      // frais seuls (hors caution)
           frais           : 0,
           expediteurId    : user.uid,
           expediteurEmail : user.email || '',
@@ -576,19 +588,34 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
           status          : 'completed',
         });
 
-        // TransfetMoney "restitution" — caution future en pending (même devise)
+        // TransfetMoney "caution" — caution bloquée chez l'Escrow Fritok
+        await writeTranstet(db, {
+          type            : 'caution',
+          currency        : devise,
+          montantEnvoye   : cautionDevise,
+          frais           : 0,
+          expediteurId    : user.uid,
+          expediteurEmail : user.email || '',
+          expediteurPhoto : profile?.photoUrl || '',
+          destinataireId  : ESCROW_UID,
+          destinataireNom : 'FriTok Escrow',
+          destinataireTel : '+2250716585294',
+          status          : 'completed',        // bien reçu par l'escrow
+        });
+
+        // TransfetMoney "restitution" — remboursement futur en pending
         await writeTranstet(db, {
           type            : 'restitution',
           currency        : devise,
           montantEnvoye   : cautionDevise,
           frais           : 0,
-          expediteurId    : 'fritok-system',
-          expediteurEmail : 'noreply@fritok.net',
+          expediteurId    : ESCROW_UID,         // c'est l'escrow qui rembourse
+          expediteurEmail : 'escrow@fritok.app',
           expediteurPhoto : '',
           destinataireId  : user.uid,
           destinataireNom : profile?.username || user.email || '',
           destinataireTel : profile?.phone || '',
-          status          : 'pending',
+          status          : 'pending',          // en attente du retour physique
         });
 
         setRental({
@@ -783,12 +810,15 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
   const [done,     setDone]     = useState(false);
-  const [refund,   setRefund]   = useState(0);
+  const [refund,       setRefund]       = useState(0);
+  const [refundDevise,  setRefundDevise]  = useState('XOF');
 
   const doReturn = async () => {
     if (!selected) return;
-    const r       = activeRentals.find(x => x.id === selected);
-    const caution = r.cautionXof ?? CAUTION_XOF;
+    const r          = activeRentals.find(x => x.id === selected);
+    const caution    = r.cautionXof    ?? CAUTION_XOF;
+    const cautionDev = r.cautionDevise ?? caution;        // montant dans la devise d'origine
+    const devise     = r.devise        ?? 'XOF';
     setLoading(true); setError('');
     try {
       // 1. Clôturer la Rental
@@ -797,18 +827,25 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
         endTime: serverTimestamp(),
       });
 
-      // 2. Rembourser la caution sur le wallet
+      // 2. Rembourser la caution sur le wallet du client (dans sa devise d'origine)
       await updateDoc(doc(db, 'users', user.uid), {
-        'wallet.XOF': increment(caution),
+        [`wallet.${devise}`]: increment(cautionDev),
       });
 
-      // 3. Libérer le power bank (cherche par champ qrCode puis par ID)
+      // 3. Débiter l'Escrow Fritok (caution libérée)
+      await updateDoc(doc(db, 'users', ESCROW_UID), {
+        [`solde.${devise}`] : increment(-cautionDev),
+        cautionEnAttente    : increment(-cautionDev),
+        updatedAt           : serverTimestamp(),
+      });
+
+      // 4. Libérer le power bank
       if (r.qrCode) {
         const qSnap = await getDocs(
           query(collection(db, 'powerBanks'), where('qrCode', '==', r.qrCode))
         );
         const pbRef = qSnap.empty
-          ? doc(db, 'powerBanks', r.qrCode) // fallback par ID
+          ? doc(db, 'powerBanks', r.qrCode)
           : qSnap.docs[0].ref;
         await updateDoc(pbRef, {
           state        : 'disponible',
@@ -817,8 +854,7 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
         });
       }
 
-      // 4. TransfetMoney "restitution" → "completed" directement en Firestore
-      //    Cherche d'abord si une entrée pending existe (créée au moment du paiement)
+      // 5. TransfetMoney "restitution" pending → completed
       const pendingSnap = await getDocs(
         query(
           collection(db, 'TransfetMoney'),
@@ -831,17 +867,16 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
       );
 
       if (!pendingSnap.empty) {
-        // Mettre à jour l'entrée existante
         await updateDoc(pendingSnap.docs[0].ref, { status: 'completed' });
       } else {
-        // Créer une nouvelle entrée (cas rare : pas de pending trouvé)
+        // Fallback : crée une nouvelle entrée completed
         await writeTranstet(db, {
           type            : 'restitution',
-          currency        : r.devise || 'XOF',
-          montantEnvoye   : caution,
+          currency        : devise,
+          montantEnvoye   : cautionDev,
           frais           : 0,
-          expediteurId    : 'fritok-system',
-          expediteurEmail : 'noreply@fritok.net',
+          expediteurId    : ESCROW_UID,
+          expediteurEmail : 'escrow@fritok.app',
           expediteurPhoto : '',
           destinataireId  : user.uid,
           destinataireNom : profile?.username || user.email || '',
@@ -850,7 +885,8 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
         });
       }
 
-      setRefund(caution);
+      setRefund(cautionDev);
+      setRefundDevise(devise);
       setDone(true);
     } catch (e) {
       console.error('doReturn:', e);
@@ -872,7 +908,7 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
       <div style={{ width: 90, height: 90, borderRadius: '50%', background: D.greenLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, margin: '0 auto 20px' }}>✓</div>
       <div style={{ fontSize: 22, fontWeight: 800, color: D.text1, marginBottom: 8 }}>Power bank rendu !</div>
       <div style={{ fontSize: 14, color: D.text2, marginBottom: 24 }}>
-        Ta caution de <strong style={{ color: D.green }}>{fmt(refund)} FCFA</strong> a été remboursée sur ton wallet.
+        Ta caution de <strong style={{ color: D.green }}>{fmtCur(refund, refundDevise)}</strong> a été remboursée sur ton wallet.
       </div>
       <button onClick={onSuccess} style={primaryBtn(false)}>Retour à l'accueil</button>
     </div>
