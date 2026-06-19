@@ -898,15 +898,24 @@ function VideoLayout({ localVideoRef, remoteVideoRefs, activeCoHosts, onRemove, 
     return <div ref={localVideoRef} style={{ position: 'absolute', inset: 0, background: '#111' }} />;
   }
 
+  // DEBUG TEMPORAIRE — preuve visuelle que activeCoHosts est non-vide ici
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* Bandeau debug — à retirer une fois le bug confirmé/corrigé */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, zIndex: 999,
+        background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 700,
+        textAlign: 'center', padding: '3px 0',
+      }}>
+        DEBUG: VideoLayout split actif — {activeCoHosts.length} co-host(s)
+      </div>
       {/* Hôte — 2/3 de l'écran */}
       <div style={{ flex: 2, position: 'relative' }}>
         <div ref={localVideoRef} style={{ position: 'absolute', inset: 0, background: '#111' }} />
         <VLabel label="Hôte" color="#F97316" />
       </div>
-      {/* Co-hosts — 1/3 de l'écran, côte à côte */}
-      <div style={{ flex: 1, display: 'flex' }}>
+      {/* Co-hosts — 1/3 de l'écran, côte à côte — DEBUG: fond magenta visible */}
+      <div style={{ flex: 1, display: 'flex', minHeight: 120, background: '#FF00FF' }}>
         {activeCoHosts.map(c => (
           <div key={c.agoraUid} style={{ flex: 1, position: 'relative', background: '#1a1a2e' }}>
             {/* FIX: ref callback — met à jour remoteVideoRefs dès que le div est monté */}
