@@ -120,7 +120,6 @@ function IconUserCheck() {
     </svg>
   );
 }
-// 🆕 Icône micro pour co-host
 function IconMic() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -161,149 +160,9 @@ function ChatBubble({ msg }) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   🆕 BOUTON CO-HOST — demande temps réel
-   Cycle : idle → pending → accepted | declined | removed
+   HELPER STYLE CO-HOST
+   Déclaré avant CoHostButton pour éviter tout ReferenceError
 ══════════════════════════════════════════════════════════ */
-function CoHostButton({ session, authUser }) {
-  // coHostStatus : 'idle' | 'pending' | 'accepted' | 'declined' | 'removed'
-  const [coHostStatus, setCoHostStatus] = useState('idle');
-  const [agoraToken,   setAgoraToken]   = useState(null);
-  const unsubRef = useRef(null);
-
-  // Nettoyage listener au démontage
-  useEffect(() => () => { unsubRef.current?.(); }, []);
-
-  // Live non actif ou co-host désactivé → on n'affiche rien
-  if (!session.isLive || session.coHostEnabled === false) return null;
-  // Non connecté → on n'affiche rien (AuthRequiredModal géré par handleOrder)
-  if (!authUser) return null;
-  // Vendeur lui-même → pas de bouton
-  if (authUser.uid === session.sellerId) return null;
-
-  const channelId = session.channelId;
-  const uid       = authUser.uid;
-
-  // ── Envoyer la demande ────────────────────────────────────
-  const requestCoHost = async () => {
-    if (coHostStatus !== 'idle') return;
-    try {
-      // Écrire dans live_sessions/{channelId}/co_hosts/{uid}
-      // Le vendeur (GoLivePage) écoute cette sous-collection
-      await setDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
-        uid,
-        displayName: authUser.displayName || authUser.email?.split('@')[0] || 'Viewer',
-        avatarUrl:   authUser.photoURL ?? null,
-        agoraUid:    0,          // le vendeur génère l'uid Agora
-        status:      'pending',
-        requestedAt: serverTimestamp(),
-        token:       null,
-      });
-      setCoHostStatus('pending');
-
-      // ── Écouter la réponse du vendeur en temps réel ───────
-      unsubRef.current = onSnapshot(
-        doc(db, 'live_sessions', channelId, 'co_hosts', uid),
-        (snap) => {
-          if (!snap.exists()) {
-            setCoHostStatus('idle');
-            return;
-          }
-          const data   = snap.data();
-          const status = data.status;
-
-          if (status === 'active') {
-            // Vendeur a accepté → récupérer le token Agora
-            setAgoraToken(data.token ?? null);
-            setCoHostStatus('accepted');
-            unsubRef.current?.();
-          } else if (status === 'declined') {
-            setCoHostStatus('declined');
-            unsubRef.current?.();
-            // Remettre à idle après 3s
-            setTimeout(() => setCoHostStatus('idle'), 3000);
-          } else if (status === 'removed') {
-            setCoHostStatus('removed');
-            unsubRef.current?.();
-            setTimeout(() => setCoHostStatus('idle'), 3000);
-          }
-        },
-        (err) => console.warn('co_host listener:', err)
-      );
-    } catch (e) {
-      console.error('requestCoHost:', e);
-    }
-  };
-
-  // ── Annuler la demande ────────────────────────────────────
-  const cancelRequest = async () => {
-    try {
-      await deleteDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid));
-    } catch (_) {}
-    unsubRef.current?.();
-    setCoHostStatus('idle');
-  };
-
-  // ── Quitter la scène ──────────────────────────────────────
-  const leaveStage = async () => {
-    try {
-      await updateDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
-        status: 'removed', leftAt: serverTimestamp(),
-      });
-    } catch (_) {}
-    unsubRef.current?.();
-    setAgoraToken(null);
-    setCoHostStatus('idle');
-  };
-
-  // ── Rendu selon le statut ─────────────────────────────────
-  if (coHostStatus === 'idle') {
-    return (
-      <button onClick={requestCoHost} style={coHostBtnStyle('#7C3AED')}>
-        <IconMic/>
-        <span style={{ fontSize: 11, color: '#fff', marginTop: 2 }}>Sur scène</span>
-      </button>
-    );
-  }
-
-  if (coHostStatus === 'pending') {
-    return (
-      <button onClick={cancelRequest} style={coHostBtnStyle('#F97316')}>
-        <span style={{ fontSize: 18 }}>⏳</span>
-        <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Annuler</span>
-      </button>
-    );
-  }
-
-  if (coHostStatus === 'accepted') {
-    return (
-      <button onClick={leaveStage} style={coHostBtnStyle('#22C55E')}>
-        <span style={{ fontSize: 18 }}>🎙️</span>
-        <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Quitter</span>
-      </button>
-    );
-  }
-
-  if (coHostStatus === 'declined') {
-    return (
-      <div style={coHostBtnStyle('#EF4444', true)}>
-        <span style={{ fontSize: 15 }}>❌</span>
-        <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Refusé</span>
-      </div>
-    );
-  }
-
-  if (coHostStatus === 'removed') {
-    return (
-      <div style={coHostBtnStyle('#666', true)}>
-        <span style={{ fontSize: 15 }}>🚫</span>
-        <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Retiré</span>
-      </div>
-    );
-  }
-
-  return null;
-}
-
 function coHostBtnStyle(color, noClick = false) {
   return {
     background: 'none', border: 'none',
@@ -313,6 +172,266 @@ function coHostBtnStyle(color, noClick = false) {
     filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.6))',
     position: 'relative',
   };
+}
+
+/* ══════════════════════════════════════════════════════════
+   BOUTON CO-HOST — demande temps réel
+   Cycle : idle → pending → joining → live | declined | removed
+══════════════════════════════════════════════════════════ */
+function CoHostButton({ session, authUser }) {
+  // FIX: état unifié "status" (l'original avait un doublon "coHostStatus" orphelin)
+  const [status,   setStatus]   = useState('idle');
+  // 'idle' | 'pending' | 'joining' | 'live' | 'declined' | 'removed'
+  const [errorMsg, setErrorMsg] = useState(null);
+
+  const unsubDocRef    = useRef(null);
+  const agoraClientRef = useRef(null);
+  const tracksRef      = useRef({ audio: null, video: null });
+  const localDivRef    = useRef(null);
+  // FIX: flag pour éviter les mises à jour d'état après démontage (race condition)
+  const isMountedRef   = useRef(true);
+
+  const AGORA_APP_ID_V = '5bbfd51877e2435f87afef0f89cebda3';
+
+  // Cleanup au démontage
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      unsubDocRef.current?.();
+      _releaseCoHostAgora();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-reset après refus/retrait
+  useEffect(() => {
+    if (status === 'declined' || status === 'removed') {
+      _releaseCoHostAgora();
+      const t = setTimeout(() => {
+        if (isMountedRef.current) setStatus('idle');
+      }, 3000);
+      return () => clearTimeout(t);
+    }
+  }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Guards
+  if (!session.isLive || session.coHostEnabled === false) return null;
+  if (!authUser) return null;
+  // FIX: normalisation sellerId — on accepte les deux champs Firestore
+  const sellerId = session.sellerId ?? session.userId ?? '';
+  if (authUser.uid === sellerId) return null;
+
+  const channelId   = session.channelId;
+  const uid         = authUser.uid;
+  const displayName = authUser.displayName
+    || authUser.email?.split('@')[0]
+    || 'Viewer';
+
+  // ── Libérer Agora proprement ─────────────────────────────
+  async function _releaseCoHostAgora() {
+    try {
+      const { audio, video } = tracksRef.current;
+      audio?.stop(); audio?.close();
+      video?.stop(); video?.close();
+      tracksRef.current = { audio: null, video: null };
+      if (agoraClientRef.current) {
+        await agoraClientRef.current.leave();
+        agoraClientRef.current = null;
+      }
+    } catch (_) {}
+  }
+
+  // ── Charger SDK Agora si absent ──────────────────────────
+  async function _loadSdk() {
+    if (window.AgoraRTC) return;
+    await new Promise((resolve, reject) => {
+      if (document.querySelector('script[src*="AgoraRTC_N"]')) { resolve(); return; }
+      const s = document.createElement('script');
+      s.src = 'https://download.agora.io/sdk/release/AgoraRTC_N-4.22.1.js';
+      s.async = true;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('SDK Agora introuvable'));
+      document.head.appendChild(s);
+    });
+  }
+
+  // ── Rejoindre le canal Agora en broadcaster ──────────────
+  async function _joinAsCoHost(token, agoraUid) {
+    if (!isMountedRef.current) return;
+    setStatus('joining');
+    try {
+      await _loadSdk();
+      const AgoraRTC = window.AgoraRTC;
+      AgoraRTC.setLogLevel(3);
+
+      const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+      agoraClientRef.current = client;
+
+      await client.setClientRole('host');
+      await client.join(AGORA_APP_ID_V, channelId, token, agoraUid);
+
+      // Tracks avec fallback
+      let audioTrack = null, videoTrack = null;
+      try {
+        [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks({}, {});
+      } catch {
+        try { audioTrack = await AgoraRTC.createMicrophoneAudioTrack(); }
+        catch (e2) { throw new Error('Micro inaccessible : ' + e2.message); }
+      }
+      tracksRef.current = { audio: audioTrack, video: videoTrack };
+
+      const toPublish = [audioTrack, videoTrack].filter(Boolean);
+      if (toPublish.length) await client.publish(toPublish);
+
+      // FIX: vérifier isMounted avant toute mise à jour d'état post-await
+      if (!isMountedRef.current) {
+        await _releaseCoHostAgora();
+        return;
+      }
+
+      // Afficher la préview locale
+      if (videoTrack) {
+        setTimeout(() => {
+          if (localDivRef.current && isMountedRef.current) {
+            videoTrack.play(localDivRef.current);
+          }
+        }, 150);
+      }
+
+      setStatus('live');
+      console.log('✅ Co-host sur scène, canal:', channelId);
+    } catch (err) {
+      console.error('❌ _joinAsCoHost:', err);
+      await _releaseCoHostAgora();
+      if (isMountedRef.current) {
+        setStatus('idle');
+        setErrorMsg('Erreur: ' + err.message);
+      }
+    }
+  }
+
+  // ── 1. Demande pending ───────────────────────────────────
+  const requestCoHost = async () => {
+    if (status !== 'idle') return;
+    setErrorMsg(null);
+    try {
+      await setDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
+        uid,
+        displayName,
+        avatarUrl:   authUser.photoURL ?? null,
+        agoraUid:    0,
+        status:      'pending',
+        requestedAt: serverTimestamp(),
+        token:       null,
+      });
+      if (!isMountedRef.current) return;
+      setStatus('pending');
+
+      // Écouter la réponse du vendeur
+      unsubDocRef.current = onSnapshot(
+        doc(db, 'live_sessions', channelId, 'co_hosts', uid),
+        async (snap) => {
+          if (!snap.exists()) {
+            if (isMountedRef.current) setStatus('idle');
+            return;
+          }
+          const d = snap.data();
+          if (d.status === 'active' && d.token && d.agoraUid) {
+            unsubDocRef.current?.();
+            await _joinAsCoHost(d.token, d.agoraUid);
+          } else if (d.status === 'declined') {
+            unsubDocRef.current?.();
+            if (isMountedRef.current) setStatus('declined');
+          } else if (d.status === 'removed') {
+            unsubDocRef.current?.();
+            if (isMountedRef.current) setStatus('removed');
+          }
+        },
+        (err) => console.warn('co_host listener:', err)
+      );
+    } catch (e) {
+      console.error('requestCoHost:', e);
+      if (isMountedRef.current) setErrorMsg('Erreur réseau.');
+    }
+  };
+
+  // ── 2. Annuler avant acceptation ─────────────────────────
+  const cancelRequest = async () => {
+    try { await deleteDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid)); }
+    catch (_) {}
+    unsubDocRef.current?.();
+    if (isMountedRef.current) setStatus('idle');
+  };
+
+  // ── 3. Quitter la scène (pendant live) ───────────────────
+  // FIX: try/finally garantit que Agora est toujours libéré même si Firestore échoue
+  const leaveStage = async () => {
+    try {
+      await updateDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
+        status: 'removed', leftAt: serverTimestamp(),
+      });
+    } finally {
+      await _releaseCoHostAgora();
+      if (isMountedRef.current) setStatus('idle');
+    }
+  };
+
+  // ── Rendu ─────────────────────────────────────────────────
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+
+      {/* Préview caméra locale quand on est sur scène */}
+      {status === 'live' && (
+        <div ref={localDivRef} style={{
+          width: 56, height: 80, borderRadius: 8, overflow: 'hidden',
+          background: '#111', border: '2px solid #22C55E',
+          marginBottom: 4, flexShrink: 0,
+        }} />
+      )}
+
+      {status === 'idle' && (
+        <button onClick={requestCoHost} style={coHostBtnStyle('#7C3AED')}>
+          <IconMic />
+          <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Sur scène</span>
+        </button>
+      )}
+      {status === 'pending' && (
+        <button onClick={cancelRequest} style={coHostBtnStyle('#F97316')}>
+          <span style={{ fontSize: 18 }}>⏳</span>
+          <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Annuler</span>
+        </button>
+      )}
+      {status === 'joining' && (
+        <div style={coHostBtnStyle('#A855F7', true)}>
+          <span style={{ fontSize: 14 }}>📡</span>
+          <span style={{ fontSize: 9, color: '#fff', marginTop: 2 }}>Connexion...</span>
+        </div>
+      )}
+      {status === 'live' && (
+        <button onClick={leaveStage} style={coHostBtnStyle('#22C55E')}>
+          <span style={{ fontSize: 18 }}>🎙️</span>
+          <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Quitter</span>
+        </button>
+      )}
+      {status === 'declined' && (
+        <div style={coHostBtnStyle('#EF4444', true)}>
+          <span style={{ fontSize: 15 }}>❌</span>
+          <span style={{ fontSize: 9, color: '#fff', marginTop: 2 }}>Refusé</span>
+        </div>
+      )}
+      {status === 'removed' && (
+        <div style={coHostBtnStyle('#666', true)}>
+          <span style={{ fontSize: 15 }}>🚫</span>
+          <span style={{ fontSize: 9, color: '#fff', marginTop: 2 }}>Retiré</span>
+        </div>
+      )}
+      {errorMsg && (
+        <span style={{ fontSize: 9, color: '#FCA5A5', textAlign: 'center', maxWidth: 60, lineHeight: 1.2, marginTop: 2 }}>
+          {errorMsg}
+        </span>
+      )}
+    </div>
+  );
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -340,19 +459,19 @@ function AuthRequiredModal({ onClose }) {
    MODAL COMMANDE
 ══════════════════════════════════════════════════════════ */
 function OrderModal({ product, sellerId, authUser, onClose }) {
-  const [step,       setStep]       = useState('form');
-  const [telephone,  setTelephone]  = useState(authUser?.phoneNumber ?? '');
-  const [adresse,    setAdresse]    = useState('');
-  const [villeClient,setVilleClient]= useState('');
-  const [typeLivr,   setTypeLivr]   = useState('solo');
-  const [modePaiem,  setModePaiem]  = useState('livraison');
-  const [locLoading, setLocLoading] = useState(false);
-  const [gpsCoords,  setGpsCoords]  = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [errors,     setErrors]     = useState({});
-  const [commandeId, setCommandeId] = useState(null);
-  const [qrData,     setQrData]     = useState(null);
-  const [toast,      setToast]      = useState(null);
+  const [step,        setStep]        = useState('form');
+  const [telephone,   setTelephone]   = useState(authUser?.phoneNumber ?? '');
+  const [adresse,     setAdresse]     = useState('');
+  const [villeClient, setVilleClient] = useState('');
+  const [typeLivr,    setTypeLivr]    = useState('solo');
+  const [modePaiem,   setModePaiem]   = useState('livraison');
+  const [locLoading,  setLocLoading]  = useState(false);
+  const [gpsCoords,   setGpsCoords]   = useState(null);
+  const [submitting,  setSubmitting]  = useState(false);
+  const [errors,      setErrors]      = useState({});
+  const [commandeId,  setCommandeId]  = useState(null);
+  const [qrData,      setQrData]      = useState(null);
+  const [toast,       setToast]       = useState(null);
 
   const prix     = Number(product?.price ?? 0);
   const fraisXof = villeClient ? getFrais('Abidjan', villeClient, typeLivr) : 0;
@@ -602,6 +721,9 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
     'idle':           '...',
   }[status] ?? '...';
 
+  // FIX: normalisation sellerId pour OrderModal (cohérent avec CoHostButton)
+  const sellerId = session.sellerId ?? session.userId ?? '';
+
   return (
     <div className={styles.playerPage}>
 
@@ -640,7 +762,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
         </div>
       </div>
 
-      {/* ── Actions droite — avec bouton co-host 🆕 ── */}
+      {/* Actions droite */}
       <div className={styles.playerActions}>
         <button className={styles.playerActionBtn} onClick={handleLike}>
           <IconHeart filled={liked}/>
@@ -654,7 +776,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
           <IconShare/>
         </button>
 
-        {/* 🆕 Bouton co-host — temps réel Firestore */}
+        {/* Bouton co-host */}
         <CoHostButton session={session} authUser={authUser} />
       </div>
 
@@ -699,7 +821,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
       {orderProduct && (
         <OrderModal
           product={orderProduct}
-          sellerId={session.userId ?? session.sellerId ?? ''}
+          sellerId={sellerId}
           authUser={authUser}
           onClose={() => setOrderProduct(null)}
         />
