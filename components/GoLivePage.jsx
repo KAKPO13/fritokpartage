@@ -52,7 +52,7 @@ function videoDocToProduct(docSnap) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 🛍️ Sélecteur de produits
+// 🛍️ Sélecteur de produits (miroir AlertDialog Flutter)
 // ─────────────────────────────────────────────────────────────
 function GoLiveProductSelector({ products, loading, isOpen, onClose, onStart }) {
   const [selected, setSelected] = useState(new Set());
@@ -168,11 +168,11 @@ export default function GoLivePage() {
   const [userId, setUserId] = useState(null);
 
   // ── Produits ──────────────────────────────────────────────
-  const [allProducts,     setAllProducts]     = useState([]);
-  const [loadingProds,    setLoadingProds]    = useState(true);
-  const [showSelector,    setShowSelector]    = useState(false);
-  const [liveProducts,    setLiveProducts]    = useState([]);
-  const [productIndex,    setProductIndex]    = useState(0);
+  const [allProducts,  setAllProducts]  = useState([]);
+  const [loadingProds, setLoadingProds] = useState(true);
+  const [showSelector, setShowSelector] = useState(false);
+  const [liveProducts, setLiveProducts] = useState([]);
+  const [productIndex, setProductIndex] = useState(0);
   const [showProductCard, setShowProductCard] = useState(true);
 
   // ── Langue ────────────────────────────────────────────────
@@ -187,17 +187,16 @@ export default function GoLivePage() {
   const localVideoRef   = useRef(null);
   const localTrackRef   = useRef({ video: null, audio: null });
   const remoteVideoRefs = useRef({});
-
-  // FIX: stocker les remote Agora users pour les rejouer après montage DOM
-  const remoteUsersRef  = useRef({}); // agoraUid → AgoraRTCRemoteUser
-
+  const pendingVideoTracksRef = useRef({}); // agoraUid → videoTrack en attente de div
   const [sdkLoaded,     setSdkLoaded]     = useState(false);
   const [isEngineReady, setIsEngineReady] = useState(false);
   const [channelId,     setChannelId]     = useState(null);
 
   // ── Co-hosts ──────────────────────────────────────────────
+  // Map agoraUid → CoHost
   const [coHosts,          setCoHosts]          = useState({});
   const [showCoHostPanel,  setShowCoHostPanel]  = useState(false);
+  // file d'attente des demandes pending
   const pendingQueueRef    = useRef([]);
   const [pendingRequest,   setPendingRequest]   = useState(null);
   const dialogOpenRef      = useRef(false);
@@ -231,7 +230,8 @@ export default function GoLivePage() {
   useEffect(() => {
     if (!userId) return;
     setLoadingProds(true);
-    const q = query(collection(db, 'video_playlist'), where('userId', '==', userId));
+    const OWNER_FIELD = 'userId'; // adapter si votre champ est différent
+    const q = query(collection(db, 'video_playlist'), where(OWNER_FIELD, '==', userId));
     const unsub = onSnapshot(q,
       snap => { setAllProducts(snap.docs.map(videoDocToProduct)); setLoadingProds(false); },
       err  => { console.error('❌ video_playlist:', err); setLoadingProds(false); }
@@ -262,17 +262,20 @@ export default function GoLivePage() {
     if (phase !== 'live' || !channelId) return;
     const uid = auth.currentUser?.uid;
 
+    // Enregistrer le vendeur comme viewer
     if (uid) {
       setDoc(doc(db, 'live_sessions', channelId, 'viewers', uid), { joinedAt: serverTimestamp(), role: 'host' }).catch(() => {});
       updateDoc(doc(db, 'live_sessions', channelId), { viewerCount: increment(1) }).catch(() => {});
     }
 
+    // Viewer count en temps réel
     const unsubViewers = onSnapshot(
       collection(db, 'live_sessions', channelId, 'viewers'),
       snap => setViewerCount(snap.docs.length),
       err  => console.warn('viewers:', err)
     );
 
+    // Commentaires en temps réel
     const unsubComments = onSnapshot(
       query(collection(db, 'live_comments'), where('channelId', '==', channelId)),
       snap => setComments(snap.docs.map(d => ({
@@ -284,15 +287,19 @@ export default function GoLivePage() {
       err => console.warn('comments:', err)
     );
 
+    // ── Co-hosts : demandes pending (miroir _listenCoHostRequests Flutter) ──
     let firstSnap = true;
     const unsubCoHost = onSnapshot(
       query(collection(db, 'live_sessions', channelId, 'co_hosts'), where('status', '==', 'pending')),
       snap => {
+        // Ignorer le premier snapshot (état existant au démarrage)
         if (firstSnap) { firstSnap = false; return; }
+
         snap.docChanges().forEach(change => {
           if (change.type === 'added') {
             const d = change.doc.data();
             const coHost = { uid: change.doc.id, displayName: d.displayName ?? 'Viewer', avatarUrl: d.avatarUrl ?? null };
+            // Éviter les doublons dans la file
             const alreadyQueued  = pendingQueueRef.current.some(c => c.uid === coHost.uid);
             const alreadyActive  = Object.values(coHosts).some(c => c.uid === coHost.uid);
             const alreadyShowing = pendingRequest?.uid === coHost.uid;
@@ -301,10 +308,11 @@ export default function GoLivePage() {
               _processNextRequest();
             }
           }
+          // Viewer a annulé avant réponse
           if (change.type === 'removed') {
-            const removedUid = change.doc.id;
-            pendingQueueRef.current = pendingQueueRef.current.filter(c => c.uid !== removedUid);
-            if (pendingRequest?.uid === removedUid) {
+            const uid = change.doc.id;
+            pendingQueueRef.current = pendingQueueRef.current.filter(c => c.uid !== uid);
+            if (pendingRequest?.uid === uid) {
               setPendingRequest(null);
               dialogOpenRef.current = false;
               _processNextRequest();
@@ -324,9 +332,10 @@ export default function GoLivePage() {
     };
   }, [phase, channelId]);
 
-  // ── File d'attente co-hosts ───────────────────────────────
+  // ── File d'attente co-hosts (miroir Flutter _processNextRequest) ──
   function _processNextRequest() {
     if (dialogOpenRef.current) return;
+    // Nettoyer les demandes déjà actives
     pendingQueueRef.current = pendingQueueRef.current.filter(
       c => !Object.values(coHosts).some(a => a.uid === c.uid)
     );
@@ -348,27 +357,23 @@ export default function GoLivePage() {
     return () => clearTimeout(t);
   }, [isEngineReady]);
 
-  // ── FIX: Rejouer les vidéos distantes quand VideoLayout se re-rend ──────
-  // Déclenché à chaque changement de coHosts (nouveau div monté dans le DOM)
+  // ── 6b. Jouer les vidéos remote en attente après re-render ──
+  // Quand activeCoHosts.length change, VideoLayout monte les <div> remote
+  // → on peut maintenant jouer les tracks stockés dans pendingVideoTracksRef
   useEffect(() => {
-    if (!isEngineReady) return;
-    // Petit délai pour laisser React finir le render du nouveau div
+    if (activeCoHosts.length === 0) return;
     const t = setTimeout(() => {
-      Object.entries(remoteUsersRef.current).forEach(([agoraUidStr, remoteUser]) => {
-        const agoraUid = Number(agoraUidStr);
-        const el = remoteVideoRefs.current[agoraUid];
-        if (el && remoteUser.videoTrack) {
-          try {
-            remoteUser.videoTrack.play(el);
-            console.log('▶️ Rejoué vidéo co-host', agoraUid);
-          } catch (e) {
-            console.warn('⚠️ Replay co-host video:', e);
-          }
+      Object.entries(pendingVideoTracksRef.current).forEach(([uid, track]) => {
+        const el = remoteVideoRefs.current[Number(uid)];
+        if (el && track) {
+          track.play(el);
+          console.log('✅ Remote video joué uid:', uid);
+          delete pendingVideoTracksRef.current[uid];
         }
       });
     }, 200);
     return () => clearTimeout(t);
-  }, [coHosts, isEngineReady]); // se déclenche dès que la liste co-hosts change
+  }, [activeCoHosts.length]);
 
   // ── 7. Reconnexion si onglet caché ────────────────────────
   useEffect(() => {
@@ -426,59 +431,33 @@ export default function GoLivePage() {
       const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
       agoraClientRef.current = client;
 
-      // ── FIX: événements Agora — stocker le remote user avant de jouer ──
-      client.on('user-published', async (remoteUser, mediaType) => {
-        await client.subscribe(remoteUser, mediaType);
-
+      // Événements Agora
+      client.on('user-published', async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
         if (mediaType === 'video') {
-          // Mémoriser le remote user pour pouvoir le rejouer après re-render
-          remoteUsersRef.current[remoteUser.uid] = remoteUser;
-
-          // Tenter de jouer immédiatement si le div existe déjà
-          const el = remoteVideoRefs.current[remoteUser.uid];
-          if (el && remoteUser.videoTrack) {
-            try {
-              remoteUser.videoTrack.play(el);
-            } catch (_) {}
+          // Stocker le track — le div remote n'est peut-être pas encore monté
+          pendingVideoTracksRef.current[user.uid] = user.videoTrack;
+          // Essayer immédiatement si le div existe déjà
+          const el = remoteVideoRefs.current[user.uid];
+          if (el && user.videoTrack) {
+            user.videoTrack.play(el);
+            delete pendingVideoTracksRef.current[user.uid];
           }
-          // Sinon, le useEffect [coHosts] va le rejouer après montage du div
         }
-
-        if (mediaType === 'audio') {
-          remoteUser.audioTrack?.play();
-        }
-
-        // Marquer le co-host comme actif dans l'état local
+        if (mediaType === 'audio') user.audioTrack?.play();
+        // Ajouter le co-host à l'état (déclenche re-render → VideoLayout → div monté)
         setCoHosts(prev => {
-          const entry = Object.values(prev).find(c => c.agoraUid === remoteUser.uid);
-          if (!entry) return prev;
-          return { ...prev, [remoteUser.uid]: { ...entry, status: 'active' } };
+          const entry = Object.values(prev).find(c => c.agoraUid === user.uid);
+          if (entry) return { ...prev, [user.uid]: { ...entry, status: 'active' } };
+          // Co-host inconnu du state (rejoint directement) → l'ajouter quand même
+          return {
+            ...prev,
+            [user.uid]: { uid: String(user.uid), displayName: `Invité`, agoraUid: user.uid, status: 'active' },
+          };
         });
       });
-
-      client.on('user-unpublished', (remoteUser, mediaType) => {
-        if (mediaType === 'video') {
-          // Nettoyer le ref
-          delete remoteUsersRef.current[remoteUser.uid];
-        }
-        if (mediaType === 'video' || mediaType === 'audio') {
-          // Si plus aucun track publié, retirer le co-host de l'affichage
-          const stillPublishing = client.remoteUsers.some(
-            u => u.uid === remoteUser.uid && (u.hasVideo || u.hasAudio)
-          );
-          if (!stillPublishing) {
-            setCoHosts(prev => {
-              const n = { ...prev };
-              delete n[remoteUser.uid];
-              return n;
-            });
-          }
-        }
-      });
-
-      client.on('user-left', (remoteUser) => {
-        delete remoteUsersRef.current[remoteUser.uid];
-        setCoHosts(prev => { const n = { ...prev }; delete n[remoteUser.uid]; return n; });
+      client.on('user-unpublished', (user) => {
+        setCoHosts(prev => { const n = { ...prev }; delete n[user.uid]; return n; });
       });
 
       await client.setClientRole('host');
@@ -503,7 +482,7 @@ export default function GoLivePage() {
           try {
             audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
           } catch (e3) {
-            throw new Error(`Caméra/micro inaccessibles.\n(${e3.message})`);
+            throw new Error(`Caméra/micro inaccessibles. Fermez les autres apps et réessayez.\n(${e3.message})`);
           }
         }
       }
@@ -572,7 +551,6 @@ export default function GoLivePage() {
         if (uid) await deleteDoc(doc(db, 'live_sessions', channelId, 'viewers', uid));
       } catch (e) { console.warn('⚠️ endLive Firestore:', e); }
     }
-    remoteUsersRef.current = {};
     setPhase('ended');
     setIsEnding(false);
     setShowEndDlg(false);
@@ -589,10 +567,7 @@ export default function GoLivePage() {
       audio?.stop(); audio?.close();
       video?.stop(); video?.close();
       localTrackRef.current = { audio: null, video: null };
-      if (agoraClientRef.current) {
-        await agoraClientRef.current.leave();
-        agoraClientRef.current = null;
-      }
+      if (agoraClientRef.current) { await agoraClientRef.current.leave(); agoraClientRef.current = null; }
     } catch (e) { console.warn('Cleanup Agora:', e); }
   }
 
@@ -611,24 +586,28 @@ export default function GoLivePage() {
 
   // ─────────────────────────────────────────────────────────
   // 👥 CO-HOSTS — Accepter / Refuser / Retirer
+  // Miroir exact de _acceptCoHost / _declineCoHost / _removeCoHost Flutter
   // ─────────────────────────────────────────────────────────
   const acceptCoHost = async (coHost) => {
     if (Object.keys(coHosts).length >= MAX_COHOSTS) {
       alert(`Maximum ${MAX_COHOSTS} co-hosts atteint.`); return;
     }
 
+    // Générer agoraUid (miroir Flutter : coHost.uid.hashCode.abs() % 100000 + 1000)
     const agoraUid = Math.abs(
       [...coHost.uid].reduce((a, c) => Math.imul(31, a) + c.charCodeAt(0) | 0, 0)
     ) % 100000 + 1000;
 
+    // Récupérer le token pour ce co-host
     const token = await fetchAgoraToken(channelId, agoraUid, 'PUBLISHER');
 
+    // Écrire dans Firestore — le viewer lit ça et rejoint le canal Agora
     if (channelId) {
       try {
         await setDoc(doc(db, 'live_sessions', channelId, 'co_hosts', coHost.uid), {
           status:      'active',
           agoraUid,
-          token,
+          token,                   // ← le viewer (live.jsx CoHostButton) lira ce token
           displayName: coHost.displayName,
           avatarUrl:   coHost.avatarUrl ?? null,
           acceptedAt:  serverTimestamp(),
@@ -636,21 +615,15 @@ export default function GoLivePage() {
       } catch (e) { console.warn('⚠️ acceptCoHost Firestore:', e); }
     }
 
-    // FIX: le status sera 'waiting' jusqu'à ce que Agora déclenche user-published
-    // On ajoute le co-host en état 'waiting' pour que VideoLayout crée le div de suite
+    // Mettre à jour l'état local
     setCoHosts(prev => ({
       ...prev,
-      [agoraUid]: {
-        uid: coHost.uid,
-        displayName: coHost.displayName,
-        agoraUid,
-        status: 'waiting', // div créé maintenant → sera 'active' à user-published
-        token,
-      },
+      [agoraUid]: { uid: coHost.uid, displayName: coHost.displayName, agoraUid, status: 'active', token },
     }));
     setPendingRequest(null);
     dialogOpenRef.current = false;
     addComment('🎙️', `${coHost.displayName} a rejoint la scène`, 'fr');
+    // Traiter la demande suivante dans la file
     _processNextRequest();
   };
 
@@ -674,7 +647,6 @@ export default function GoLivePage() {
         });
       } catch (_) {}
     }
-    delete remoteUsersRef.current[agoraUid];
     setCoHosts(prev => { const n = { ...prev }; delete n[agoraUid]; return n; });
     setShowRemoveDialog(null);
   };
@@ -693,10 +665,7 @@ export default function GoLivePage() {
     if (channelId) {
       try {
         const ref = doc(collection(db, 'live_comments'));
-        await setDoc(ref, {
-          commentId: ref.id, sender: auth.currentUser?.displayName ?? 'Vendeur',
-          text, timestamp: serverTimestamp(), channelId, lang: isChinese ? 'zh' : 'fr',
-        });
+        await setDoc(ref, { commentId: ref.id, sender: auth.currentUser?.displayName ?? 'Vendeur', text, timestamp: serverTimestamp(), channelId, lang: isChinese ? 'zh' : 'fr' });
       } catch (_) {}
     }
   };
@@ -713,9 +682,8 @@ export default function GoLivePage() {
     setGiftCount(c => { const n = c + 1; _updateEngagement(likeCount, n); return n; });
   };
 
-  const fmtTime = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-  // FIX: afficher waiting + active dans le layout (div doit exister avant user-published)
-  const activeCoHosts = Object.values(coHosts).filter(c => c.status === 'active' || c.status === 'waiting');
+  const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  const activeCoHosts = Object.values(coHosts).filter(c => c.status === 'active');
 
   // ─────────────────────────────────────────────────────────
   // 🎨 RENDER
@@ -738,7 +706,7 @@ export default function GoLivePage() {
 
   if (phase === 'ended') return (
     <EndedScreen likeCount={likeCount} giftCount={giftCount}
-      viewerCount={viewerCount} duration={fmtTime(liveSeconds)} onBack={() => router.back()} />
+      viewerCount={viewerCount} duration={fmt(liveSeconds)} onBack={() => router.back()} />
   );
 
   return (
@@ -748,10 +716,8 @@ export default function GoLivePage() {
       background: '#000', overflow: 'hidden', fontFamily: 'system-ui,sans-serif',
     }}>
       <VideoLayout
-        localVideoRef={localVideoRef}
-        remoteVideoRefs={remoteVideoRefs}
-        activeCoHosts={activeCoHosts}
-        onRemove={uid => setShowRemoveDialog(uid)}
+        localVideoRef={localVideoRef} remoteVideoRefs={remoteVideoRefs}
+        activeCoHosts={activeCoHosts} onRemove={uid => setShowRemoveDialog(uid)}
         isEngineReady={isEngineReady}
       />
 
@@ -762,7 +728,7 @@ export default function GoLivePage() {
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '13px 12px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
           <Pill bg="#EF4444cc"><PulseDot /> En direct</Pill>
-          <span style={{ color: '#ffffff90', fontSize: 13 }}>{fmtTime(liveSeconds)}</span>
+          <span style={{ color: '#ffffff90', fontSize: 13 }}>{fmt(liveSeconds)}</span>
           {isChinese && <Pill bg="#F97316cc">🇨🇳→🇫🇷</Pill>}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -844,7 +810,7 @@ export default function GoLivePage() {
         </LiveModal>
       )}
 
-      {/* Modal demande co-host */}
+      {/* Modal demande co-host — Accepter / Refuser */}
       {pendingRequest && !showEndDlg && (
         <LiveModal>
           <div style={{ textAlign: 'center' }}>
@@ -893,51 +859,19 @@ function VideoLayout({ localVideoRef, remoteVideoRefs, activeCoHosts, onRemove, 
       <p style={{ color: '#ffffff80', fontSize: 14 }}>Démarrage du live...</p>
     </div>
   );
-
-  if (activeCoHosts.length === 0) {
-    return <div ref={localVideoRef} style={{ position: 'absolute', inset: 0, background: '#111' }} />;
-  }
-
+  if (activeCoHosts.length === 0) return <div ref={localVideoRef} style={{ position: 'absolute', inset: 0, background: '#111' }} />;
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-      {/* Hôte — 2/3 de l'écran */}
       <div style={{ flex: 2, position: 'relative' }}>
         <div ref={localVideoRef} style={{ position: 'absolute', inset: 0, background: '#111' }} />
         <VLabel label="Hôte" color="#F97316" />
       </div>
-      {/* Co-hosts — 1/3 de l'écran, côte à côte */}
       <div style={{ flex: 1, display: 'flex' }}>
         {activeCoHosts.map(c => (
           <div key={c.agoraUid} style={{ flex: 1, position: 'relative', background: '#1a1a2e' }}>
-            {/* FIX: ref callback — met à jour remoteVideoRefs dès que le div est monté */}
-            <div
-              ref={el => {
-                if (el) {
-                  remoteVideoRefs.current[c.agoraUid] = el;
-                } else {
-                  delete remoteVideoRefs.current[c.agoraUid];
-                }
-              }}
-              style={{ position: 'absolute', inset: 0 }}
-            />
-            {/* Indicateur pendant la connexion */}
-            {c.status === 'waiting' && (
-              <div style={{
-                position: 'absolute', inset: 0, display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-                flexDirection: 'column', gap: 8,
-              }}>
-                <Spinner />
-                <span style={{ color: '#ffffff70', fontSize: 11 }}>Connexion...</span>
-              </div>
-            )}
+            <div ref={el => { remoteVideoRefs.current[c.agoraUid] = el; }} style={{ position: 'absolute', inset: 0 }} />
             <VLabel label={c.displayName} />
-            <button onClick={() => onRemove(c.agoraUid)} style={{
-              position: 'absolute', top: 5, right: 5, width: 22, height: 22,
-              borderRadius: '50%', background: 'rgba(239,68,68,.85)',
-              border: 'none', color: '#fff', fontSize: 11, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>✕</button>
+            <button onClick={() => onRemove(c.agoraUid)} style={{ position: 'absolute', top: 5, right: 5, width: 22, height: 22, borderRadius: '50%', background: 'rgba(239,68,68,.85)', border: 'none', color: '#fff', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
           </div>
         ))}
       </div>
@@ -1059,13 +993,7 @@ function CoHostPanel({ activeCoHosts, maxCoHosts, onClose, onRemove }) {
           <div key={c.agoraUid} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
             <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(124,58,237,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#A855F7', fontWeight: 700, fontSize: 14 }}>{c.displayName[0].toUpperCase()}</div>
             <span style={{ flex: 1, color: '#fff', fontSize: 13 }}>{c.displayName}</span>
-            <span style={{
-              background: c.status === 'waiting' ? 'rgba(249,115,22,.25)' : 'rgba(22,163,74,.25)',
-              color: c.status === 'waiting' ? '#fed7aa' : '#86efac',
-              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
-            }}>
-              {c.status === 'waiting' ? 'Connexion...' : 'En direct'}
-            </span>
+            <span style={{ background: 'rgba(22,163,74,.25)', color: '#86efac', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>En direct</span>
             <button onClick={() => onRemove(c.agoraUid)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', fontSize: 18 }}>✕</button>
           </div>
         ))
@@ -1114,3 +1042,4 @@ function BtnSec({ children, onClick }) {
 function BtnPri({ children, onClick, disabled, color }) {
   return <button onClick={onClick} disabled={disabled} style={{ flex: 1, padding: '11px 0', borderRadius: 12, border: 'none', background: color ?? '#F97316', color: '#fff', fontWeight: 700, fontSize: 14, cursor: disabled ? 'not-allowed' : 'pointer' }}>{children}</button>;
 }
+
