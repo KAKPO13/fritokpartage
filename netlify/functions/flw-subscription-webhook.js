@@ -35,7 +35,7 @@ function getAdminApp() {
 }
 
 function verifyFlwSignature(body, signature) {
-  const secret  = process.env.FLW_SECRET_HASH ?? '';
+  const secret  = process.env.FLUTTERWAVE_SECRET_KEY ?? '';
   const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
   try {
     return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(signature, 'hex'));
