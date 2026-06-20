@@ -8,6 +8,8 @@ import {
   serverTimestamp, increment, deleteDoc,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
+// ── AJOUT 1 : import du guard ──────────────────────────────
+import SubscriptionGuard from '../components/SubscriptionGuard';
 
 // ─────────────────────────────────────────────────────────────
 // ⚙️ Config Agora
@@ -159,9 +161,10 @@ function GoLiveProductSelector({ products, loading, isOpen, onClose, onStart }) 
 }
 
 // ─────────────────────────────────────────────────────────────
-// 🎥 GoLivePage
+// 🎥 GoLiveContent — logique interne (ex-GoLivePage)
 // ─────────────────────────────────────────────────────────────
-export default function GoLivePage() {
+// ── AJOUT 2 : renommé de GoLivePage → GoLiveContent ─────────
+function GoLiveContent() {
   const router = useRouter();
 
   // ── Auth ──────────────────────────────────────────────────
@@ -187,9 +190,7 @@ export default function GoLivePage() {
   const localVideoRef   = useRef(null);
   const localTrackRef   = useRef({ video: null, audio: null });
   const remoteVideoRefs = useRef({});
-
-  // FIX: stocker les remote Agora users pour les rejouer après montage DOM
-  const remoteUsersRef  = useRef({}); // agoraUid → AgoraRTCRemoteUser
+  const remoteUsersRef  = useRef({});
 
   const [sdkLoaded,     setSdkLoaded]     = useState(false);
   const [isEngineReady, setIsEngineReady] = useState(false);
@@ -348,11 +349,9 @@ export default function GoLivePage() {
     return () => clearTimeout(t);
   }, [isEngineReady]);
 
-  // ── FIX: Rejouer les vidéos distantes quand VideoLayout se re-rend ──────
-  // Déclenché à chaque changement de coHosts (nouveau div monté dans le DOM)
+  // ── FIX: Rejouer les vidéos distantes quand coHosts change ─
   useEffect(() => {
     if (!isEngineReady) return;
-    // Petit délai pour laisser React finir le render du nouveau div
     const t = setTimeout(() => {
       Object.entries(remoteUsersRef.current).forEach(([agoraUidStr, remoteUser]) => {
         const agoraUid = Number(agoraUidStr);
@@ -368,7 +367,7 @@ export default function GoLivePage() {
       });
     }, 200);
     return () => clearTimeout(t);
-  }, [coHosts, isEngineReady]); // se déclenche dès que la liste co-hosts change
+  }, [coHosts, isEngineReady]);
 
   // ── 7. Reconnexion si onglet caché ────────────────────────
   useEffect(() => {
@@ -426,29 +425,21 @@ export default function GoLivePage() {
       const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
       agoraClientRef.current = client;
 
-      // ── FIX: événements Agora — stocker le remote user avant de jouer ──
       client.on('user-published', async (remoteUser, mediaType) => {
         await client.subscribe(remoteUser, mediaType);
 
         if (mediaType === 'video') {
-          // Mémoriser le remote user pour pouvoir le rejouer après re-render
           remoteUsersRef.current[remoteUser.uid] = remoteUser;
-
-          // Tenter de jouer immédiatement si le div existe déjà
           const el = remoteVideoRefs.current[remoteUser.uid];
           if (el && remoteUser.videoTrack) {
-            try {
-              remoteUser.videoTrack.play(el);
-            } catch (_) {}
+            try { remoteUser.videoTrack.play(el); } catch (_) {}
           }
-          // Sinon, le useEffect [coHosts] va le rejouer après montage du div
         }
 
         if (mediaType === 'audio') {
           remoteUser.audioTrack?.play();
         }
 
-        // Marquer le co-host comme actif dans l'état local
         setCoHosts(prev => {
           const entry = Object.values(prev).find(c => c.agoraUid === remoteUser.uid);
           if (!entry) return prev;
@@ -458,11 +449,9 @@ export default function GoLivePage() {
 
       client.on('user-unpublished', (remoteUser, mediaType) => {
         if (mediaType === 'video') {
-          // Nettoyer le ref
           delete remoteUsersRef.current[remoteUser.uid];
         }
         if (mediaType === 'video' || mediaType === 'audio') {
-          // Si plus aucun track publié, retirer le co-host de l'affichage
           const stillPublishing = client.remoteUsers.some(
             u => u.uid === remoteUser.uid && (u.hasVideo || u.hasAudio)
           );
@@ -484,7 +473,6 @@ export default function GoLivePage() {
       await client.setClientRole('host');
       await client.join(AGORA_APP_ID, cId, token, 0);
 
-      // Création tracks avec fallback progressif
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       let audioTrack = null, videoTrack = null;
       try {
@@ -515,7 +503,6 @@ export default function GoLivePage() {
       setIsEngineReady(true);
       if (isChinese) setTranslationActive(true);
 
-      // Créer doc Firestore live_sessions
       try {
         const user = auth.currentUser;
         await setDoc(doc(db, 'live_sessions', cId), {
@@ -636,15 +623,13 @@ export default function GoLivePage() {
       } catch (e) { console.warn('⚠️ acceptCoHost Firestore:', e); }
     }
 
-    // FIX: le status sera 'waiting' jusqu'à ce que Agora déclenche user-published
-    // On ajoute le co-host en état 'waiting' pour que VideoLayout crée le div de suite
     setCoHosts(prev => ({
       ...prev,
       [agoraUid]: {
         uid: coHost.uid,
         displayName: coHost.displayName,
         agoraUid,
-        status: 'waiting', // div créé maintenant → sera 'active' à user-published
+        status: 'waiting',
         token,
       },
     }));
@@ -714,7 +699,6 @@ export default function GoLivePage() {
   };
 
   const fmtTime = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-  // FIX: afficher waiting + active dans le layout (div doit exister avant user-published)
   const activeCoHosts = Object.values(coHosts).filter(c => c.status === 'active' || c.status === 'waiting');
 
   // ─────────────────────────────────────────────────────────
@@ -747,12 +731,8 @@ export default function GoLivePage() {
       height: '100vh', minHeight: '-webkit-fill-available',
       background: '#000', overflow: 'hidden', fontFamily: 'system-ui,sans-serif',
     }}>
-      <VideoLayout
-        localVideoRef={localVideoRef}
-        isEngineReady={isEngineReady}
-      />
+      <VideoLayout localVideoRef={localVideoRef} isEngineReady={isEngineReady} />
 
-      {/* Vignettes co-hosts flottantes — façon TikTok Live */}
       <CoHostThumbs
         remoteVideoRefs={remoteVideoRefs}
         activeCoHosts={activeCoHosts}
@@ -886,7 +866,19 @@ export default function GoLivePage() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 📺 Sous-composants
+// 🔒 Export default — GoLivePage protégé par SubscriptionGuard
+// ─────────────────────────────────────────────────────────────
+// ── AJOUT 2 (suite) : nouvel export default ──────────────────
+export default function GoLivePage() {
+  return (
+    <SubscriptionGuard>
+      <GoLiveContent />
+    </SubscriptionGuard>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// 📺 Sous-composants (inchangés)
 // ─────────────────────────────────────────────────────────────
 
 function VideoLayout({ localVideoRef, isEngineReady }) {
@@ -897,23 +889,13 @@ function VideoLayout({ localVideoRef, isEngineReady }) {
       <p style={{ color: '#ffffff80', fontSize: 14 }}>Démarrage du live...</p>
     </div>
   );
-
-  // L'hôte occupe toujours tout l'écran. Les co-hosts s'affichent désormais
-  // en vignettes flottantes latérales (voir CoHostThumbs), pas en split.
   return <div ref={localVideoRef} style={{ position: 'absolute', inset: 0, background: '#111' }} />;
 }
 
-// ─────────────────────────────────────────────────────────────
-// 🧑‍🤝‍🧑 Vignettes co-hosts flottantes — façon TikTok Live
-// Empilées verticalement, à gauche de la colonne de boutons d'action
-// ─────────────────────────────────────────────────────────────
 function CoHostThumbs({ remoteVideoRefs, activeCoHosts, onRemove }) {
   if (activeCoHosts.length === 0) return null;
   return (
-    <div style={{
-      position: 'absolute', right: 64, top: 104, zIndex: 30,
-      display: 'flex', flexDirection: 'column', gap: 8,
-    }}>
+    <div style={{ position: 'absolute', right: 64, top: 104, zIndex: 30, display: 'flex', flexDirection: 'column', gap: 8 }}>
       {activeCoHosts.map(c => (
         <div key={c.agoraUid} style={{
           width: 88, height: 124, borderRadius: 12, overflow: 'hidden',
@@ -921,24 +903,15 @@ function CoHostThumbs({ remoteVideoRefs, activeCoHosts, onRemove }) {
           border: '2px solid rgba(168,85,247,.6)',
           boxShadow: '0 2px 10px rgba(0,0,0,.5)',
         }}>
-          {/* Ref callback — met à jour remoteVideoRefs dès que le div est monté */}
           <div
             ref={el => {
-              if (el) {
-                remoteVideoRefs.current[c.agoraUid] = el;
-              } else {
-                delete remoteVideoRefs.current[c.agoraUid];
-              }
+              if (el) { remoteVideoRefs.current[c.agoraUid] = el; }
+              else    { delete remoteVideoRefs.current[c.agoraUid]; }
             }}
             style={{ position: 'absolute', inset: 0 }}
           />
-          {/* Indicateur pendant la connexion */}
           {c.status === 'waiting' && (
-            <div style={{
-              position: 'absolute', inset: 0, display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              flexDirection: 'column', gap: 6,
-            }}>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 6 }}>
               <Spinner />
             </div>
           )}
@@ -964,7 +937,7 @@ function CoHostThumbs({ remoteVideoRefs, activeCoHosts, onRemove }) {
 
 function PreLiveScreen({ products, loading, userId, sellerLang, setSellerLang, sdkReady, onOpenSelector }) {
   return (
-    <div style={{ minHeight: '100vh', minHeight: '-webkit-fill-available', background: '#0a0a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif', color: '#fff', padding: '24px 24px env(safe-area-inset-bottom,24px)', boxSizing: 'border-box' }}>
+    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif', color: '#fff', padding: '24px 24px env(safe-area-inset-bottom,24px)', boxSizing: 'border-box' }}>
       <div style={{ maxWidth: 440, width: '100%' }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={{ fontSize: 52, marginBottom: 8 }}>🎬</div>
@@ -1092,9 +1065,6 @@ function CoHostPanel({ activeCoHosts, maxCoHosts, onClose, onRemove }) {
   );
 }
 
-function VLabel({ label, color = '#fff' }) {
-  return <div style={{ position: 'absolute', bottom: 7, left: 7, background: 'rgba(0,0,0,.55)', borderRadius: 7, padding: '2px 7px', fontSize: 11, fontWeight: 700, color }}>{label}</div>;
-}
 function Pill({ bg, children }) {
   return <span style={{ background: bg, borderRadius: 20, padding: '3px 9px', fontSize: 11, color: '#fff', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>{children}</span>;
 }
