@@ -1100,3 +1100,4 @@ function BtnSec({ children, onClick }) {
 function BtnPri({ children, onClick, disabled, color }) {
   return <button onClick={onClick} disabled={disabled} style={{ flex: 1, padding: '11px 0', borderRadius: 12, border: 'none', background: color ?? '#F97316', color: '#fff', fontWeight: 700, fontSize: 14, cursor: disabled ? 'not-allowed' : 'pointer' }}>{children}</button>;
 }
+
