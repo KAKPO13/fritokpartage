@@ -93,7 +93,7 @@ exports.handler = async (event) => {
   const txRef = `sub_${uid}_${plan}_${Date.now()}`;
 
   // ── Appel Flutterwave Standard API ─────────────────────
-  const FLW_SECRET = process.env.FLW_SECRET_KEY ?? '';
+  const FLW_SECRET = process.env.FLUTTERWAVE_SECRET_KEY ?? '';
   const flwPayload = {
     tx_ref:       txRef,
     amount,
