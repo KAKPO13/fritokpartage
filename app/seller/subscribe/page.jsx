@@ -5,7 +5,8 @@
 'use client';
 
 import { useState }              from 'react';
-import { useSellerSubscription } from '../../hooks/useSellerSubscription';
+import useSellerSubscription from '../../hooks/useSellerSubscription';
+
 
 // ── Palette Fritok ─────────────────────────────────────────
 const D = {
