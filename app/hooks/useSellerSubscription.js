@@ -6,14 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getAuth }                          from 'firebase/auth';
 import { getFirestore, doc, onSnapshot }    from 'firebase/firestore';
 
-// ── Types de statut ────────────────────────────────────────
-// trial      : 14j gratuits, accès complet
-// active     : abonné payant, accès complet
-// expired    : trial ou abo expiré, accès bloqué (mais pas résilié)
-// cancelled  : résilié, accès bloqué
-// none       : champ subscription absent (nouveau compte non encore initialisé)
-
-export function useSellerSubscription() {
+function useSellerSubscription() {
   const auth = getAuth();
   const db   = getFirestore();
 
@@ -38,21 +31,17 @@ export function useSellerSubscription() {
     return unsub;
   }, [auth.currentUser?.uid]);
 
-  // ── Helpers ────────────────────────────────────────────
   const status = subscription?.status ?? 'none';
 
-  // Retourne true si le vendeur peut accéder aux fonctionnalités premium
   const hasAccess = useCallback(() => {
     if (!subscription) return false;
     const s = subscription.status;
     if (s !== 'trial' && s !== 'active') return false;
-    // Vérifier que la période n'est pas dépassée côté client (double-check)
     const end = subscription.currentPeriodEnd?.toDate?.() ?? null;
     if (end && end < new Date()) return false;
     return true;
   }, [subscription]);
 
-  // Calcule le nombre de jours restants (trial ou période payante)
   const daysLeft = useCallback(() => {
     if (!subscription) return 0;
     const end = subscription.currentPeriodEnd?.toDate?.() ?? null;
@@ -61,7 +50,6 @@ export function useSellerSubscription() {
     return Math.max(0, Math.ceil(diff / (24 * 60 * 60 * 1000)));
   }, [subscription]);
 
-  // Lance le paiement Flutterwave (redirige)
   const startPayment = useCallback(async ({ plan = 'pro', currency = 'XOF', phone = '' } = {}) => {
     const user = auth.currentUser;
     if (!user) throw new Error('Non connecté');
@@ -76,7 +64,6 @@ export function useSellerSubscription() {
     window.location.href = data.payment_url;
   }, [auth]);
 
-  // Initialise le trial (à appeler au bon moment après inscription)
   const initTrial = useCallback(async ({ plan = 'pro' } = {}) => {
     const user = auth.currentUser;
     if (!user) throw new Error('Non connecté');
@@ -95,10 +82,12 @@ export function useSellerSubscription() {
     subscription,
     loading,
     error,
-    status,          // 'trial' | 'active' | 'expired' | 'cancelled' | 'none'
-    hasAccess,       // () => boolean
-    daysLeft,        // () => number
-    startPayment,    // ({ plan, currency, phone }) => Promise<void>
-    initTrial,       // ({ plan }) => Promise<any>
+    status,
+    hasAccess,
+    daysLeft,
+    startPayment,
+    initTrial,
   };
 }
+
+export default useSellerSubscription;
