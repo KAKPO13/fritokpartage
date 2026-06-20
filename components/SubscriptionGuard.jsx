@@ -10,7 +10,9 @@
 'use client';
 
 import { useRouter }               from 'next/navigation';
-import { useSellerSubscription }   from '../hooks/useSellerSubscription';
+
+import useSellerSubscription from '../app/hooks/useSellerSubscription';
+
 import SubscriptionPaywall         from './SubscriptionPaywall';
 
 export default function SubscriptionGuard({ children, redirectOnExpired = false }) {
