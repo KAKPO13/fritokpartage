@@ -6,8 +6,8 @@ import {
   collection, doc, query, where,
   onSnapshot, setDoc, updateDoc,
   serverTimestamp, increment, deleteDoc,
-  getDoc,
 } from 'firebase/firestore';
+import SubscriptionGuard from './SubscriptionGuard';
 import { onAuthStateChanged } from 'firebase/auth';
 
 // ─────────────────────────────────────────────────────────────
@@ -50,58 +50,6 @@ function videoDocToProduct(docSnap) {
     productId:   p.productId   ?? d.productId    ?? id,
     userIdVend:  p.userIdVend  ?? d.userIdVend   ?? null,
   };
-}
-
-// ─────────────────────────────────────────────────────────────
-// 🔒 SubscriptionGuard — vérifie l'abonnement Vendeur
-// ─────────────────────────────────────────────────────────────
-function SubscriptionGuard({ userId, children }) {
-  const router = useRouter();
-  const [status, setStatus] = useState('loading'); // 'loading' | 'ok' | 'blocked'
-
-  useEffect(() => {
-    if (!userId) return;
-    getDoc(doc(db, 'users', userId)).then(snap => {
-      const sub = snap.data()?.subscription;
-      const ok  = sub?.status === 'trial' || sub?.status === 'active';
-      setStatus(ok ? 'ok' : 'blocked');
-    }).catch(() => setStatus('blocked'));
-  }, [userId]);
-
-  if (status === 'loading') return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui,sans-serif' }}>
-      <div style={{ textAlign: 'center', color: '#fff' }}>
-        <Spinner />
-        <p style={{ color: '#ffffff70', fontSize: 14, marginTop: 14 }}>Vérification de l'abonnement...</p>
-      </div>
-    </div>
-  );
-
-  if (status === 'blocked') return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: 'system-ui,sans-serif' }}>
-      <div style={{ maxWidth: 380, width: '100%', textAlign: 'center' }}>
-        <div style={{ fontSize: 52, marginBottom: 16 }}>🔒</div>
-        <h2 style={{ color: '#fff', fontSize: 22, fontWeight: 900, margin: '0 0 10px' }}>Abonnement requis</h2>
-        <p style={{ color: '#ffffff70', fontSize: 15, lineHeight: 1.6, margin: '0 0 28px' }}>
-          Le live est réservé aux comptes Vendeur avec un abonnement actif ou en période d'essai.
-        </p>
-        <button
-          onClick={() => router.push('/pricing')}
-          style={{ width: '100%', padding: '14px 0', borderRadius: 14, background: 'linear-gradient(135deg,#F97316,#EA580C)', border: 'none', color: '#fff', fontWeight: 800, fontSize: 16, cursor: 'pointer', marginBottom: 12 }}
-        >
-          Voir les offres →
-        </button>
-        <button
-          onClick={() => router.back()}
-          style={{ width: '100%', padding: '13px 0', borderRadius: 14, background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.12)', color: '#ffffff80', fontWeight: 600, fontSize: 15, cursor: 'pointer' }}
-        >
-          Retour
-        </button>
-      </div>
-    </div>
-  );
-
-  return children;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -780,7 +728,7 @@ export default function GoLivePage() {
   );
 
   if (phase === 'pre') return (
-    <SubscriptionGuard userId={userId}>
+    <SubscriptionGuard>
       <PreLiveScreen
         products={allProducts} loading={loadingProds} userId={userId}
         sellerLang={sellerLang} setSellerLang={setSellerLang}
