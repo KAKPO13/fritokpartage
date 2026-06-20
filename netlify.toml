@@ -24,6 +24,17 @@
   status = 200
   force = true
 
+  # Callback Flutterwave (si besoin d'alias court)
+[[redirects]]
+  from   = "/seller/subscribe/success"
+  to     = "/seller/subscribe/callback?status=successful"
+  status = 200
+ 
+[[redirects]]
+  from   = "/seller/subscribe/cancel"
+  to     = "/seller/subscribe/callback?status=cancelled"
+  status = 200
+
 # ==============================
 # ⏰ CRON – LIVE AVATAR PROGRAMMÉ
 # ==============================
@@ -33,3 +44,14 @@
   schedule = "*/1 * * * *"
   # CRON – exécution chaque minute
 
+  # ── Cron : expire les abonnements chaque jour à 02h UTC ──────
+[functions."expire-subscriptions"]
+  schedule = "0 2 * * *"
+
+
+# ── Headers de sécurité ──────────────────────────────────────
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    X-Frame-Options        = "DENY"
+    X-Content-Type-Options = "nosniff"
