@@ -232,7 +232,7 @@ function PartnerSheet({ pb, partner, loading, fetchLog, onClose }) {
 
           {/* Tarifs */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <TarifChip label="Frais de location" value="100 FCFA" />
+            <TarifChip label="Frais de location" value="300 FCFA" />
             <TarifChip label="Caution (remb.)"   value="200 FCFA" amber />
           </div>
         </div>
