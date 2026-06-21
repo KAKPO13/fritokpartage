@@ -414,18 +414,30 @@ function WalletCard({ balance, currency, currencies, normWallet, activeCount, on
 // ─────────────────────────────────────────────────────────────────────────────
 //  PATCH app.js — remplace la fonction MapTab existante par celle-ci
 //
-//  Changements vs version précédente :
-//   • Lit la collection "partners" (pas "users") pour les infos partenaire
-//   • Expose les champs : active, emoji, type, stockAvailable, name, qrCode
-//   • Passe partnerEmoji aux markers pour personnaliser l'icône Leaflet
-//   • onFetchPartner lit partners/{currentPartnerId}
+//  Schéma Firestore collection "partners" :
+//    active         : boolean
+//    emoji          : string        "🍺"
+//    location       : GeoPoint
+//    name           : string        "nul bare"
+//    partnerPhotos  : string[]      URLs Cloudflare R2
+//    qrCode         : string        "PTN-ABJ-001"
+//    stockAvailable : number        8
+//    type           : string        "bare"
+//
+//  Liaison powerBanks → partners :
+//    powerBanks.currentPartnerId doit contenir SOIT :
+//      • le doc ID Firestore du partenaire  (ex: "abc123xyz")
+//      • OU son qrCode                      (ex: "PTN-ABJ-001")
+//    Le fetch essaie les deux.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function MapTab({ db }) {
   const [powerBanks, setPowerBanks] = useState([]);
+  const [partners,   setPartners]   = useState({});   // cache { partnerId → data }
   const [loading,    setLoading]    = useState(true);
   const [filter,     setFilter]     = useState('tous');
 
+  // ── Écoute powerBanks ─────────────────────────────────────────────────────
   useEffect(() => {
     const unsub = onSnapshot(
       query(collection(db, 'powerBanks')),
@@ -438,66 +450,102 @@ function MapTab({ db }) {
     return unsub;
   }, []);
 
+  // ── Pré-charge tous les partenaires au démarrage ──────────────────────────
+  // Avantage : le sheet s'ouvre instantanément sans spinner
+  useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, 'partners'), where('active', '==', true)),
+      (snap) => {
+        const map = {};
+        snap.docs.forEach(d => {
+          const data = d.data();
+          // Indexé par doc ID ET par qrCode pour lookup rapide dans les deux cas
+          const entry = {
+            name  : data.name   || 'Partenaire Fritok',
+            emoji : data.emoji  || '🏪',
+            type  : data.type   || '',
+            stock : data.stockAvailable ?? null,
+            active: data.active ?? true,
+            address: data.address || data.adresse || '',
+            photos: Array.isArray(data.partnerPhotos)
+              ? data.partnerPhotos.filter(Boolean).slice(0, 3)
+              : [],
+          };
+          map[d.id] = entry;
+          if (data.qrCode) map[data.qrCode] = entry;
+        });
+        setPartners(map);
+      },
+    );
+    return unsub;
+  }, []);
+
   const dispoCount = powerBanks.filter(pb => pb.state === 'disponible').length;
 
-  // Markers : on inclut currentPartnerId + partnerEmoji (si déjà connu)
-  // pour que le marker Leaflet affiche le bon emoji sans fetch supplémentaire
   const markers = powerBanks
     .filter(pb => filter === 'tous' || pb.state === filter)
     .filter(pb => pb.location?.latitude != null)
-    .map(pb => ({
-      id              : pb.id,
-      lat             : pb.location.latitude,
-      lng             : pb.location.longitude,
-      qrCode          : pb.qrCode || pb.id,
-      state           : pb.state,
-      batteryLevel    : pb.batteryLevel,
-      currentPartnerId: pb.currentPartnerId ?? null,
-      partnerEmoji    : pb.partnerEmoji ?? null, // optionnel, enrichi si dispo
-    }));
+    .map(pb => {
+      // Récupère l'emoji du partenaire depuis le cache pour l'icône marker
+      const ptn = partners[pb.currentPartnerId] ?? null;
+      return {
+        id              : pb.id,
+        lat             : pb.location.latitude,
+        lng             : pb.location.longitude,
+        qrCode          : pb.qrCode || pb.id,
+        state           : pb.state,
+        batteryLevel    : pb.batteryLevel,
+        currentPartnerId: pb.currentPartnerId ?? null,
+        partnerEmoji    : ptn?.emoji ?? null,
+      };
+    });
 
-  // ── Fetch partenaire depuis la collection "partners" ─────────────────────
-  // Schéma Firestore :
-  //   active         : boolean
-  //   emoji          : string   ex. "🍺"
-  //   location       : GeoPoint
-  //   name           : string   ex. "nul bare"
-  //   qrCode         : string   ex. "PTN-ABJ-001"
-  //   stockAvailable : number
-  //   type           : string   ex. "bare"
-  //   partnerPhotos  : string[] (à ajouter plus tard — max 3 URLs Storage)
+  // ── Fetch synchrone depuis le cache (déjà chargé) ────────────────────────
+  // Si le partenaire n'est pas dans le cache (actif=false ou absent),
+  // on fait quand même un getDoc de secours.
   const fetchPartner = async (partnerId) => {
     if (!partnerId) return null;
 
-    // On cherche d'abord par document ID, puis par champ qrCode en fallback
-    let snap = await getDoc(doc(db, 'partners', partnerId));
+    // 1. Lookup dans le cache pré-chargé
+    if (partners[partnerId]) return partners[partnerId];
 
-    if (!snap.exists()) {
-      // Fallback : le champ currentPartnerId est peut-être le qrCode
-      const q = await getDocs(
-        query(collection(db, 'partners'), where('qrCode', '==', partnerId))
-      );
-      if (!q.empty) snap = q.docs[0];
+    // 2. Secours : getDoc par ID Firestore
+    const snap = await getDoc(doc(db, 'partners', partnerId));
+    if (snap.exists()) {
+      const d = snap.data();
+      return {
+        name  : d.name   || 'Partenaire Fritok',
+        emoji : d.emoji  || '🏪',
+        type  : d.type   || '',
+        stock : d.stockAvailable ?? null,
+        active: d.active ?? true,
+        address: d.address || d.adresse || '',
+        photos: Array.isArray(d.partnerPhotos)
+          ? d.partnerPhotos.filter(Boolean).slice(0, 3)
+          : [],
+      };
     }
 
-    if (!snap || !snap.exists()) return null;
+    // 3. Secours : cherche par qrCode
+    const q = await getDocs(
+      query(collection(db, 'partners'), where('qrCode', '==', partnerId))
+    );
+    if (!q.empty) {
+      const d = q.docs[0].data();
+      return {
+        name  : d.name   || 'Partenaire Fritok',
+        emoji : d.emoji  || '🏪',
+        type  : d.type   || '',
+        stock : d.stockAvailable ?? null,
+        active: d.active ?? true,
+        address: d.address || d.adresse || '',
+        photos: Array.isArray(d.partnerPhotos)
+          ? d.partnerPhotos.filter(Boolean).slice(0, 3)
+          : [],
+      };
+    }
 
-    const d = snap.data();
-    return {
-      name  : d.name   || 'Partenaire Fritok',
-      emoji : d.emoji  || '🏪',
-      type  : d.type   || '',
-      stock : d.stockAvailable ?? null,
-      active: d.active ?? true,
-      // adresse : les partenaires stockent un GeoPoint, pas de champ texte
-      // → on affiche les coordonnées ou rien si absent
-      address: d.address || d.adresse || '',
-      // Photos intérieur (tableau d'URLs Firebase Storage — max 3)
-      // Ajoute ce champ dans Firestore quand tu auras les photos
-      photos: Array.isArray(d.partnerPhotos)
-        ? d.partnerPhotos.filter(Boolean).slice(0, 3)
-        : [],
-    };
+    return null;
   };
 
   return (
