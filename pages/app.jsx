@@ -414,26 +414,20 @@ function WalletCard({ balance, currency, currencies, normWallet, activeCount, on
 // ─────────────────────────────────────────────────────────────────────────────
 //  PATCH app.js — remplace la fonction MapTab existante par celle-ci
 //
-//  Schéma Firestore collection "partners" :
-//    active         : boolean
-//    emoji          : string        "🍺"
-//    location       : GeoPoint
-//    name           : string        "nul bare"
-//    partnerPhotos  : string[]      URLs Cloudflare R2
-//    qrCode         : string        "PTN-ABJ-001"
-//    stockAvailable : number        8
-//    type           : string        "bare"
-//
 //  Liaison powerBanks → partners :
-//    powerBanks.currentPartnerId doit contenir SOIT :
-//      • le doc ID Firestore du partenaire  (ex: "abc123xyz")
-//      • OU son qrCode                      (ex: "PTN-ABJ-001")
-//    Le fetch essaie les deux.
+//    powerBanks.currentPartnerId = UID Auth du partenaire (ex: "ZD9Q06V6...")
+//    partners.uid                = même UID Auth (champ à ajouter manuellement)
+//    partners.doc ID             = "partner_abc" (peu importe)
+//
+//  Lookup en 3 étapes :
+//    1. Cache pré-chargé indexé par uid / doc ID / qrCode
+//    2. getDoc par doc ID (secours)
+//    3. where('uid', '==', partnerId) (secours final)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function MapTab({ db }) {
   const [powerBanks, setPowerBanks] = useState([]);
-  const [partners,   setPartners]   = useState({});   // cache { partnerId → data }
+  const [partners,   setPartners]   = useState({});
   const [loading,    setLoading]    = useState(true);
   const [filter,     setFilter]     = useState('tous');
 
@@ -450,29 +444,29 @@ function MapTab({ db }) {
     return unsub;
   }, []);
 
-  // ── Pré-charge tous les partenaires au démarrage ──────────────────────────
-  // Avantage : le sheet s'ouvre instantanément sans spinner
+  // ── Pré-charge tous les partenaires ──────────────────────────────────────
+  // Indexé par : doc ID + uid + qrCode  → lookup instantané au clic
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'partners'), where('active', '==', true)),
+      query(collection(db, 'partners')),
       (snap) => {
         const map = {};
         snap.docs.forEach(d => {
-          const data = d.data();
-          // Indexé par doc ID ET par qrCode pour lookup rapide dans les deux cas
+          const data  = d.data();
           const entry = {
-            name  : data.name   || 'Partenaire Fritok',
-            emoji : data.emoji  || '🏪',
-            type  : data.type   || '',
-            stock : data.stockAvailable ?? null,
-            active: data.active ?? true,
+            name   : data.name   || 'Partenaire Fritok',
+            emoji  : data.emoji  || '🏪',
+            type   : data.type   || '',
+            stock  : data.stockAvailable ?? null,
+            active : data.active ?? true,
             address: data.address || data.adresse || '',
-            photos: Array.isArray(data.partnerPhotos)
+            photos : Array.isArray(data.partnerPhotos)
               ? data.partnerPhotos.filter(Boolean).slice(0, 3)
               : [],
           };
-          map[d.id] = entry;
-          if (data.qrCode) map[data.qrCode] = entry;
+          map[d.id] = entry;                    // par doc ID  ("partner_abc")
+          if (data.uid)    map[data.uid]    = entry; // par UID Auth ("ZD9Q06V6...")
+          if (data.qrCode) map[data.qrCode] = entry; // par qrCode  ("PTN-ABJ-001")
         });
         setPartners(map);
       },
@@ -486,7 +480,6 @@ function MapTab({ db }) {
     .filter(pb => filter === 'tous' || pb.state === filter)
     .filter(pb => pb.location?.latitude != null)
     .map(pb => {
-      // Récupère l'emoji du partenaire depuis le cache pour l'icône marker
       const ptn = partners[pb.currentPartnerId] ?? null;
       return {
         id              : pb.id,
@@ -500,46 +493,45 @@ function MapTab({ db }) {
       };
     });
 
-  // ── Fetch synchrone depuis le cache (déjà chargé) ────────────────────────
-  // Si le partenaire n'est pas dans le cache (actif=false ou absent),
-  // on fait quand même un getDoc de secours.
+  // ── fetchPartner : cache d'abord, puis 2 secours Firestore ───────────────
   const fetchPartner = async (partnerId) => {
     if (!partnerId) return null;
 
-    // 1. Lookup dans le cache pré-chargé
+    // 1. Cache (indexé par uid / doc ID / qrCode)
     if (partners[partnerId]) return partners[partnerId];
 
-    // 2. Secours : getDoc par ID Firestore
+    // 2. Secours : getDoc par doc ID
     const snap = await getDoc(doc(db, 'partners', partnerId));
     if (snap.exists()) {
       const d = snap.data();
       return {
-        name  : d.name   || 'Partenaire Fritok',
-        emoji : d.emoji  || '🏪',
-        type  : d.type   || '',
-        stock : d.stockAvailable ?? null,
-        active: d.active ?? true,
+        name   : d.name   || 'Partenaire Fritok',
+        emoji  : d.emoji  || '🏪',
+        type   : d.type   || '',
+        stock  : d.stockAvailable ?? null,
+        active : d.active ?? true,
         address: d.address || d.adresse || '',
-        photos: Array.isArray(d.partnerPhotos)
+        photos : Array.isArray(d.partnerPhotos)
           ? d.partnerPhotos.filter(Boolean).slice(0, 3)
           : [],
       };
     }
 
-    // 3. Secours : cherche par qrCode
+    // 3. Secours final : where('uid', '==', partnerId)
+    //    → trouve partner_abc grâce au champ uid = "ZD9Q06V6..."
     const q = await getDocs(
-      query(collection(db, 'partners'), where('qrCode', '==', partnerId))
+      query(collection(db, 'partners'), where('uid', '==', partnerId))
     );
     if (!q.empty) {
       const d = q.docs[0].data();
       return {
-        name  : d.name   || 'Partenaire Fritok',
-        emoji : d.emoji  || '🏪',
-        type  : d.type   || '',
-        stock : d.stockAvailable ?? null,
-        active: d.active ?? true,
+        name   : d.name   || 'Partenaire Fritok',
+        emoji  : d.emoji  || '🏪',
+        type   : d.type   || '',
+        stock  : d.stockAvailable ?? null,
+        active : d.active ?? true,
         address: d.address || d.adresse || '',
-        photos: Array.isArray(d.partnerPhotos)
+        photos : Array.isArray(d.partnerPhotos)
           ? d.partnerPhotos.filter(Boolean).slice(0, 3)
           : [],
       };
