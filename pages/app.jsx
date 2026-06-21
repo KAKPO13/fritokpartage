@@ -37,7 +37,7 @@ const D = {
 
 // ─── Tarifs fixes ────────────────────────────────────────────────────────────
 // TODO: à lire depuis Firestore si tu les ajoutes plus tard
-const FRAIS_XOF   = 100;
+const FRAIS_XOF   = 300;
 const CAUTION_XOF = 200;
 
 // ── Compte Escrow Fritok ──────────────────────────────────────────────────────
