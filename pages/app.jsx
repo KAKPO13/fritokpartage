@@ -411,6 +411,12 @@ function WalletCard({ balance, currency, currencies, normWallet, activeCount, on
 // ─────────────────────────────────────────────────────────────────────────────
 //  MapTab — power banks Firestore avec GeoPoint → Leaflet
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  PATCH app.js — remplacer la fonction MapTab existante par celle-ci
+//  Elle enrichit les markers avec currentPartnerId et fournit onFetchPartner
+//  qui lit users/{partnerId} pour récupérer nom, adresse et photos
+// ─────────────────────────────────────────────────────────────────────────────
+
 function MapTab({ db }) {
   const [powerBanks, setPowerBanks] = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -419,8 +425,11 @@ function MapTab({ db }) {
   useEffect(() => {
     const unsub = onSnapshot(
       query(collection(db, 'powerBanks')),
-      (snap) => { setPowerBanks(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); },
-      ()     => setLoading(false),
+      (snap) => {
+        setPowerBanks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+      },
+      () => setLoading(false),
     );
     return unsub;
   }, []);
@@ -428,35 +437,81 @@ function MapTab({ db }) {
   const dispoCount = powerBanks.filter(pb => pb.state === 'disponible').length;
 
   // Convertit GeoPoint Firestore → {lat, lng} pour Leaflet
+  // On passe aussi currentPartnerId pour le fetch des photos au clic
   const markers = powerBanks
     .filter(pb => filter === 'tous' || pb.state === filter)
     .filter(pb => pb.location?.latitude != null)
     .map(pb => ({
-      id          : pb.id,
-      lat         : pb.location.latitude,
-      lng         : pb.location.longitude,
-      qrCode      : pb.qrCode || pb.id,
-      state       : pb.state,
-      batteryLevel: pb.batteryLevel,
+      id              : pb.id,
+      lat             : pb.location.latitude,
+      lng             : pb.location.longitude,
+      qrCode          : pb.qrCode || pb.id,
+      state           : pb.state,
+      batteryLevel    : pb.batteryLevel,
+      currentPartnerId: pb.currentPartnerId ?? null,
+      // Si le power bank stocke déjà des photos inline, on les passe directement
+      // (évite un round-trip Firestore si la donnée est déjà là)
+      partnerPhotos   : pb.partnerPhotos ?? [],
+      partnerName     : pb.partnerName   ?? null,
+      partnerAddress  : pb.partnerAddress ?? null,
     }));
+
+  // ── Fetch données partenaire à la demande (clic marker) ─────────────────
+  // Lit users/{partnerId} — champs attendus :
+  //   username / nomBoutique, adresse / location.address,
+  //   partnerPhotos: string[]  (URLs Firebase Storage, max 3)
+  const fetchPartner = async (partnerId) => {
+    if (!partnerId) return null;
+    const snap = await getDoc(doc(db, 'users', partnerId));
+    if (!snap.exists()) return null;
+    const d = snap.data();
+    return {
+      name   : d.nomBoutique || d.username || 'Partenaire Fritok',
+      address: d.adresse || d.location?.address || '',
+      // partnerPhotos est un tableau d'URLs (max 3) stocké chez le partenaire
+      photos : Array.isArray(d.partnerPhotos)
+        ? d.partnerPhotos.filter(Boolean).slice(0, 3)
+        : [],
+    };
+  };
 
   return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '24px 24px 0', background: D.bg, flexShrink: 0 }}>
         <div style={{ fontSize: 20, fontWeight: 800, color: D.text1 }}>📍 Power banks</div>
         <div style={{ fontSize: 13, color: D.text2, marginTop: 2, marginBottom: 12 }}>
-          {loading ? 'Chargement…' : `${dispoCount} disponible${dispoCount !== 1 ? 's' : ''} · ${powerBanks.length} au total`}
+          {loading
+            ? 'Chargement…'
+            : `${dispoCount} disponible${dispoCount !== 1 ? 's' : ''} · ${powerBanks.length} au total`}
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', paddingBottom: 4 }}>
-          {[{ key: 'tous', label: 'Tous' }, { key: 'disponible', label: '✅ Disponibles' }, { key: 'en_location', label: '🔋 En location' }, { key: 'hors_service', label: '🚫 Hors service' }].map(f => (
-            <button key={f.key} onClick={() => setFilter(f.key)} style={{ padding: '5px 14px', borderRadius: 99, border: `1px solid ${filter === f.key ? D.orange : D.border}`, background: filter === f.key ? D.orangeDim : D.surface, color: filter === f.key ? D.orange : D.text2, fontWeight: filter === f.key ? 700 : 400, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          {[
+            { key: 'tous',        label: 'Tous' },
+            { key: 'disponible',  label: '✅ Disponibles' },
+            { key: 'en_location', label: '🔋 En location' },
+            { key: 'hors_service',label: '🚫 Hors service' },
+          ].map(f => (
+            <button
+              key      = {f.key}
+              onClick  = {() => setFilter(f.key)}
+              style    = {{
+                padding   : '5px 14px', borderRadius: 99,
+                border    : `1px solid ${filter === f.key ? D.orange : D.border}`,
+                background: filter === f.key ? D.orangeDim : D.surface,
+                color     : filter === f.key ? D.orange : D.text2,
+                fontWeight: filter === f.key ? 700 : 400,
+                fontSize  : 12, cursor: 'pointer', whiteSpace: 'nowrap',
+              }}
+            >
               {f.label}
             </button>
           ))}
         </div>
       </div>
+
       <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
-        <MapView powerBanks={markers} />
+        {/* onFetchPartner est passé au MapView pour le fetch lazy des photos */}
+        <MapView powerBanks={markers} onFetchPartner={fetchPartner} />
       </div>
     </div>
   );
