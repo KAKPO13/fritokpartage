@@ -412,9 +412,13 @@ function WalletCard({ balance, currency, currencies, normWallet, activeCount, on
 //  MapTab — power banks Firestore avec GeoPoint → Leaflet
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-//  PATCH app.js — remplacer la fonction MapTab existante par celle-ci
-//  Elle enrichit les markers avec currentPartnerId et fournit onFetchPartner
-//  qui lit users/{partnerId} pour récupérer nom, adresse et photos
+//  PATCH app.js — remplace la fonction MapTab existante par celle-ci
+//
+//  Changements vs version précédente :
+//   • Lit la collection "partners" (pas "users") pour les infos partenaire
+//   • Expose les champs : active, emoji, type, stockAvailable, name, qrCode
+//   • Passe partnerEmoji aux markers pour personnaliser l'icône Leaflet
+//   • onFetchPartner lit partners/{currentPartnerId}
 // ─────────────────────────────────────────────────────────────────────────────
 
 function MapTab({ db }) {
@@ -436,8 +440,8 @@ function MapTab({ db }) {
 
   const dispoCount = powerBanks.filter(pb => pb.state === 'disponible').length;
 
-  // Convertit GeoPoint Firestore → {lat, lng} pour Leaflet
-  // On passe aussi currentPartnerId pour le fetch des photos au clic
+  // Markers : on inclut currentPartnerId + partnerEmoji (si déjà connu)
+  // pour que le marker Leaflet affiche le bon emoji sans fetch supplémentaire
   const markers = powerBanks
     .filter(pb => filter === 'tous' || pb.state === filter)
     .filter(pb => pb.location?.latitude != null)
@@ -449,27 +453,48 @@ function MapTab({ db }) {
       state           : pb.state,
       batteryLevel    : pb.batteryLevel,
       currentPartnerId: pb.currentPartnerId ?? null,
-      // Si le power bank stocke déjà des photos inline, on les passe directement
-      // (évite un round-trip Firestore si la donnée est déjà là)
-      partnerPhotos   : pb.partnerPhotos ?? [],
-      partnerName     : pb.partnerName   ?? null,
-      partnerAddress  : pb.partnerAddress ?? null,
+      partnerEmoji    : pb.partnerEmoji ?? null, // optionnel, enrichi si dispo
     }));
 
-  // ── Fetch données partenaire à la demande (clic marker) ─────────────────
-  // Lit users/{partnerId} — champs attendus :
-  //   username / nomBoutique, adresse / location.address,
-  //   partnerPhotos: string[]  (URLs Firebase Storage, max 3)
+  // ── Fetch partenaire depuis la collection "partners" ─────────────────────
+  // Schéma Firestore :
+  //   active         : boolean
+  //   emoji          : string   ex. "🍺"
+  //   location       : GeoPoint
+  //   name           : string   ex. "nul bare"
+  //   qrCode         : string   ex. "PTN-ABJ-001"
+  //   stockAvailable : number
+  //   type           : string   ex. "bare"
+  //   partnerPhotos  : string[] (à ajouter plus tard — max 3 URLs Storage)
   const fetchPartner = async (partnerId) => {
     if (!partnerId) return null;
-    const snap = await getDoc(doc(db, 'users', partnerId));
-    if (!snap.exists()) return null;
+
+    // On cherche d'abord par document ID, puis par champ qrCode en fallback
+    let snap = await getDoc(doc(db, 'partners', partnerId));
+
+    if (!snap.exists()) {
+      // Fallback : le champ currentPartnerId est peut-être le qrCode
+      const q = await getDocs(
+        query(collection(db, 'partners'), where('qrCode', '==', partnerId))
+      );
+      if (!q.empty) snap = q.docs[0];
+    }
+
+    if (!snap || !snap.exists()) return null;
+
     const d = snap.data();
     return {
-      name   : d.nomBoutique || d.username || 'Partenaire Fritok',
-      address: d.adresse || d.location?.address || '',
-      // partnerPhotos est un tableau d'URLs (max 3) stocké chez le partenaire
-      photos : Array.isArray(d.partnerPhotos)
+      name  : d.name   || 'Partenaire Fritok',
+      emoji : d.emoji  || '🏪',
+      type  : d.type   || '',
+      stock : d.stockAvailable ?? null,
+      active: d.active ?? true,
+      // adresse : les partenaires stockent un GeoPoint, pas de champ texte
+      // → on affiche les coordonnées ou rien si absent
+      address: d.address || d.adresse || '',
+      // Photos intérieur (tableau d'URLs Firebase Storage — max 3)
+      // Ajoute ce champ dans Firestore quand tu auras les photos
+      photos: Array.isArray(d.partnerPhotos)
         ? d.partnerPhotos.filter(Boolean).slice(0, 3)
         : [],
     };
@@ -486,15 +511,15 @@ function MapTab({ db }) {
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', paddingBottom: 4 }}>
           {[
-            { key: 'tous',        label: 'Tous' },
-            { key: 'disponible',  label: '✅ Disponibles' },
-            { key: 'en_location', label: '🔋 En location' },
-            { key: 'hors_service',label: '🚫 Hors service' },
+            { key: 'tous',         label: 'Tous' },
+            { key: 'disponible',   label: '✅ Disponibles' },
+            { key: 'en_location',  label: '🔋 En location' },
+            { key: 'hors_service', label: '🚫 Hors service' },
           ].map(f => (
             <button
-              key      = {f.key}
-              onClick  = {() => setFilter(f.key)}
-              style    = {{
+              key     = {f.key}
+              onClick = {() => setFilter(f.key)}
+              style   = {{
                 padding   : '5px 14px', borderRadius: 99,
                 border    : `1px solid ${filter === f.key ? D.orange : D.border}`,
                 background: filter === f.key ? D.orangeDim : D.surface,
@@ -510,13 +535,11 @@ function MapTab({ db }) {
       </div>
 
       <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
-        {/* onFetchPartner est passé au MapView pour le fetch lazy des photos */}
         <MapView powerBanks={markers} onFetchPartner={fetchPartner} />
       </div>
     </div>
   );
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 //  RentTab
 //  Lookup : where('qrCode', '==', id) en premier, fallback par doc ID
