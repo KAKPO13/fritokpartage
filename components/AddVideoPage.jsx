@@ -508,7 +508,7 @@ export default function AddVideoPage() {
       />
     );
   }
-
+    //
   // ── Auth loading ─────────────────────────────────────────
   if (!authReady) {
     return (
@@ -702,6 +702,7 @@ export default function AddVideoPage() {
                 {uploadStep}
               </div>
             )}
+
 
             {/* Barre globale */}
             <div style={{ height: 8, borderRadius: 6, background: D.surface, overflow: "hidden", marginBottom: 16 }}>
