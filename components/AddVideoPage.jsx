@@ -1,3 +1,4 @@
+'use client';
 import { useState, useRef, useEffect } from "react";
 import { db, auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
