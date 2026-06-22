@@ -11,7 +11,7 @@ import {
 } from 'firebase/firestore';
 import dynamic from 'next/dynamic';
 import { createFlutterwaveRentalPayment } from '../app/hooks/useWallet';
-import useRentalAlerts  from '../hooks/useRentalAlerts';
+import useRentalAlerts  from '../app/hooks/useRentalAlerts';
 import RentalAlertBanner from '../components/app/RentalAlertBanner';
 
 // ─── Firebase ────────────────────────────────────────────────────────────────
