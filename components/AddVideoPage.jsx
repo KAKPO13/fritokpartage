@@ -3,36 +3,16 @@ import { db, auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
 
+
 // ─────────────────────────────────────────────────────────────
-// ☁️  Cloudflare R2 — worker URL (même que Flutter)
+// ☁️  Buckets R2 — l'upload transite par /api/upload (proxy
+//     Next.js) pour éviter les erreurs CORS du worker
 // ─────────────────────────────────────────────────────────────
-const WORKER_URL    = "https://divine-haze-26a2.fritok013.workers.dev";
 const BUCKET_VIDEOS = "shop-videos";
 const BUCKET_IMAGES = "shop-images";
 
 // ─────────────────────────────────────────────────────────────
-// 🎨 Design Tokens — Citrus Orange · Fond Clair & Chaud
-// ─────────────────────────────────────────────────────────────
-const D = {
-  bg:         "#FFF8EE",
-  bgWarm:     "#FFF3E0",
-  surface:    "#FFEDC0",
-  card:       "#FFFFFF",
-  cardWarm:   "#FFF9F0",
-  border:     "#FFDDB0",
-  orange:     "#FF6B00",
-  orangeHot:  "#FF8C00",
-  orangeDim:  "#FFEDD5",
-  text1:      "#2D1500",
-  text2:      "#8B5E3C",
-  text3:      "#BF9060",
-  red:        "#E53E00",
-  green:      "#1A9640",
-  greenLight: "#E6F7EC",
-};
-
-// ─────────────────────────────────────────────────────────────
-// 🔑 UUID v4 léger (pas besoin du package uuid)
+// 🔑 UUID v4 léger
 // ─────────────────────────────────────────────────────────────
 function uuidv4() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -42,21 +22,24 @@ function uuidv4() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ☁️  Upload vers R2 via le worker Cloudflare
-//     Même logique que _uploadSecureWorker dans Flutter
+// ☁️  Upload via /api/upload (proxy serveur → worker Cloudflare)
+//     XHR pour conserver la barre de progression en temps réel
 // ─────────────────────────────────────────────────────────────
 async function uploadToR2(file, bucket, userId, contentType, onProgress) {
   const uuid     = uuidv4();
   const ext      = bucket.includes("video") ? ".mp4" : ".jpg";
   const filePath = `${bucket}/${userId}/${uuid}${ext}`;
-
-  const token = await auth.currentUser.getIdToken();
+  const token    = await auth.currentUser.getIdToken();
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${WORKER_URL}?filePath=${encodeURIComponent(filePath)}&contentType=${encodeURIComponent(contentType)}`);
+    xhr.open(
+      "POST",
+      `/api/upload?filePath=${encodeURIComponent(filePath)}&contentType=${encodeURIComponent(contentType)}`
+    );
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.setRequestHeader("Content-Type", contentType);
+    xhr.timeout = 10 * 60 * 1000; // 10 min pour les grosses vidéos
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded / e.total);
@@ -71,10 +54,12 @@ async function uploadToR2(file, bucket, userId, contentType, onProgress) {
         reject(new Error("Réponse invalide du serveur"));
       }
     };
-    xhr.onerror = () => reject(new Error("Erreur réseau"));
+    xhr.onerror   = () => reject(new Error("Erreur réseau"));
+    xhr.ontimeout = () => reject(new Error("Délai dépassé (fichier trop lourd ?)"));
     xhr.send(file);
   });
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // 📝 Génération des keywords (même logique Flutter)
