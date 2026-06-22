@@ -14,6 +14,8 @@ import { createFlutterwaveRentalPayment } from '../app/hooks/useWallet';
 import useRentalAlerts  from '../app/hooks/useRentalAlerts';
 import RentalAlertBanner from '../components/app/RentalAlertBanner';
 
+export const config = { runtime: 'client' }; // désactive SSR pour cette page
+
 // ─── Firebase ────────────────────────────────────────────────────────────────
 const firebaseConfig = {
   apiKey           : process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -103,6 +105,7 @@ async function writeTranstet(db, {
   });
   return docRef.id;
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  ROOT
