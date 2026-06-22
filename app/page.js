@@ -12,6 +12,7 @@ import TrustBand from '../components/TrustBand';
 import CtaBottom from '../components/CtaBottom';
 import Footer from '../components/Footer';
 import AppBanner from '../components/AppBanner';
+import PublishBanner from '../components/PublishBanner';
 
 
 
@@ -27,6 +28,7 @@ export default function Home() {
         <Stats />
         <Features />
         <LiveGrid />
+        <PublishBanner />
         <LiveBanner />      {/* ← 🆕 CTA "Vendez en direct" → /live */}
         <DeliveryMap />
         <TrustBand />
