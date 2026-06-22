@@ -1,6 +1,18 @@
 import { useState, useRef, useEffect } from "react";
+import { db, auth } from "@/lib/firebaseClient";
+import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
 
-// ─── Design Tokens ─────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// ☁️  Cloudflare R2 — worker URL (même que Flutter)
+// ─────────────────────────────────────────────────────────────
+const WORKER_URL    = "https://divine-haze-26a2.fritok013.workers.dev";
+const BUCKET_VIDEOS = "shop-videos";
+const BUCKET_IMAGES = "shop-images";
+
+// ─────────────────────────────────────────────────────────────
+// 🎨 Design Tokens — Citrus Orange · Fond Clair & Chaud
+// ─────────────────────────────────────────────────────────────
 const D = {
   bg:         "#FFF8EE",
   bgWarm:     "#FFF3E0",
@@ -11,31 +23,117 @@ const D = {
   orange:     "#FF6B00",
   orangeHot:  "#FF8C00",
   orangeDim:  "#FFEDD5",
-  orangeMid:  "#FFD4A8",
-  zest:       "#FFB700",
-  zestLight:  "#FFF3C0",
   text1:      "#2D1500",
   text2:      "#8B5E3C",
   text3:      "#BF9060",
   red:        "#E53E00",
-  redLight:   "#FFEDE8",
   green:      "#1A9640",
   greenLight: "#E6F7EC",
 };
 
-// ─── Toast ──────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 🔑 UUID v4 léger (pas besoin du package uuid)
+// ─────────────────────────────────────────────────────────────
+function uuidv4() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// ☁️  Upload vers R2 via le worker Cloudflare
+//     Même logique que _uploadSecureWorker dans Flutter
+// ─────────────────────────────────────────────────────────────
+async function uploadToR2(file, bucket, userId, contentType, onProgress) {
+  const uuid     = uuidv4();
+  const ext      = bucket.includes("video") ? ".mp4" : ".jpg";
+  const filePath = `${bucket}/${userId}/${uuid}${ext}`;
+
+  const token = await auth.currentUser.getIdToken();
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${WORKER_URL}?filePath=${encodeURIComponent(filePath)}&contentType=${encodeURIComponent(contentType)}`);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.setRequestHeader("Content-Type", contentType);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded / e.total);
+    };
+
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (data.success) resolve(data.url);
+        else reject(new Error(data.error ?? "Upload échoué"));
+      } catch {
+        reject(new Error("Réponse invalide du serveur"));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Erreur réseau"));
+    xhr.send(file);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// 📝 Génération des keywords (même logique Flutter)
+// ─────────────────────────────────────────────────────────────
+function generateKeywords(title, name, description) {
+  const text = `${title} ${name} ${description}`;
+  return [...new Set(
+    text.toLowerCase()
+      .replace(/[^\w\s]/g, "")
+      .split(/\s+/)
+      .filter(Boolean)
+  )];
+}
+
+// ─────────────────────────────────────────────────────────────
+// 💾 Sauvegarde dans Firestore → collection video_playlist
+// ─────────────────────────────────────────────────────────────
+async function saveToFirestore({ userId, title, productName, description, price, videoUrl, imageUrl, thumbUrl }) {
+  const videoId   = uuidv4();
+  const productId = uuidv4();
+
+  const docData = {
+    videoId,
+    userId,
+    title:     title.trim(),
+    videoUrl,
+    thumbnail: thumbUrl,
+    keywords:  generateKeywords(title, productName, description),
+    createdAt: serverTimestamp(),
+    views:     0,
+    likes:     0,
+    comments:  0,
+    product: {
+      productId,
+      name:        productName.trim(),
+      refArticle:  userId,
+      description: description.trim(),
+      price:       parseFloat(price),
+      image:       imageUrl,
+    },
+  };
+
+  await setDoc(doc(collection(db, "video_playlist"), videoId), docData);
+  return videoId;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 🧩 Composants UI
+// ─────────────────────────────────────────────────────────────
+
 function Toast({ msg, isError, onClose }) {
-  useEffect(() => {
-    const t = setTimeout(onClose, 3500);
-    return () => clearTimeout(t);
-  }, []);
+  useEffect(() => { const t = setTimeout(onClose, 3500); return () => clearTimeout(t); }, []);
   return (
     <div style={{
       position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
       zIndex: 9999, background: isError ? D.red : D.green,
       color: "#fff", borderRadius: 14, padding: "12px 20px",
       display: "flex", alignItems: "center", gap: 8,
-      boxShadow: "0 8px 32px rgba(0,0,0,0.18)", maxWidth: 380, width: "90%",
+      boxShadow: "0 8px 32px rgba(0,0,0,0.18)", maxWidth: 400, width: "92%",
       fontWeight: 600, fontSize: 14,
     }}>
       <span style={{ fontSize: 18 }}>{isError ? "⚠️" : "✅"}</span>
@@ -44,13 +142,12 @@ function Toast({ msg, isError, onClose }) {
   );
 }
 
-// ─── StepBadge ──────────────────────────────────────────────
 function StepBadge({ n, label, done }) {
   return (
     <div style={{
       display: "inline-flex", alignItems: "center", gap: 6,
       padding: "6px 12px", borderRadius: 20,
-      background: done ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.2)",
+      background: done ? "#fff" : "rgba(255,255,255,0.2)",
       border: `1px solid ${done ? "#fff" : "rgba(255,255,255,0.4)"}`,
     }}>
       <div style={{
@@ -58,18 +155,14 @@ function StepBadge({ n, label, done }) {
         background: done ? D.green : "rgba(255,255,255,0.3)",
         display: "flex", alignItems: "center", justifyContent: "center",
         fontSize: 10, fontWeight: 800, color: "#fff",
-      }}>
-        {done ? "✓" : n}
-      </div>
-      <span style={{
-        fontSize: 12, fontWeight: 700,
-        color: done ? D.orange : "#fff",
-      }}>{label}</span>
+      }}>{done ? "✓" : n}</div>
+      <span style={{ fontSize: 12, fontWeight: 700, color: done ? D.orange : "#fff" }}>
+        {label}
+      </span>
     </div>
   );
 }
 
-// ─── SectionLabel ───────────────────────────────────────────
 function SectionLabel({ icon, label, sublabel }) {
   const isDone = sublabel?.includes("✓");
   return (
@@ -78,8 +171,7 @@ function SectionLabel({ icon, label, sublabel }) {
         width: 38, height: 38, borderRadius: 11,
         background: isDone ? D.greenLight : D.orangeDim,
         border: `1px solid ${isDone ? D.green + "50" : D.orange + "50"}`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 18,
+        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
       }}>{icon}</div>
       <div>
         <div style={{ color: D.text1, fontSize: 15, fontWeight: 800 }}>{label}</div>
@@ -93,7 +185,6 @@ function SectionLabel({ icon, label, sublabel }) {
   );
 }
 
-// ─── MediaPickerCard ────────────────────────────────────────
 function MediaPickerCard({ icon, label, sublabel, onTap }) {
   const [hover, setHover] = useState(false);
   return (
@@ -106,16 +197,14 @@ function MediaPickerCard({ icon, label, sublabel, onTap }) {
         background: hover ? D.cardWarm : D.card,
         border: `1.5px solid ${hover ? D.orange : D.border}`,
         boxShadow: hover ? `0 0 20px ${D.orange}20` : `0 4px 12px ${D.orange}10`,
-        cursor: "pointer", textAlign: "center",
-        transition: "all 0.2s",
+        cursor: "pointer", textAlign: "center", transition: "all 0.2s",
         display: "flex", flexDirection: "column", alignItems: "center", gap: 12,
       }}>
       <div style={{
         width: 60, height: 60, borderRadius: "50%",
         background: D.orangeDim, border: `1.5px solid ${D.orange}66`,
         boxShadow: `0 4px 14px ${D.orange}25`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 28,
+        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
       }}>{icon}</div>
       <div>
         <div style={{ color: D.text1, fontSize: 14, fontWeight: 700 }}>{label}</div>
@@ -125,7 +214,6 @@ function MediaPickerCard({ icon, label, sublabel, onTap }) {
   );
 }
 
-// ─── CitrusField ────────────────────────────────────────────
 function CitrusField({ label, hint, icon, value, onChange, maxLines = 1, type = "text", suffix }) {
   const [focused, setFocused] = useState(false);
   const Tag = maxLines > 1 ? "textarea" : "input";
@@ -136,11 +224,11 @@ function CitrusField({ label, hint, icon, value, onChange, maxLines = 1, type = 
       </div>
       <div style={{ position: "relative" }}>
         <span style={{
-          position: "absolute", left: 14, top: "50%",
-          transform: maxLines > 1 ? "none" : "translateY(-50%)",
+          position: "absolute", left: 14,
           top: maxLines > 1 ? 16 : "50%",
-          color: focused ? D.orange : D.text3, fontSize: 18, pointerEvents: "none",
-          transition: "color 0.2s",
+          transform: maxLines > 1 ? "none" : "translateY(-50%)",
+          color: focused ? D.orange : D.text3, fontSize: 18,
+          pointerEvents: "none", transition: "color 0.2s",
         }}>{icon}</span>
         <Tag
           value={value}
@@ -152,12 +240,11 @@ function CitrusField({ label, hint, icon, value, onChange, maxLines = 1, type = 
           rows={maxLines > 1 ? maxLines : undefined}
           style={{
             width: "100%", boxSizing: "border-box",
-            padding: maxLines > 1 ? "16px 16px 16px 44px" : "16px 60px 16px 44px",
+            padding: maxLines > 1 ? "16px 16px 16px 44px" : "16px 56px 16px 44px",
             borderRadius: 14, fontSize: 15, color: D.text1,
             background: focused ? D.orangeDim : D.card,
             border: `${focused ? 2 : 1.5}px solid ${focused ? D.orange + "CC" : D.border}`,
-            outline: "none", resize: "none",
-            fontFamily: "inherit", transition: "all 0.2s",
+            outline: "none", resize: "none", fontFamily: "inherit", transition: "all 0.2s",
           }}
         />
         {suffix && (
@@ -171,7 +258,6 @@ function CitrusField({ label, hint, icon, value, onChange, maxLines = 1, type = 
   );
 }
 
-// ─── ProgressRow ────────────────────────────────────────────
 function ProgressRow({ label, icon, value }) {
   const done = value >= 1.0;
   return (
@@ -198,28 +284,48 @@ function ProgressRow({ label, icon, value }) {
   );
 }
 
-// ─── SuccessPage ────────────────────────────────────────────
+function PublishButton({ onTap, disabled }) {
+  const [pressed, setPressed] = useState(false);
+  return (
+    <button
+      disabled={disabled}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => { setPressed(false); onTap(); }}
+      onMouseLeave={() => setPressed(false)}
+      onTouchStart={() => setPressed(true)}
+      onTouchEnd={() => { setPressed(false); onTap(); }}
+      style={{
+        width: "100%", padding: "18px 0", borderRadius: 20,
+        background: disabled
+          ? "#ccc"
+          : `linear-gradient(90deg, ${D.orange}, ${D.orangeHot})`,
+        color: "#fff", fontSize: 17, fontWeight: 900, letterSpacing: 0.3,
+        border: "none", cursor: disabled ? "not-allowed" : "pointer",
+        boxShadow: disabled ? "none" : `0 8px 24px ${D.orange}58`,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+        transform: pressed && !disabled ? "scale(0.97)" : "scale(1)",
+        transition: "transform 0.1s, background 0.2s",
+      }}>
+      🚀 Publier
+    </button>
+  );
+}
+
 function SuccessPage({ onHome, onPublishAnother }) {
   return (
-    <div style={{
-      minHeight: "100vh", background: D.bg,
-      display: "flex", flexDirection: "column",
-    }}>
-      {/* Orange banner */}
+    <div style={{ minHeight: "100vh", background: D.bg, display: "flex", flexDirection: "column" }}>
       <div style={{
         padding: "28px 28px 40px",
         background: "linear-gradient(135deg, #FF6B00, #FF9500, #FFB700)",
         borderRadius: "0 0 36px 36px",
-        boxShadow: `0 8px 20px ${D.orange}50`,
-        textAlign: "center",
+        boxShadow: `0 8px 20px ${D.orange}50`, textAlign: "center",
       }}>
         <div style={{
           width: 88, height: 88, borderRadius: "50%",
           background: "rgba(255,255,255,0.25)",
           border: "2px solid rgba(255,255,255,0.5)",
           margin: "0 auto 16px",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 48,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 48,
         }}>✓</div>
         <div style={{ color: "#fff", fontSize: 26, fontWeight: 900, letterSpacing: -0.8 }}>
           Vidéo publiée !
@@ -229,20 +335,17 @@ function SuccessPage({ onHome, onPublishAnother }) {
         </div>
       </div>
 
-      <div style={{ flex: 1, display: "flex", alignItems: "center" }} />
+      <div style={{ flex: 1 }} />
 
       <div style={{ padding: "0 28px 36px" }}>
-        {/* Info card */}
         <div style={{
           background: D.card, borderRadius: 20, padding: 18,
           border: `1.5px solid ${D.border}`,
           display: "flex", alignItems: "center", gap: 14, marginBottom: 20,
         }}>
           <div style={{
-            width: 42, height: 42, borderRadius: "50%",
-            background: D.orangeDim,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 20,
+            width: 42, height: 42, borderRadius: "50%", background: D.orangeDim,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
           }}>👁️</div>
           <div>
             <div style={{ color: D.text1, fontSize: 14, fontWeight: 700 }}>Tes statistiques</div>
@@ -252,57 +355,76 @@ function SuccessPage({ onHome, onPublishAnother }) {
           </div>
         </div>
 
-        {/* Home button */}
         <button onClick={onHome} style={{
           width: "100%", padding: "17px 0", borderRadius: 20,
           background: `linear-gradient(90deg, ${D.orange}, ${D.orangeHot})`,
-          color: "#fff", fontSize: 16, fontWeight: 900,
-          border: "none", cursor: "pointer",
+          color: "#fff", fontSize: 16, fontWeight: 900, border: "none", cursor: "pointer",
           boxShadow: `0 8px 24px ${D.orange}55`,
           display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
           marginBottom: 10,
-        }}>
-          <span>🏠</span> Retour à l'accueil
-        </button>
+        }}>🏠 Retour à l'accueil</button>
 
-        {/* Republish button */}
         <button onClick={onPublishAnother} style={{
           width: "100%", padding: "16px 0", borderRadius: 20,
           background: D.card, color: D.text2, fontSize: 15, fontWeight: 700,
           border: `1.5px solid ${D.border}`, cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-        }}>
-          <span>➕</span> Publier une autre vidéo
-        </button>
+        }}>➕ Publier une autre vidéo</button>
       </div>
     </div>
   );
 }
 
-// ─── Main AddVideoPage ───────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 🚀 Page principale
+// ─────────────────────────────────────────────────────────────
 export default function AddVideoPage() {
-  const [page, setPage] = useState("form"); // "form" | "success"
+  const [page, setPage]   = useState("form"); // "form" | "success"
+  const [user, setUser]   = useState(null);   // Firebase user
+  const [authReady, setAuthReady] = useState(false);
 
-  const [videoFile, setVideoFile]     = useState(null);
-  const [videoUrl, setVideoUrl]       = useState(null);
-  const [imageFile, setImageFile]     = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
+  // Fichiers
+  const [videoFile,     setVideoFile]     = useState(null);
+  const [videoLocalUrl, setVideoLocalUrl] = useState(null);
+  const [imageFile,     setImageFile]     = useState(null);
+  const [imagePreview,  setImagePreview]  = useState(null);
 
-  const [title, setTitle]             = useState("");
+  // Champs texte
+  const [title,       setTitle]       = useState("");
   const [productName, setProductName] = useState("");
   const [description, setDescription] = useState("");
-  const [price, setPrice]             = useState("");
+  const [price,       setPrice]       = useState("");
 
-  const [loading, setLoading]         = useState(false);
-  const [progressVideo, setProgressVideo] = useState(0);
-  const [progressImage, setProgressImage] = useState(0);
+  // Upload state
+  const [loading,        setLoading]        = useState(false);
+  const [uploadStep,     setUploadStep]     = useState(""); // libellé étape
+  const [progressVideo,  setProgressVideo]  = useState(0);
+  const [progressImage,  setProgressImage]  = useState(0);
 
-  const [toast, setToast]             = useState(null);
-  const [isPlaying, setIsPlaying]     = useState(false);
+  const [toast,     setToast]     = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const videoRef   = useRef(null);
   const videoInput = useRef(null);
   const imageInput = useRef(null);
+
+  // ── Auth : connexion anonyme si pas connecté ──────────────
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (u) {
+        setUser(u);
+      } else {
+        try {
+          const cred = await signInAnonymously(auth);
+          setUser(cred.user);
+        } catch (e) {
+          showToast("Connexion impossible", true);
+        }
+      }
+      setAuthReady(true);
+    });
+    return unsub;
+  }, []);
 
   const showToast = (msg, isError = false) => setToast({ msg, isError });
 
@@ -310,8 +432,7 @@ export default function AddVideoPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setVideoFile(file);
-    const url = URL.createObjectURL(file);
-    setVideoUrl(url);
+    setVideoLocalUrl(URL.createObjectURL(file));
     setIsPlaying(false);
   };
 
@@ -328,66 +449,100 @@ export default function AddVideoPage() {
     else           { videoRef.current.play();  setIsPlaying(true);  }
   };
 
-  // Simulate upload progress
-  const simulateUpload = (setProgress) => {
-    return new Promise((resolve) => {
-      let p = 0;
-      const iv = setInterval(() => {
-        p += Math.random() * 0.12;
-        if (p >= 1) { p = 1; clearInterval(iv); setProgress(1); resolve(); }
-        else setProgress(p);
-      }, 180);
-    });
-  };
-
   const validate = () => {
-    if (!videoFile)          return "Veuillez choisir une vidéo";
-    if (!imageFile)          return "Veuillez choisir une image produit";
-    if (!title.trim())       return "Le titre est requis";
-    if (!productName.trim()) return "Le nom du produit est requis";
-    if (!description.trim()) return "La description est requise";
-    if (!price.trim())       return "Le prix est requis";
+    if (!videoFile)           return "Veuillez choisir une vidéo";
+    if (!imageFile)           return "Veuillez choisir une image produit";
+    if (!title.trim())        return "Le titre est requis";
+    if (!productName.trim())  return "Le nom du produit est requis";
+    if (!description.trim())  return "La description est requise";
+    if (!price.trim())        return "Le prix est requis";
     if (isNaN(parseFloat(price))) return "Prix invalide";
     return null;
   };
 
+  // ── Publish : upload R2 → Firestore ──────────────────────
   const handlePublish = async () => {
     const err = validate();
     if (err) { showToast(err, true); return; }
+    if (!user) { showToast("Non connecté", true); return; }
+
     setLoading(true);
-    setProgressVideo(0); setProgressImage(0);
+    setProgressVideo(0);
+    setProgressImage(0);
+
     try {
-      await Promise.all([
-        simulateUpload(setProgressImage),
-        simulateUpload(setProgressVideo),
+      // 1. Upload image produit + vidéo en parallèle
+      setUploadStep("Envoi de l'image et de la vidéo...");
+      const [imageUrl, videoUrl] = await Promise.all([
+        uploadToR2(imageFile, BUCKET_IMAGES, user.uid, "image/jpeg",
+          (p) => setProgressImage(p)),
+        uploadToR2(videoFile, BUCKET_VIDEOS, user.uid, "video/mp4",
+          (p) => setProgressVideo(p)),
       ]);
-      await new Promise(r => setTimeout(r, 400));
+
+      // 2. Sauvegarde Firestore
+      setUploadStep("Sauvegarde dans la base de données...");
+      await saveToFirestore({
+        userId:      user.uid,
+        title,
+        productName,
+        description,
+        price,
+        videoUrl,
+        imageUrl,
+        thumbUrl:    imageUrl, // miniature = image produit (pas de VideoThumbnail web)
+      });
+
       setPage("success");
-    } catch {
-      showToast("Erreur lors de la publication", true);
+    } catch (e) {
+      console.error("Publish error:", e);
+      showToast("Erreur lors de la publication : " + (e.message ?? "inconnue"), true);
     } finally {
       setLoading(false);
+      setUploadStep("");
     }
   };
 
-  const totalProgress = (progressImage + progressVideo) / 2;
-  const infoDone = title.trim() !== "" && productName.trim() !== "";
+  const resetForm = () => {
+    setVideoFile(null); setVideoLocalUrl(null);
+    setImageFile(null); setImagePreview(null);
+    setTitle(""); setProductName(""); setDescription(""); setPrice("");
+    setProgressVideo(0); setProgressImage(0);
+  };
 
+  const totalProgress = (progressImage + progressVideo) / 2;
+  const infoDone      = title.trim() !== "" && productName.trim() !== "";
+
+  // ── Success page ─────────────────────────────────────────
   if (page === "success") {
     return (
       <SuccessPage
-        onHome={() => setPage("form")}
-        onPublishAnother={() => {
-          setPage("form");
-          setVideoFile(null); setVideoUrl(null);
-          setImageFile(null); setImagePreview(null);
-          setTitle(""); setProductName(""); setDescription(""); setPrice("");
-          setProgressVideo(0); setProgressImage(0);
-        }}
+        onHome={() => { resetForm(); setPage("form"); }}
+        onPublishAnother={() => { resetForm(); setPage("form"); }}
       />
     );
   }
 
+  // ── Auth loading ─────────────────────────────────────────
+  if (!authReady) {
+    return (
+      <div style={{
+        minHeight: "100vh", background: D.bg,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexDirection: "column", gap: 16,
+      }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: "50%",
+          border: `3px solid ${D.orange}`, borderTopColor: "transparent",
+          animation: "spin 0.8s linear infinite",
+        }} />
+        <span style={{ color: D.text2, fontSize: 14 }}>Connexion...</span>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  // ── Form ─────────────────────────────────────────────────
   return (
     <div style={{
       minHeight: "100vh", background: D.bg,
@@ -404,7 +559,6 @@ export default function AddVideoPage() {
         borderRadius: "0 0 32px 32px",
         boxShadow: `0 8px 20px ${D.orange}4D`,
       }}>
-        {/* Top bar */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
           <button
             onClick={() => window.history.back?.()}
@@ -424,43 +578,38 @@ export default function AddVideoPage() {
             </div>
           </div>
         </div>
-        {/* Step badges */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <StepBadge n="1" label="Vidéo"  done={!!videoFile} />
-          <StepBadge n="2" label="Image"  done={!!imageFile} />
-          <StepBadge n="3" label="Infos"  done={infoDone} />
+          <StepBadge n="1" label="Vidéo" done={!!videoFile} />
+          <StepBadge n="2" label="Image" done={!!imageFile} />
+          <StepBadge n="3" label="Infos" done={infoDone} />
         </div>
       </div>
 
       {/* ── Body ── */}
       <div style={{ padding: "24px 22px" }}>
 
-        {/* Video section */}
+        {/* Vidéo */}
         <SectionLabel icon="🎬" label="Vidéo"
           sublabel={videoFile ? "Sélectionnée ✓" : "Requis"} />
         <div style={{ height: 12 }} />
 
-        {videoUrl ? (
+        {videoLocalUrl ? (
           <div style={{ position: "relative", borderRadius: 20, overflow: "hidden" }}>
             <video
               ref={videoRef}
-              src={videoUrl}
+              src={videoLocalUrl}
               style={{ width: "100%", maxHeight: 380, objectFit: "cover", display: "block" }}
               onEnded={() => setIsPlaying(false)}
             />
-            {/* Gradient overlay */}
             <div style={{
               position: "absolute", bottom: 0, left: 0, right: 0, height: 80,
               background: "linear-gradient(to bottom, transparent, rgba(0,0,0,0.65))",
             }} />
-            {/* Play/Pause */}
-            <div
-              onClick={togglePlay}
-              style={{
-                position: "absolute", inset: 0,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: "pointer",
-              }}>
+            <div onClick={togglePlay} style={{
+              position: "absolute", inset: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer",
+            }}>
               {!isPlaying && (
                 <div style={{
                   width: 60, height: 60, borderRadius: "50%",
@@ -478,24 +627,23 @@ export default function AddVideoPage() {
             onTap={() => videoInput.current?.click()}
           />
         )}
-        <input ref={videoInput} type="file" accept="video/*" hidden onChange={handleVideoChange} />
+        <input ref={videoInput} type="file" accept="video/*" style={{ display: "none" }}
+          onChange={handleVideoChange} />
 
         {videoFile && (
           <div style={{ marginTop: 10 }}>
-            <button
-              onClick={() => videoInput.current?.click()}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "10px 16px", borderRadius: 12,
-                background: D.cardWarm, border: `1.5px solid ${D.border}`,
-                color: D.text2, fontSize: 13, fontWeight: 600, cursor: "pointer",
-              }}>🔄 Changer la vidéo</button>
+            <button onClick={() => videoInput.current?.click()} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "10px 16px", borderRadius: 12,
+              background: D.cardWarm, border: `1.5px solid ${D.border}`,
+              color: D.text2, fontSize: 13, fontWeight: 600, cursor: "pointer",
+            }}>🔄 Changer la vidéo</button>
           </div>
         )}
 
         <div style={{ height: 28 }} />
 
-        {/* Image section */}
+        {/* Image */}
         <SectionLabel icon="🖼️" label="Image du produit"
           sublabel={imageFile ? "Sélectionnée ✓" : "Requis"} />
         <div style={{ height: 12 }} />
@@ -504,16 +652,14 @@ export default function AddVideoPage() {
           <div style={{ position: "relative", borderRadius: 16, overflow: "hidden" }}>
             <img src={imagePreview} alt="product"
               style={{ width: "100%", height: 160, objectFit: "cover", display: "block" }} />
-            <button
-              onClick={() => imageInput.current?.click()}
-              style={{
-                position: "absolute", top: 8, right: 8,
-                width: 36, height: 36, borderRadius: "50%",
-                background: "rgba(0,0,0,0.55)",
-                border: `1.5px solid ${D.orange}99`,
-                color: D.orange, fontSize: 16, cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>✏️</button>
+            <button onClick={() => imageInput.current?.click()} style={{
+              position: "absolute", top: 8, right: 8,
+              width: 36, height: 36, borderRadius: "50%",
+              background: "rgba(0,0,0,0.55)",
+              border: `1.5px solid ${D.orange}99`,
+              color: D.orange, fontSize: 16, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>✏️</button>
           </div>
         ) : (
           <MediaPickerCard
@@ -521,11 +667,12 @@ export default function AddVideoPage() {
             onTap={() => imageInput.current?.click()}
           />
         )}
-        <input ref={imageInput} type="file" accept="image/*" hidden onChange={handleImageChange} />
+        <input ref={imageInput} type="file" accept="image/*" style={{ display: "none" }}
+          onChange={handleImageChange} />
 
         <div style={{ height: 28 }} />
 
-        {/* Info section */}
+        {/* Infos produit */}
         <SectionLabel icon="🏪" label="Informations produit" />
         <div style={{ height: 16 }} />
 
@@ -542,16 +689,17 @@ export default function AddVideoPage() {
 
         <div style={{ height: 32 }} />
 
-        {/* Upload progress OR Publish button */}
+        {/* Progression upload OU bouton publier */}
         {loading ? (
           <div style={{
             background: D.card, borderRadius: 20, padding: 20,
             border: `1.5px solid ${D.border}`,
             boxShadow: `0 4px 12px ${D.orange}10`,
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            {/* Header progression */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
               <div style={{
-                width: 18, height: 18, borderRadius: "50%",
+                width: 18, height: 18, borderRadius: "50%", flexShrink: 0,
                 border: `2px solid ${D.orange}`, borderTopColor: "transparent",
                 animation: "spin 0.8s linear infinite",
               }} />
@@ -562,20 +710,30 @@ export default function AddVideoPage() {
                 {Math.round(totalProgress * 100)}%
               </span>
             </div>
+
+            {uploadStep && (
+              <div style={{ color: D.text3, fontSize: 11, marginBottom: 10, paddingLeft: 28 }}>
+                {uploadStep}
+              </div>
+            )}
+
+            {/* Barre globale */}
             <div style={{ height: 8, borderRadius: 6, background: D.surface, overflow: "hidden", marginBottom: 16 }}>
               <div style={{
                 height: "100%", borderRadius: 6, background: D.orange,
                 width: `${totalProgress * 100}%`, transition: "width 0.3s",
               }} />
             </div>
+
             <div style={{ height: 1, background: D.border, marginBottom: 16 }} />
+
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <ProgressRow label="Image produit"    icon="🖼️" value={progressImage} />
-              <ProgressRow label="Vidéo"            icon="🎬" value={progressVideo} />
+              <ProgressRow label="Image produit" icon="🖼️" value={progressImage} />
+              <ProgressRow label="Vidéo"         icon="🎬" value={progressVideo} />
             </div>
           </div>
         ) : (
-          <PublishButton onTap={handlePublish} />
+          <PublishButton onTap={handlePublish} disabled={!authReady} />
         )}
 
         <div style={{ height: 28 }} />
@@ -588,30 +746,5 @@ export default function AddVideoPage() {
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
       `}</style>
     </div>
-  );
-}
-
-// ─── PublishButton ──────────────────────────────────────────
-function PublishButton({ onTap }) {
-  const [pressed, setPressed] = useState(false);
-  return (
-    <button
-      onMouseDown={() => setPressed(true)}
-      onMouseUp={() => { setPressed(false); onTap(); }}
-      onMouseLeave={() => setPressed(false)}
-      onTouchStart={() => setPressed(true)}
-      onTouchEnd={() => { setPressed(false); onTap(); }}
-      style={{
-        width: "100%", padding: "18px 0", borderRadius: 20,
-        background: `linear-gradient(90deg, ${D.orange}, ${D.orangeHot})`,
-        color: "#fff", fontSize: 17, fontWeight: 900, letterSpacing: 0.3,
-        border: "none", cursor: "pointer",
-        boxShadow: `0 8px 24px ${D.orange}58`,
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-        transform: pressed ? "scale(0.97)" : "scale(1)",
-        transition: "transform 0.1s",
-      }}>
-      🚀 Publier
-    </button>
   );
 }
