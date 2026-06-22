@@ -1,25 +1,34 @@
-// app/api/upload/route.js   (Next.js 13+ App Router)
-// OU pages/api/upload.js    (Pages Router — voir note en bas)
+// app/api/upload/route.js
 //
-// Cette route reçoit le fichier depuis le navigateur,
-// vérifie le token Firebase côté serveur,
-// puis relaie l'upload vers le worker Cloudflare R2.
-// → Aucun problème CORS car c'est un appel serveur→serveur.
+// NE relaie PLUS le fichier binaire.
+// Génère une URL présignée R2 → le client uploade directement vers R2.
+// Avantages :
+//   ✅ Aucune limite de taille (Netlify bloque les body > 4.5 MB)
+//   ✅ Vraie progression côté client (XHR → R2 direct)
+//   ✅ Moins de bande passante serveur
+//   ✅ Le token Firebase est quand même vérifié côté serveur
 
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { NextResponse } from "next/server";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const WORKER_URL = "https://divine-haze-26a2.fritok013.workers.dev";
-
-export const runtime = "nodejs"; // le streaming de gros fichiers nécessite Node
-export const maxDuration = 60;   // 60 s max (augmente si vidéos très lourdes)
-
-// Désactive le body parser Next.js pour recevoir le binaire brut
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// ── Client S3 compatible R2 ─────────────────────────────────
+const R2 = new S3Client({
+  region: "auto",
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId:     process.env.R2_ACCESS_KEY,
+    secretAccessKey: process.env.R2_SECRET_KEY,
+  },
+});
 
 export async function POST(request) {
   try {
-    // ── 1. Vérification du token Firebase ──────────────────
+    // ── 1. Vérifie le token Firebase ────────────────────────
     const authHeader = request.headers.get("authorization") ?? "";
     const token = authHeader.replace("Bearer ", "").trim();
 
@@ -36,76 +45,45 @@ export async function POST(request) {
 
     const userId = decodedToken.uid;
 
-    // ── 2. Paramètres de l'upload ───────────────────────────
+    // ── 2. Paramètres ───────────────────────────────────────
     const { searchParams } = new URL(request.url);
-    const filePath    = searchParams.get("filePath");
-    const contentType = searchParams.get("contentType");
+    const filePath    = searchParams.get("filePath");    // ex: shop-videos/uid/uuid.mp4
+    const contentType = searchParams.get("contentType"); // ex: video/mp4
+    const bucket      = searchParams.get("bucket");      // ex: shop-videos
 
-    if (!filePath || !contentType) {
+    if (!filePath || !contentType || !bucket) {
       return NextResponse.json(
-        { success: false, error: "filePath et contentType requis" },
+        { success: false, error: "filePath, contentType et bucket requis" },
         { status: 400 }
       );
     }
 
-    // Vérification de sécurité : le filePath doit appartenir à l'uid
+    // Sécurité : le chemin doit contenir l'uid de l'utilisateur connecté
     if (!filePath.includes(userId)) {
       return NextResponse.json({ success: false, error: "Accès refusé" }, { status: 403 });
     }
 
-    // ── 3. Lecture du corps binaire ─────────────────────────
-    const fileBuffer = await request.arrayBuffer();
+    // ── 3. Génère l'URL présignée R2 (valable 15 min) ──────
+    const command = new PutObjectCommand({
+      Bucket:      bucket,
+      Key:         filePath,
+      ContentType: contentType,
+    });
 
-    if (fileBuffer.byteLength === 0) {
-      return NextResponse.json({ success: false, error: "Fichier vide" }, { status: 400 });
-    }
+    const presignedUrl = await getSignedUrl(R2, command, { expiresIn: 900 });
 
-    // ── 4. Relais vers le worker Cloudflare R2 ──────────────
-    //    Le worker reçoit exactement le même appel qu'en Flutter.
-    const workerRes = await fetch(
-      `${WORKER_URL}?filePath=${encodeURIComponent(filePath)}&contentType=${encodeURIComponent(contentType)}`,
-      {
-        method:  "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type":  contentType,
-        },
-        body: fileBuffer,
-        // @ts-ignore — nécessaire pour les gros fichiers avec Node fetch
-        duplex: "half",
-      }
-    );
+    // ── 4. URL publique du fichier après upload ─────────────
+    // Format : https://pub-<hash>.r2.dev/<bucket>/<filePath relatif au bucket>
+    const keyInBucket = filePath.replace(`${bucket}/`, "");
+    const publicUrl   = `https://pub-ddbc1ebe88d64eaf9fa704987db262ac.r2.dev/${bucket}/${keyInBucket}`;
 
-    const workerData = await workerRes.json();
-
-    if (!workerData.success) {
-      return NextResponse.json(
-        { success: false, error: workerData.error ?? "Échec worker" },
-        { status: 502 }
-      );
-    }
-
-    return NextResponse.json({ success: true, url: workerData.url });
+    return NextResponse.json({ success: true, presignedUrl, publicUrl });
 
   } catch (err) {
-    console.error("[upload] Erreur serveur :", err);
+    console.error("[upload] Erreur:", err);
     return NextResponse.json(
       { success: false, error: err.message ?? "Erreur serveur" },
       { status: 500 }
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────
-// NOTE — Pages Router (pages/api/upload.js)
-// Si tu utilises encore le Pages Router, remplace tout ce fichier par :
-//
-// import { adminAuth } from "@/lib/firebaseAdmin";
-//
-// export const config = { api: { bodyParser: false } };
-//
-// export default async function handler(req, res) {
-//   if (req.method !== "POST") return res.status(405).end();
-//   // ... même logique avec req/res au lieu de Request/NextResponse
-// }
-// ─────────────────────────────────────────────────────────────
