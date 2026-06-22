@@ -4,17 +4,11 @@ import { db, auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
 
-
-// ─────────────────────────────────────────────────────────────
-// ☁️  Buckets R2 — l'upload transite par /api/upload (proxy
-//     Next.js) pour éviter les erreurs CORS du worker
-// ─────────────────────────────────────────────────────────────
+// ─── Buckets R2 ────────────────────────────────────────────
 const BUCKET_VIDEOS = "shop-videos";
 const BUCKET_IMAGES = "shop-images";
 
-// ─────────────────────────────────────────────────────────────
-// 🔑 UUID v4 léger
-// ─────────────────────────────────────────────────────────────
+// ─── UUID v4 ───────────────────────────────────────────────
 function uuidv4() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
@@ -22,10 +16,15 @@ function uuidv4() {
   });
 }
 
-// ─────────────────────────────────────────────────────────────
-// ☁️  Upload via /api/upload (proxy serveur → worker Cloudflare)
-//     XHR pour conserver la barre de progression en temps réel
-// ─────────────────────────────────────────────────────────────
+// ─── Keywords ──────────────────────────────────────────────
+function generateKeywords(title, name, description) {
+  const text = `${title} ${name} ${description}`;
+  return [...new Set(
+    text.toLowerCase().replace(/[^\w\s]/g, "").split(/\s+/).filter(Boolean)
+  )];
+}
+
+// ─── Upload R2 via /api/upload ─────────────────────────────
 async function uploadToR2(file, bucket, userId, contentType, onProgress) {
   const uuid     = uuidv4();
   const ext      = bucket.includes("video") ? ".mp4" : ".jpg";
@@ -34,65 +33,36 @@ async function uploadToR2(file, bucket, userId, contentType, onProgress) {
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open(
-      "POST",
-      `/api/upload?filePath=${encodeURIComponent(filePath)}&contentType=${encodeURIComponent(contentType)}`
-    );
+    xhr.open("POST", `/api/upload?filePath=${encodeURIComponent(filePath)}&contentType=${encodeURIComponent(contentType)}`);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.setRequestHeader("Content-Type", contentType);
-    xhr.timeout = 10 * 60 * 1000; // 10 min pour les grosses vidéos
-
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(e.loaded / e.total);
-    };
-
+    xhr.timeout = 10 * 60 * 1000;
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
     xhr.onload = () => {
       try {
         const data = JSON.parse(xhr.responseText);
         if (data.success) resolve(data.url);
         else reject(new Error(data.error ?? "Upload échoué"));
-      } catch {
-        reject(new Error("Réponse invalide du serveur"));
-      }
+      } catch { reject(new Error("Réponse invalide")); }
     };
     xhr.onerror   = () => reject(new Error("Erreur réseau"));
-    xhr.ontimeout = () => reject(new Error("Délai dépassé (fichier trop lourd ?)"));
+    xhr.ontimeout = () => reject(new Error("Délai dépassé"));
     xhr.send(file);
   });
 }
 
-
-// ─────────────────────────────────────────────────────────────
-// 📝 Génération des keywords (même logique Flutter)
-// ─────────────────────────────────────────────────────────────
-function generateKeywords(title, name, description) {
-  const text = `${title} ${name} ${description}`;
-  return [...new Set(
-    text.toLowerCase()
-      .replace(/[^\w\s]/g, "")
-      .split(/\s+/)
-      .filter(Boolean)
-  )];
-}
-
-// ─────────────────────────────────────────────────────────────
-// 💾 Sauvegarde dans Firestore → collection video_playlist
-// ─────────────────────────────────────────────────────────────
+// ─── Firestore ─────────────────────────────────────────────
 async function saveToFirestore({ userId, title, productName, description, price, videoUrl, imageUrl, thumbUrl }) {
   const videoId   = uuidv4();
   const productId = uuidv4();
-
-  const docData = {
-    videoId,
-    userId,
+  await setDoc(doc(collection(db, "video_playlist"), videoId), {
+    videoId, userId,
     title:     title.trim(),
     videoUrl,
     thumbnail: thumbUrl,
     keywords:  generateKeywords(title, productName, description),
     createdAt: serverTimestamp(),
-    views:     0,
-    likes:     0,
-    comments:  0,
+    views: 0, likes: 0, comments: 0,
     product: {
       productId,
       name:        productName.trim(),
@@ -101,22 +71,20 @@ async function saveToFirestore({ userId, title, productName, description, price,
       price:       parseFloat(price),
       image:       imageUrl,
     },
-  };
-
-  await setDoc(doc(collection(db, "video_playlist"), videoId), docData);
+  });
   return videoId;
 }
 
 // ─────────────────────────────────────────────────────────────
-// 🧩 Composants UI
+// 🧩 Composants UI — couleurs inline (évite le bug de minification)
 // ─────────────────────────────────────────────────────────────
 
 function Toast({ msg, isError, onClose }) {
-  useEffect(() => { const t = setTimeout(onClose, 3500); return () => clearTimeout(t); }, []);
+  useEffect(() => { const t = setTimeout(onClose, 3500); return () => clearTimeout(t); }, [onClose]);
   return (
     <div style={{
       position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-      zIndex: 9999, background: isError ? D.red : D.green,
+      zIndex: 9999, background: isError ? "#E53E00" : "#1A9640",
       color: "#fff", borderRadius: 14, padding: "12px 20px",
       display: "flex", alignItems: "center", gap: 8,
       boxShadow: "0 8px 32px rgba(0,0,0,0.18)", maxWidth: 400, width: "92%",
@@ -138,11 +106,11 @@ function StepBadge({ n, label, done }) {
     }}>
       <div style={{
         width: 18, height: 18, borderRadius: "50%",
-        background: done ? D.green : "rgba(255,255,255,0.3)",
+        background: done ? "#1A9640" : "rgba(255,255,255,0.3)",
         display: "flex", alignItems: "center", justifyContent: "center",
         fontSize: 10, fontWeight: 800, color: "#fff",
       }}>{done ? "✓" : n}</div>
-      <span style={{ fontSize: 12, fontWeight: 700, color: done ? D.orange : "#fff" }}>
+      <span style={{ fontSize: 12, fontWeight: 700, color: done ? "#FF6B00" : "#fff" }}>
         {label}
       </span>
     </div>
@@ -155,14 +123,14 @@ function SectionLabel({ icon, label, sublabel }) {
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
       <div style={{
         width: 38, height: 38, borderRadius: 11,
-        background: isDone ? D.greenLight : D.orangeDim,
-        border: `1px solid ${isDone ? D.green + "50" : D.orange + "50"}`,
+        background: isDone ? "#E6F7EC" : "#FFEDD5",
+        border: `1px solid ${isDone ? "#1A964050" : "#FF6B0050"}`,
         display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
       }}>{icon}</div>
       <div>
-        <div style={{ color: D.text1, fontSize: 15, fontWeight: 800 }}>{label}</div>
+        <div style={{ color: "#2D1500", fontSize: 15, fontWeight: 800 }}>{label}</div>
         {sublabel && (
-          <div style={{ color: isDone ? D.green : D.text2, fontSize: 11, fontWeight: 600 }}>
+          <div style={{ color: isDone ? "#1A9640" : "#8B5E3C", fontSize: 11, fontWeight: 600 }}>
             {sublabel}
           </div>
         )}
@@ -180,21 +148,21 @@ function MediaPickerCard({ icon, label, sublabel, onTap }) {
       onMouseLeave={() => setHover(false)}
       style={{
         width: "100%", padding: "36px 0", borderRadius: 20,
-        background: hover ? D.cardWarm : D.card,
-        border: `1.5px solid ${hover ? D.orange : D.border}`,
-        boxShadow: hover ? `0 0 20px ${D.orange}20` : `0 4px 12px ${D.orange}10`,
+        background: hover ? "#FFF9F0" : "#FFFFFF",
+        border: `1.5px solid ${hover ? "#FF6B00" : "#FFDDB0"}`,
+        boxShadow: hover ? "0 0 20px #FF6B0020" : "0 4px 12px #FF6B0010",
         cursor: "pointer", textAlign: "center", transition: "all 0.2s",
         display: "flex", flexDirection: "column", alignItems: "center", gap: 12,
       }}>
       <div style={{
         width: 60, height: 60, borderRadius: "50%",
-        background: D.orangeDim, border: `1.5px solid ${D.orange}66`,
-        boxShadow: `0 4px 14px ${D.orange}25`,
+        background: "#FFEDD5", border: "1.5px solid #FF6B0066",
+        boxShadow: "0 4px 14px #FF6B0025",
         display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
       }}>{icon}</div>
       <div>
-        <div style={{ color: D.text1, fontSize: 14, fontWeight: 700 }}>{label}</div>
-        <div style={{ color: D.text3, fontSize: 12, marginTop: 4 }}>{sublabel}</div>
+        <div style={{ color: "#2D1500", fontSize: 14, fontWeight: 700 }}>{label}</div>
+        <div style={{ color: "#BF9060", fontSize: 12, marginTop: 4 }}>{sublabel}</div>
       </div>
     </div>
   );
@@ -205,7 +173,7 @@ function CitrusField({ label, hint, icon, value, onChange, maxLines = 1, type = 
   const Tag = maxLines > 1 ? "textarea" : "input";
   return (
     <div>
-      <div style={{ color: D.text2, fontSize: 12, fontWeight: 700, letterSpacing: 0.7, marginBottom: 6 }}>
+      <div style={{ color: "#8B5E3C", fontSize: 12, fontWeight: 700, letterSpacing: 0.7, marginBottom: 6 }}>
         {label}
       </div>
       <div style={{ position: "relative" }}>
@@ -213,8 +181,8 @@ function CitrusField({ label, hint, icon, value, onChange, maxLines = 1, type = 
           position: "absolute", left: 14,
           top: maxLines > 1 ? 16 : "50%",
           transform: maxLines > 1 ? "none" : "translateY(-50%)",
-          color: focused ? D.orange : D.text3, fontSize: 18,
-          pointerEvents: "none", transition: "color 0.2s",
+          color: focused ? "#FF6B00" : "#BF9060",
+          fontSize: 18, pointerEvents: "none", transition: "color 0.2s",
         }}>{icon}</span>
         <Tag
           value={value}
@@ -227,16 +195,16 @@ function CitrusField({ label, hint, icon, value, onChange, maxLines = 1, type = 
           style={{
             width: "100%", boxSizing: "border-box",
             padding: maxLines > 1 ? "16px 16px 16px 44px" : "16px 56px 16px 44px",
-            borderRadius: 14, fontSize: 15, color: D.text1,
-            background: focused ? D.orangeDim : D.card,
-            border: `${focused ? 2 : 1.5}px solid ${focused ? D.orange + "CC" : D.border}`,
+            borderRadius: 14, fontSize: 15, color: "#2D1500",
+            background: focused ? "#FFEDD5" : "#FFFFFF",
+            border: `${focused ? 2 : 1.5}px solid ${focused ? "#FF6B00CC" : "#FFDDB0"}`,
             outline: "none", resize: "none", fontFamily: "inherit", transition: "all 0.2s",
           }}
         />
         {suffix && (
           <span style={{
             position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)",
-            color: D.orange, fontWeight: 700, fontSize: 13,
+            color: "#FF6B00", fontWeight: 700, fontSize: 13,
           }}>{suffix}</span>
         )}
       </div>
@@ -248,20 +216,20 @@ function ProgressRow({ label, icon, value }) {
   const done = value >= 1.0;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span style={{ fontSize: 16, color: done ? D.green : D.text3 }}>
+      <span style={{ fontSize: 16, color: done ? "#1A9640" : "#BF9060" }}>
         {done ? "✅" : icon}
       </span>
       <div style={{ flex: 1 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-          <span style={{ color: D.text2, fontSize: 12, fontWeight: 600 }}>{label}</span>
-          <span style={{ color: done ? D.green : D.orange, fontSize: 12, fontWeight: 700 }}>
+          <span style={{ color: "#8B5E3C", fontSize: 12, fontWeight: 600 }}>{label}</span>
+          <span style={{ color: done ? "#1A9640" : "#FF6B00", fontSize: 12, fontWeight: 700 }}>
             {Math.round(value * 100)}%
           </span>
         </div>
-        <div style={{ height: 5, borderRadius: 4, background: D.surface, overflow: "hidden" }}>
+        <div style={{ height: 5, borderRadius: 4, background: "#FFEDC0", overflow: "hidden" }}>
           <div style={{
             height: "100%", borderRadius: 4,
-            background: done ? D.green : D.orange,
+            background: done ? "#1A9640" : "#FF6B00",
             width: `${value * 100}%`, transition: "width 0.3s",
           }} />
         </div>
@@ -279,15 +247,13 @@ function PublishButton({ onTap, disabled }) {
       onMouseUp={() => { setPressed(false); onTap(); }}
       onMouseLeave={() => setPressed(false)}
       onTouchStart={() => setPressed(true)}
-      onTouchEnd={() => { setPressed(false); onTap(); }}
+      onTouchEnd={(e) => { e.preventDefault(); setPressed(false); onTap(); }}
       style={{
         width: "100%", padding: "18px 0", borderRadius: 20,
-        background: disabled
-          ? "#ccc"
-          : `linear-gradient(90deg, ${D.orange}, ${D.orangeHot})`,
+        background: disabled ? "#ccc" : "linear-gradient(90deg, #FF6B00, #FF8C00)",
         color: "#fff", fontSize: 17, fontWeight: 900, letterSpacing: 0.3,
         border: "none", cursor: disabled ? "not-allowed" : "pointer",
-        boxShadow: disabled ? "none" : `0 8px 24px ${D.orange}58`,
+        boxShadow: disabled ? "none" : "0 8px 24px #FF6B0058",
         display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
         transform: pressed && !disabled ? "scale(0.97)" : "scale(1)",
         transition: "transform 0.1s, background 0.2s",
@@ -299,12 +265,12 @@ function PublishButton({ onTap, disabled }) {
 
 function SuccessPage({ onHome, onPublishAnother }) {
   return (
-    <div style={{ minHeight: "100vh", background: D.bg, display: "flex", flexDirection: "column" }}>
+    <div style={{ minHeight: "100vh", background: "#FFF8EE", display: "flex", flexDirection: "column" }}>
       <div style={{
         padding: "28px 28px 40px",
         background: "linear-gradient(135deg, #FF6B00, #FF9500, #FFB700)",
         borderRadius: "0 0 36px 36px",
-        boxShadow: `0 8px 20px ${D.orange}50`, textAlign: "center",
+        boxShadow: "0 8px 20px #FF6B0050", textAlign: "center",
       }}>
         <div style={{
           width: 88, height: 88, borderRadius: "50%",
@@ -325,17 +291,17 @@ function SuccessPage({ onHome, onPublishAnother }) {
 
       <div style={{ padding: "0 28px 36px" }}>
         <div style={{
-          background: D.card, borderRadius: 20, padding: 18,
-          border: `1.5px solid ${D.border}`,
+          background: "#fff", borderRadius: 20, padding: 18,
+          border: "1.5px solid #FFDDB0",
           display: "flex", alignItems: "center", gap: 14, marginBottom: 20,
         }}>
           <div style={{
-            width: 42, height: 42, borderRadius: "50%", background: D.orangeDim,
+            width: 42, height: 42, borderRadius: "50%", background: "#FFEDD5",
             display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
           }}>👁️</div>
           <div>
-            <div style={{ color: D.text1, fontSize: 14, fontWeight: 700 }}>Tes statistiques</div>
-            <div style={{ color: D.text2, fontSize: 12, marginTop: 2, lineHeight: 1.4 }}>
+            <div style={{ color: "#2D1500", fontSize: 14, fontWeight: 700 }}>Tes statistiques</div>
+            <div style={{ color: "#8B5E3C", fontSize: 12, marginTop: 2, lineHeight: 1.4 }}>
               Suis tes vues et ventes depuis ton profil.
             </div>
           </div>
@@ -343,17 +309,17 @@ function SuccessPage({ onHome, onPublishAnother }) {
 
         <button onClick={onHome} style={{
           width: "100%", padding: "17px 0", borderRadius: 20,
-          background: `linear-gradient(90deg, ${D.orange}, ${D.orangeHot})`,
+          background: "linear-gradient(90deg, #FF6B00, #FF8C00)",
           color: "#fff", fontSize: 16, fontWeight: 900, border: "none", cursor: "pointer",
-          boxShadow: `0 8px 24px ${D.orange}55`,
+          boxShadow: "0 8px 24px #FF6B0055",
           display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
           marginBottom: 10,
-        }}>🏠 Retour à l'accueil</button>
+        }}>🏠 Retour à l&apos;accueil</button>
 
         <button onClick={onPublishAnother} style={{
           width: "100%", padding: "16px 0", borderRadius: 20,
-          background: D.card, color: D.text2, fontSize: 15, fontWeight: 700,
-          border: `1.5px solid ${D.border}`, cursor: "pointer",
+          background: "#fff", color: "#8B5E3C", fontSize: 15, fontWeight: 700,
+          border: "1.5px solid #FFDDB0", cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
         }}>➕ Publier une autre vidéo</button>
       </div>
@@ -362,30 +328,27 @@ function SuccessPage({ onHome, onPublishAnother }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 🚀 Page principale
+// 🚀 Page principale AddVideoPage
 // ─────────────────────────────────────────────────────────────
 export default function AddVideoPage() {
-  const [page, setPage]   = useState("form"); // "form" | "success"
-  const [user, setUser]   = useState(null);   // Firebase user
+  const [page,      setPage]      = useState("form");
+  const [user,      setUser]      = useState(null);
   const [authReady, setAuthReady] = useState(false);
 
-  // Fichiers
   const [videoFile,     setVideoFile]     = useState(null);
   const [videoLocalUrl, setVideoLocalUrl] = useState(null);
   const [imageFile,     setImageFile]     = useState(null);
   const [imagePreview,  setImagePreview]  = useState(null);
 
-  // Champs texte
   const [title,       setTitle]       = useState("");
   const [productName, setProductName] = useState("");
   const [description, setDescription] = useState("");
   const [price,       setPrice]       = useState("");
 
-  // Upload state
-  const [loading,        setLoading]        = useState(false);
-  const [uploadStep,     setUploadStep]     = useState(""); // libellé étape
-  const [progressVideo,  setProgressVideo]  = useState(0);
-  const [progressImage,  setProgressImage]  = useState(0);
+  const [loading,       setLoading]       = useState(false);
+  const [uploadStep,    setUploadStep]    = useState("");
+  const [progressVideo, setProgressVideo] = useState(0);
+  const [progressImage, setProgressImage] = useState(0);
 
   const [toast,     setToast]     = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -394,7 +357,7 @@ export default function AddVideoPage() {
   const videoInput = useRef(null);
   const imageInput = useRef(null);
 
-  // ── Auth : connexion anonyme si pas connecté ──────────────
+  // ── Auth Firebase ─────────────────────────────────────────
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
@@ -403,7 +366,7 @@ export default function AddVideoPage() {
         try {
           const cred = await signInAnonymously(auth);
           setUser(cred.user);
-        } catch (e) {
+        } catch {
           showToast("Connexion impossible", true);
         }
       }
@@ -413,6 +376,7 @@ export default function AddVideoPage() {
   }, []);
 
   const showToast = (msg, isError = false) => setToast({ msg, isError });
+  const closeToast = () => setToast(null);
 
   const handleVideoChange = (e) => {
     const file = e.target.files?.[0];
@@ -436,17 +400,16 @@ export default function AddVideoPage() {
   };
 
   const validate = () => {
-    if (!videoFile)           return "Veuillez choisir une vidéo";
-    if (!imageFile)           return "Veuillez choisir une image produit";
-    if (!title.trim())        return "Le titre est requis";
-    if (!productName.trim())  return "Le nom du produit est requis";
-    if (!description.trim())  return "La description est requise";
-    if (!price.trim())        return "Le prix est requis";
+    if (!videoFile)             return "Veuillez choisir une vidéo";
+    if (!imageFile)             return "Veuillez choisir une image produit";
+    if (!title.trim())          return "Le titre est requis";
+    if (!productName.trim())    return "Le nom du produit est requis";
+    if (!description.trim())    return "La description est requise";
+    if (!price.trim())          return "Le prix est requis";
     if (isNaN(parseFloat(price))) return "Prix invalide";
     return null;
   };
 
-  // ── Publish : upload R2 → Firestore ──────────────────────
   const handlePublish = async () => {
     const err = validate();
     if (err) { showToast(err, true); return; }
@@ -457,7 +420,6 @@ export default function AddVideoPage() {
     setProgressImage(0);
 
     try {
-      // 1. Upload image produit + vidéo en parallèle
       setUploadStep("Envoi de l'image et de la vidéo...");
       const [imageUrl, videoUrl] = await Promise.all([
         uploadToR2(imageFile, BUCKET_IMAGES, user.uid, "image/jpeg",
@@ -466,23 +428,16 @@ export default function AddVideoPage() {
           (p) => setProgressVideo(p)),
       ]);
 
-      // 2. Sauvegarde Firestore
       setUploadStep("Sauvegarde dans la base de données...");
       await saveToFirestore({
-        userId:      user.uid,
-        title,
-        productName,
-        description,
-        price,
-        videoUrl,
-        imageUrl,
-        thumbUrl:    imageUrl, // miniature = image produit (pas de VideoThumbnail web)
+        userId: user.uid, title, productName, description, price,
+        videoUrl, imageUrl, thumbUrl: imageUrl,
       });
 
       setPage("success");
     } catch (e) {
       console.error("Publish error:", e);
-      showToast("Erreur lors de la publication : " + (e.message ?? "inconnue"), true);
+      showToast("Erreur : " + (e.message ?? "inconnue"), true);
     } finally {
       setLoading(false);
       setUploadStep("");
@@ -499,7 +454,6 @@ export default function AddVideoPage() {
   const totalProgress = (progressImage + progressVideo) / 2;
   const infoDone      = title.trim() !== "" && productName.trim() !== "";
 
-  // ── Success page ─────────────────────────────────────────
   if (page === "success") {
     return (
       <SuccessPage
@@ -508,46 +462,42 @@ export default function AddVideoPage() {
       />
     );
   }
-    //
-  // ── Auth loading ─────────────────────────────────────────
+
   if (!authReady) {
     return (
       <div style={{
-        minHeight: "100vh", background: D.bg,
+        minHeight: "100vh", background: "#FFF8EE",
         display: "flex", alignItems: "center", justifyContent: "center",
         flexDirection: "column", gap: 16,
       }}>
         <div style={{
           width: 40, height: 40, borderRadius: "50%",
-          border: `3px solid ${D.orange}`, borderTopColor: "transparent",
+          border: "3px solid #FF6B00", borderTopColor: "transparent",
           animation: "spin 0.8s linear infinite",
         }} />
-        <span style={{ color: D.text2, fontSize: 14 }}>Connexion...</span>
+        <span style={{ color: "#8B5E3C", fontSize: 14 }}>Connexion...</span>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
 
-  // ── Form ─────────────────────────────────────────────────
   return (
     <div style={{
-      minHeight: "100vh", background: D.bg,
+      minHeight: "100vh", background: "#FFF8EE",
       fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
     }}>
-      {toast && (
-        <Toast msg={toast.msg} isError={toast.isError} onClose={() => setToast(null)} />
-      )}
+      {toast && <Toast msg={toast.msg} isError={toast.isError} onClose={closeToast} />}
 
       {/* ── Header gradient ── */}
       <div style={{
         padding: "16px 22px 28px",
         background: "linear-gradient(135deg, #FF6B00 0%, #FF9500 55%, #FFB700 100%)",
         borderRadius: "0 0 32px 32px",
-        boxShadow: `0 8px 20px ${D.orange}4D`,
+        boxShadow: "0 8px 20px #FF6B004D",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
           <button
-            onClick={() => window.history.back?.()}
+            onClick={() => window.history.back()}
             style={{
               width: 38, height: 38, borderRadius: 12,
               background: "rgba(255,255,255,0.25)",
@@ -560,7 +510,7 @@ export default function AddVideoPage() {
               Publier une vidéo
             </div>
             <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 12 }}>
-              Ajoute ton contenu & produit
+              Ajoute ton contenu &amp; produit
             </div>
           </div>
         </div>
@@ -600,9 +550,9 @@ export default function AddVideoPage() {
                 <div style={{
                   width: 60, height: 60, borderRadius: "50%",
                   background: "rgba(0,0,0,0.45)",
-                  border: `2px solid ${D.orange}B3`,
+                  border: "2px solid #FF6B00B3",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 30, color: D.orange,
+                  fontSize: 30, color: "#FF6B00",
                 }}>▶</div>
               )}
             </div>
@@ -621,8 +571,8 @@ export default function AddVideoPage() {
             <button onClick={() => videoInput.current?.click()} style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               padding: "10px 16px", borderRadius: 12,
-              background: D.cardWarm, border: `1.5px solid ${D.border}`,
-              color: D.text2, fontSize: 13, fontWeight: 600, cursor: "pointer",
+              background: "#FFF9F0", border: "1.5px solid #FFDDB0",
+              color: "#8B5E3C", fontSize: 13, fontWeight: 600, cursor: "pointer",
             }}>🔄 Changer la vidéo</button>
           </div>
         )}
@@ -642,8 +592,8 @@ export default function AddVideoPage() {
               position: "absolute", top: 8, right: 8,
               width: 36, height: 36, borderRadius: "50%",
               background: "rgba(0,0,0,0.55)",
-              border: `1.5px solid ${D.orange}99`,
-              color: D.orange, fontSize: 16, cursor: "pointer",
+              border: "1.5px solid #FF6B0099",
+              color: "#FF6B00", fontSize: 16, cursor: "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>✏️</button>
           </div>
@@ -675,44 +625,41 @@ export default function AddVideoPage() {
 
         <div style={{ height: 32 }} />
 
-        {/* Progression upload OU bouton publier */}
+        {/* Upload progress ou bouton */}
         {loading ? (
           <div style={{
-            background: D.card, borderRadius: 20, padding: 20,
-            border: `1.5px solid ${D.border}`,
-            boxShadow: `0 4px 12px ${D.orange}10`,
+            background: "#fff", borderRadius: 20, padding: 20,
+            border: "1.5px solid #FFDDB0",
+            boxShadow: "0 4px 12px #FF6B0010",
           }}>
-            {/* Header progression */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
               <div style={{
                 width: 18, height: 18, borderRadius: "50%", flexShrink: 0,
-                border: `2px solid ${D.orange}`, borderTopColor: "transparent",
+                border: "2px solid #FF6B00", borderTopColor: "transparent",
                 animation: "spin 0.8s linear infinite",
               }} />
-              <span style={{ color: D.text1, fontSize: 14, fontWeight: 700, flex: 1 }}>
+              <span style={{ color: "#2D1500", fontSize: 14, fontWeight: 700, flex: 1 }}>
                 Publication en cours...
               </span>
-              <span style={{ color: D.orange, fontSize: 15, fontWeight: 900 }}>
+              <span style={{ color: "#FF6B00", fontSize: 15, fontWeight: 900 }}>
                 {Math.round(totalProgress * 100)}%
               </span>
             </div>
 
             {uploadStep && (
-              <div style={{ color: D.text3, fontSize: 11, marginBottom: 10, paddingLeft: 28 }}>
+              <div style={{ color: "#BF9060", fontSize: 11, marginBottom: 10, paddingLeft: 28 }}>
                 {uploadStep}
               </div>
             )}
 
-
-            {/* Barre globale */}
-            <div style={{ height: 8, borderRadius: 6, background: D.surface, overflow: "hidden", marginBottom: 16 }}>
+            <div style={{ height: 8, borderRadius: 6, background: "#FFEDC0", overflow: "hidden", marginBottom: 16 }}>
               <div style={{
-                height: "100%", borderRadius: 6, background: D.orange,
+                height: "100%", borderRadius: 6, background: "#FF6B00",
                 width: `${totalProgress * 100}%`, transition: "width 0.3s",
               }} />
             </div>
 
-            <div style={{ height: 1, background: D.border, marginBottom: 16 }} />
+            <div style={{ height: 1, background: "#FFDDB0", marginBottom: 16 }} />
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <ProgressRow label="Image produit" icon="🖼️" value={progressImage} />
