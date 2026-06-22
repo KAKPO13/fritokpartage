@@ -55,3 +55,9 @@
   [headers.values]
     X-Frame-Options        = "DENY"
     X-Content-Type-Options = "nosniff"
+
+   
+# Déclenche check-rental-alerts toutes les 5 minutes
+
+[functions."check-rental-alerts"]
+  schedule = "*/5 * * * *"

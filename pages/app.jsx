@@ -11,6 +11,8 @@ import {
 } from 'firebase/firestore';
 import dynamic from 'next/dynamic';
 import { createFlutterwaveRentalPayment } from '../app/hooks/useWallet';
+import useRentalAlerts  from '../hooks/useRentalAlerts';
+import RentalAlertBanner from '../components/app/RentalAlertBanner';
 
 // ─── Firebase ────────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -36,21 +38,16 @@ const D = {
 };
 
 // ─── Tarifs fixes ────────────────────────────────────────────────────────────
-// TODO: à lire depuis Firestore si tu les ajoutes plus tard
 const FRAIS_XOF   = 300;
 const CAUTION_XOF = 200;
 
 // ── Compte Escrow Fritok ──────────────────────────────────────────────────────
-// Collection "users", document uid = "escrow_fritok"
-// Schéma Flutter (ensureEscrowExists) : { uid, displayName, email, role, solde:{XOF,GHS,NGN} }
-// totalCaution:{XOF,GHS,NGN} créé/mis à jour par le web lors des locations/restitutions
 const ESCROW_UID = 'escrow_fritok';
 
 // ─── Leaflet (SSR disabled) ──────────────────────────────────────────────────
 const MapView = dynamic(() => import('../components/app/MapView'), { ssr: false });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-// Normalise une valeur wallet Firestore (peut être null, undefined, string)
 const toNum = (v) => (v == null ? 0 : Number(v));
 
 const fmt = (n) => new Intl.NumberFormat('fr-FR').format(Math.round(toNum(n)));
@@ -80,41 +77,27 @@ const batteryColor = (lvl) => lvl == null ? D.text3 : lvl >= 60 ? D.green : lvl 
 const batteryIcon  = (lvl) => lvl == null ? '🔋' : lvl >= 60 ? '🔋' : lvl >= 30 ? '🪫' : '🔴';
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  writeTranstet — écrit dans TransfetMoney directement depuis le client
-//  Schéma réel Firestore : currency, date, destinataireId, destinataireNom,
-//  destinataireTelephone, expediteurEmail, expediteurId, frais, montantEnvoye,
-//  montantRecu, profilePictureUrl, status, timestamp, transactionId, type
+//  writeTranstet
 // ─────────────────────────────────────────────────────────────────────────────
 async function writeTranstet(db, {
-  type,                          // "rental" | "restitution" | "topup"
-  currency,
-  montantEnvoye,
-  frais = 0,
-  expediteurId,
-  expediteurEmail,
-  expediteurPhoto = '',
-  destinataireId,
-  destinataireNom,
-  destinataireTel = '',
+  type, currency, montantEnvoye, frais = 0,
+  expediteurId, expediteurEmail, expediteurPhoto = '',
+  destinataireId, destinataireNom, destinataireTel = '',
   status = 'completed',
 }) {
   const now    = Date.now();
-  const date   = new Date(now).toISOString().slice(0, 10); // "YYYY-MM-DD"
-  const docRef = doc(collection(db, 'TransfetMoney'));      // ID auto
+  const date   = new Date(now).toISOString().slice(0, 10);
+  const docRef = doc(collection(db, 'TransfetMoney'));
   await setDoc(docRef, {
     transactionId         : docRef.id,
-    type,
-    currency,
-    date,
+    type, currency, date,
     timestamp             : now,
     montantEnvoye         : Number(montantEnvoye),
     frais                 : Number(frais),
     montantRecu           : Number(montantEnvoye) - Number(frais),
-    expediteurId,
-    expediteurEmail,
+    expediteurId, expediteurEmail,
     profilePictureUrl     : expediteurPhoto || '',
-    destinataireId,
-    destinataireNom,
+    destinataireId, destinataireNom,
     destinataireTelephone : destinataireTel,
     status,
   });
@@ -132,18 +115,17 @@ export default function FritokApp() {
   const [user,          setUser]          = useState(null);
   const [loading,       setLoading]       = useState(true);
   const [tab,           setTab]           = useState('home');
-  // Profil Firestore réel : username, email, phone, role, wallet{XOF,GHS,NGN},
-  // currency, photoUrl, kyc_status, level, points, location{lat,lng,address},
-  // nomBoutique, adresse, id_boutique, userId, createdAt, updatedAt
   const [profile,       setProfile]       = useState(null);
-  // wallet brut depuis Firestore — peut contenir des null
   const [wallet,        setWallet]        = useState({});
   const [currency,      setCurrency]      = useState('XOF');
   const [activeRentals, setActiveRentals] = useState([]);
-  const [history,       setHistory]       = useState([]); // rentals
-  const [txHistory,     setTxHistory]     = useState([]); // TransfetMoney client
+  const [history,       setHistory]       = useState([]);
+  const [txHistory,     setTxHistory]     = useState([]);
 
-  // ── Auth: redirige vers /login si non authentifié ────────────────────────
+  // ── MODIFICATION 2 : hook alertes location ────────────────────────────────
+  const { alerts, dismissAlert } = useRentalAlerts(activeRentals);
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       if (!u || !u.emailVerified) {
@@ -156,14 +138,52 @@ export default function FritokApp() {
     return unsub;
   }, []);
 
-  // ── Listeners Firestore ──────────────────────────────────────────────────
+  // ── MODIFICATION 4 : Service Worker + FCM token ───────────────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user) return;
+
+    // Enregistre le Service Worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/sw-fritok.js')
+        .catch(e => console.warn('SW registration failed:', e));
+    }
+
+    // Demande permission + récupère FCM token
+    const initFcm = async () => {
+      if (!('Notification' in window)) return;
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+
+      try {
+        const { getMessaging, getToken } = await import('firebase/messaging');
+        const app     = getFirebaseApp();
+        const msgInst = getMessaging(app);
+        const token   = await getToken(msgInst, {
+          vapidKey                 : process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
+          serviceWorkerRegistration: await navigator.serviceWorker.ready,
+        });
+        if (!token) return;
+
+        // Sauvegarde le token → utilisé par check-rental-alerts
+        const { getFirestore: gfs, doc: d2, updateDoc: upd } = await import('firebase/firestore');
+        const db2 = gfs(app);
+        await upd(d2(db2, 'users', user.uid), { fcmToken: token });
+      } catch (e) {
+        console.warn('FCM token error:', e.message);
+      }
+    };
+
+    initFcm();
+  }, [user]);
+
+  // ── Listeners Firestore ───────────────────────────────────────────────────
   useEffect(() => {
     if (!user) {
       setProfile(null); setWallet({}); setActiveRentals([]); setHistory([]);
       return;
     }
 
-    // Profil + wallet temps réel
     const unsubUser = onSnapshot(doc(db, 'users', user.uid), (snap) => {
       const data = snap.data();
       if (!data) return;
@@ -172,7 +192,6 @@ export default function FritokApp() {
       if (data.currency) setCurrency(data.currency);
     });
 
-    // Rentals actifs
     const unsubActive = onSnapshot(
       query(collection(db, 'rentals'),
         where('userId', '==', user.uid),
@@ -181,8 +200,6 @@ export default function FritokApp() {
       (snap) => setActiveRentals(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
     );
 
-    // Historique
-    // Rentals (pour les locations actives et l'accueil)
     const unsubHist = onSnapshot(
       query(collection(db, 'rentals'),
         where('userId', '==', user.uid),
@@ -191,10 +208,6 @@ export default function FritokApp() {
       (snap) => setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
     );
 
-    // TransfetMoney — uniquement les transactions du CLIENT
-    // Règle : on affiche les entrées où le client est expediteurId (il paie)
-    // OU destinataireId (il reçoit un remboursement) MAIS JAMAIS quand
-    // expediteurId === ESCROW_UID (ces entrées appartiennent au compte Escrow)
     const unsubTx = onSnapshot(
       query(
         collection(db, 'TransfetMoney'),
@@ -203,11 +216,7 @@ export default function FritokApp() {
         limit(50)
       ),
       (snapExp) => {
-        // Entrées où le client EST l'expéditeur (paiements : rental, caution)
         const sent = snapExp.docs.map(d => ({ id: d.id, ...d.data(), _dir: 'out' }));
-
-        // Entrées où le client est destinataire ET expéditeur ≠ escrow
-        // (remboursements de caution — expediteurId = ESCROW_UID sont exclus)
         getDocs(query(
           collection(db, 'TransfetMoney'),
           where('destinataireId', '==', user.uid),
@@ -216,11 +225,9 @@ export default function FritokApp() {
           orderBy('timestamp', 'desc'),
           limit(20)
         )).then(snapDest => {
-          const received = snapDest.docs
-            .map(d => ({ id: d.id, ...d.data(), _dir: 'in' }));
-          // Fusionner, dédupliquer et trier par timestamp desc
-          const all = [...sent, ...received];
-          const seen = new Set();
+          const received = snapDest.docs.map(d => ({ id: d.id, ...d.data(), _dir: 'in' }));
+          const all    = [...sent, ...received];
+          const seen   = new Set();
           const deduped = all.filter(tx => {
             if (seen.has(tx.id)) return false;
             seen.add(tx.id); return true;
@@ -236,10 +243,9 @@ export default function FritokApp() {
 
   if (loading || !user) return <Splash />;
 
-  // Normalise le wallet : null/undefined → 0, valeurs string → number
-  const normWallet  = Object.fromEntries(Object.entries(wallet).map(([k, v]) => [k, toNum(v)]));
-  const balance     = normWallet[currency] ?? 0;
-  const currencies  = Object.keys(normWallet); // XOF, GHS, NGN
+  const normWallet = Object.fromEntries(Object.entries(wallet).map(([k, v]) => [k, toNum(v)]));
+  const balance    = normWallet[currency] ?? 0;
+  const currencies = Object.keys(normWallet);
 
   const handleSignOut = async () => {
     await signOut(auth);
@@ -248,7 +254,15 @@ export default function FritokApp() {
 
   return (
     <div style={{ background: D.bg, minHeight: '100dvh', display: 'flex', flexDirection: 'column', maxWidth: 480, margin: '0 auto' }}>
+      {/* ── MODIFICATION 3 : div avec bannière alertes ── */}
       <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 80 }}>
+
+        <RentalAlertBanner
+          alerts    = {alerts}
+          onDismiss = {dismissAlert}
+          onNav     = {setTab}
+        />
+
         {tab === 'home'    && <HomeTab    balance={balance} currency={currency} currencies={currencies} normWallet={normWallet} onCurrencyChange={setCurrency} activeRentals={activeRentals} history={history} profile={profile} onNav={setTab} />}
         {tab === 'map'     && <MapTab     db={db} />}
         {tab === 'rent'    && <RentTab    db={db} user={user} wallet={wallet} profile={profile} onSuccess={() => setTab('home')} />}
@@ -282,7 +296,6 @@ function Splash() {
 function HomeTab({ balance, currency, currencies, normWallet, onCurrencyChange, activeRentals, history, profile, onNav }) {
   return (
     <div style={{ padding: '24px 0 0' }}>
-      {/* Greeting */}
       <div style={{ padding: '0 24px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
@@ -303,11 +316,9 @@ function HomeTab({ balance, currency, currencies, normWallet, onCurrencyChange, 
         </div>
       </div>
 
-      {/* Wallet card */}
       <WalletCard balance={balance} currency={currency} currencies={currencies} normWallet={normWallet}
         activeCount={activeRentals.length} onCurrencyChange={onCurrencyChange} />
 
-      {/* Banner location active */}
       {activeRentals.length > 0 && (
         <div onClick={() => onNav('return')} style={{ margin: '14px 24px 0', padding: 14, background: D.amberLight, borderRadius: 12, border: `1px solid ${D.amber}33`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 18 }}>🔋</span>
@@ -318,7 +329,6 @@ function HomeTab({ balance, currency, currencies, normWallet, onCurrencyChange, 
         </div>
       )}
 
-      {/* Quick actions */}
       <div style={{ padding: '20px 24px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <QuickBtn icon="📷" label="Louer un power bank" sub="Scanner ou entrer le QR code" primary onClick={() => onNav('rent')} />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -327,7 +337,6 @@ function HomeTab({ balance, currency, currencies, normWallet, onCurrencyChange, 
         </div>
       </div>
 
-      {/* Historique récent */}
       <div style={{ marginTop: 28, padding: '0 24px 8px', fontSize: 11, letterSpacing: 1.5, color: D.text3, fontWeight: 700 }}>ACTIVITÉ RÉCENTE</div>
       {history.length === 0
         ? <div style={{ textAlign: 'center', padding: '40px 0', color: D.text2, fontSize: 13 }}>
@@ -349,10 +358,8 @@ function WalletCard({ balance, currency, currencies, normWallet, activeCount, on
   return (
     <>
       <div style={{ margin: '0 24px', padding: 20, borderRadius: 24, background: `linear-gradient(135deg, ${D.orange}, ${D.zest})`, position: 'relative', overflow: 'hidden' }}>
-        {/* Cercles déco */}
         <div style={{ position: 'absolute', top: -48, right: -32, width: 130, height: 130, borderRadius: '50%', background: 'rgba(255,255,255,0.10)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: -24, left: -24, width: 90,  height: 90,  borderRadius: '50%', background: 'rgba(255,255,255,0.07)', pointerEvents: 'none' }} />
-
+        <div style={{ position: 'absolute', bottom: -24, left: -24, width: 90, height: 90, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', pointerEvents: 'none' }} />
         <div style={{ position: 'relative' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 700, letterSpacing: 1.8 }}>WALLET FRITOK</div>
@@ -362,14 +369,10 @@ function WalletCard({ balance, currency, currencies, normWallet, activeCount, on
               </button>
             )}
           </div>
-
-          {/* Solde principal */}
           <div style={{ marginTop: 10, display: 'flex', alignItems: 'flex-end', gap: 8 }}>
             <div style={{ fontSize: 42, fontWeight: 800, color: '#fff', letterSpacing: -1, lineHeight: 1 }}>{fmt(balance)}</div>
             <div style={{ paddingBottom: 6, fontSize: 15, color: 'rgba(255,255,255,0.75)', fontWeight: 600 }}>{currency}</div>
           </div>
-
-          {/* Mini soldes autres devises */}
           {currencies.filter(c => c !== currency && normWallet[c] > 0).length > 0 && (
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               {currencies.filter(c => c !== currency && normWallet[c] > 0).map(c => (
@@ -379,10 +382,7 @@ function WalletCard({ balance, currency, currencies, normWallet, activeCount, on
               ))}
             </div>
           )}
-
           <div style={{ height: 0.5, background: 'rgba(255,255,255,0.25)', margin: '14px 0' }} />
-
-          {/* Badge locations actives */}
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.18)', border: '0.5px solid rgba(255,255,255,0.30)', borderRadius: 99, padding: '5px 12px' }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: activeCount > 0 ? D.greenLight : 'rgba(255,255,255,0.6)' }} />
             <div style={{ fontSize: 12, color: '#fff', fontWeight: 500 }}>
@@ -391,8 +391,6 @@ function WalletCard({ balance, currency, currencies, normWallet, activeCount, on
           </div>
         </div>
       </div>
-
-      {/* Picker devise */}
       {open && (
         <BottomSheet onClose={() => setOpen(false)} title="Choisir une devise">
           {currencies.map(c => (
@@ -409,29 +407,14 @@ function WalletCard({ balance, currency, currencies, normWallet, activeCount, on
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  MapTab — power banks Firestore avec GeoPoint → Leaflet
+//  MapTab
 // ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-//  PATCH app.js — remplace la fonction MapTab existante par celle-ci
-//
-//  Liaison powerBanks → partners :
-//    powerBanks.currentPartnerId = UID Auth du partenaire (ex: "ZD9Q06V6...")
-//    partners.uid                = même UID Auth (champ à ajouter manuellement)
-//    partners.doc ID             = "partner_abc" (peu importe)
-//
-//  Lookup en 3 étapes :
-//    1. Cache pré-chargé indexé par uid / doc ID / qrCode
-//    2. getDoc par doc ID (secours)
-//    3. where('uid', '==', partnerId) (secours final)
-// ─────────────────────────────────────────────────────────────────────────────
-
 function MapTab({ db }) {
   const [powerBanks, setPowerBanks] = useState([]);
   const [partners,   setPartners]   = useState({});
   const [loading,    setLoading]    = useState(true);
   const [filter,     setFilter]     = useState('tous');
 
-  // ── Écoute powerBanks ─────────────────────────────────────────────────────
   useEffect(() => {
     const unsub = onSnapshot(
       query(collection(db, 'powerBanks')),
@@ -444,8 +427,6 @@ function MapTab({ db }) {
     return unsub;
   }, []);
 
-  // ── Pré-charge tous les partenaires ──────────────────────────────────────
-  // Indexé par : doc ID + uid + qrCode  → lookup instantané au clic
   useEffect(() => {
     const unsub = onSnapshot(
       query(collection(db, 'partners')),
@@ -464,9 +445,9 @@ function MapTab({ db }) {
               ? data.partnerPhotos.filter(Boolean).slice(0, 3)
               : [],
           };
-          map[d.id] = entry;                    // par doc ID  ("partner_abc")
-          if (data.uid)    map[data.uid]    = entry; // par UID Auth ("ZD9Q06V6...")
-          if (data.qrCode) map[data.qrCode] = entry; // par qrCode  ("PTN-ABJ-001")
+          map[d.id] = entry;
+          if (data.uid)    map[data.uid]    = entry;
+          if (data.qrCode) map[data.qrCode] = entry;
         });
         setPartners(map);
       },
@@ -493,14 +474,9 @@ function MapTab({ db }) {
       };
     });
 
-  // ── fetchPartner : cache d'abord, puis 2 secours Firestore ───────────────
   const fetchPartner = async (partnerId) => {
     if (!partnerId) return null;
-
-    // 1. Cache (indexé par uid / doc ID / qrCode)
     if (partners[partnerId]) return partners[partnerId];
-
-    // 2. Secours : getDoc par doc ID
     const snap = await getDoc(doc(db, 'partners', partnerId));
     if (snap.exists()) {
       const d = snap.data();
@@ -511,14 +487,9 @@ function MapTab({ db }) {
         stock  : d.stockAvailable ?? null,
         active : d.active ?? true,
         address: d.address || d.adresse || '',
-        photos : Array.isArray(d.partnerPhotos)
-          ? d.partnerPhotos.filter(Boolean).slice(0, 3)
-          : [],
+        photos : Array.isArray(d.partnerPhotos) ? d.partnerPhotos.filter(Boolean).slice(0, 3) : [],
       };
     }
-
-    // 3. Secours final : where('uid', '==', partnerId)
-    //    → trouve partner_abc grâce au champ uid = "ZD9Q06V6..."
     const q = await getDocs(
       query(collection(db, 'partners'), where('uid', '==', partnerId))
     );
@@ -531,12 +502,9 @@ function MapTab({ db }) {
         stock  : d.stockAvailable ?? null,
         active : d.active ?? true,
         address: d.address || d.adresse || '',
-        photos : Array.isArray(d.partnerPhotos)
-          ? d.partnerPhotos.filter(Boolean).slice(0, 3)
-          : [],
+        photos : Array.isArray(d.partnerPhotos) ? d.partnerPhotos.filter(Boolean).slice(0, 3) : [],
       };
     }
-
     return null;
   };
 
@@ -556,48 +524,37 @@ function MapTab({ db }) {
             { key: 'en_location',  label: '🔋 En location' },
             { key: 'hors_service', label: '🚫 Hors service' },
           ].map(f => (
-            <button
-              key     = {f.key}
-              onClick = {() => setFilter(f.key)}
-              style   = {{
-                padding   : '5px 14px', borderRadius: 99,
-                border    : `1px solid ${filter === f.key ? D.orange : D.border}`,
-                background: filter === f.key ? D.orangeDim : D.surface,
-                color     : filter === f.key ? D.orange : D.text2,
-                fontWeight: filter === f.key ? 700 : 400,
-                fontSize  : 12, cursor: 'pointer', whiteSpace: 'nowrap',
-              }}
-            >
+            <button key={f.key} onClick={() => setFilter(f.key)} style={{
+              padding: '5px 14px', borderRadius: 99,
+              border: `1px solid ${filter === f.key ? D.orange : D.border}`,
+              background: filter === f.key ? D.orangeDim : D.surface,
+              color: filter === f.key ? D.orange : D.text2,
+              fontWeight: filter === f.key ? 700 : 400,
+              fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
               {f.label}
             </button>
           ))}
         </div>
       </div>
-
       <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
         <MapView powerBanks={markers} onFetchPartner={fetchPartner} />
       </div>
     </div>
   );
 }
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  RentTab
-//  Lookup : where('qrCode', '==', id) en premier, fallback par doc ID
-//  state Firestore : "disponible" | "en_location" | "hors_service"
 // ─────────────────────────────────────────────────────────────────────────────
-// ── Taux de conversion XOF → autres devises ─────────────────────────────────
-// Source : taux de référence BCEAO (mis à jour via API openexchangerates)
-// Fallback hardcodé si fetch échoue
 const RATES_FALLBACK = { XOF: 1, GHS: 0.013, NGN: 4.75 };
 
-// Convertit un montant XOF → devise cible
 function convertFromXof(amountXof, toCurrency, rates) {
   if (toCurrency === 'XOF') return amountXof;
   const rate = rates[toCurrency] ?? RATES_FALLBACK[toCurrency] ?? 1;
   return Math.round(amountXof * rate * 100) / 100;
 }
 
-// Symboles et décimales par devise
 const CUR_META = {
   XOF: { symbol: 'FCFA', decimals: 0 },
   GHS: { symbol: 'GH₵',  decimals: 2 },
@@ -605,59 +562,44 @@ const CUR_META = {
 };
 
 function fmtCur(amount, currency) {
-  const m    = CUR_META[currency] ?? { symbol: currency, decimals: 2 };
-  const n    = Number(amount);
-  const str  = m.decimals === 0
+  const m   = CUR_META[currency] ?? { symbol: currency, decimals: 2 };
+  const n   = Number(amount);
+  const str = m.decimals === 0
     ? new Intl.NumberFormat('fr-FR').format(Math.round(n))
     : n.toFixed(m.decimals).replace('.', ',');
   return `${str} ${m.symbol}`;
 }
 
 function RentTab({ db, user, wallet, profile, onSuccess }) {
-  const [step,      setStep]      = useState('scan');
-  const [qrCode,    setQrCode]    = useState('');
-  const [pbData,    setPbData]    = useState(null);
-  const [payMethod, setPayMethod] = useState('wallet');
-  // Devise choisie pour le paiement wallet
-  const [devise,    setDevise]    = useState(() => {
-    // Initialise sur la devise préférée du profil si wallet non vide
-    return profile?.currency ?? 'XOF';
-  });
-  const [rates,     setRates]     = useState(RATES_FALLBACK);
-  const [ratesLoading, setRatesLoading] = useState(false);
-  const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState('');
-  const [rental,    setRental]    = useState(null);
+  const [step,         setStep]        = useState('scan');
+  const [qrCode,       setQrCode]      = useState('');
+  const [pbData,       setPbData]      = useState(null);
+  const [payMethod,    setPayMethod]   = useState('wallet');
+  const [devise,       setDevise]      = useState(() => profile?.currency ?? 'XOF');
+  const [rates,        setRates]       = useState(RATES_FALLBACK);
+  const [ratesLoading, setRatesLoading]= useState(false);
+  const [loading,      setLoading]     = useState(false);
+  const [error,        setError]       = useState('');
+  const [rental,       setRental]      = useState(null);
 
-  // Devises disponibles dans le wallet (solde > 0 ou = 0 mais devise présente)
-  const normWalletLocal = Object.fromEntries(
-    Object.entries(wallet).map(([k, v]) => [k, toNum(v)])
-  );
+  const normWalletLocal  = Object.fromEntries(Object.entries(wallet).map(([k, v]) => [k, toNum(v)]));
   const availableDevises = Object.keys(normWalletLocal).filter(k => CUR_META[k]);
 
-  // Charger les taux de conversion au montage
   useEffect(() => {
     setRatesLoading(true);
     fetch('https://api.exchangerate-api.com/v4/latest/XOF')
       .then(r => r.json())
       .then(data => {
-        if (data?.rates) {
-          setRates({
-            XOF: 1,
-            GHS: data.rates['GHS'] ?? RATES_FALLBACK.GHS,
-            NGN: data.rates['NGN'] ?? RATES_FALLBACK.NGN,
-          });
-        }
+        if (data?.rates) setRates({ XOF: 1, GHS: data.rates['GHS'] ?? RATES_FALLBACK.GHS, NGN: data.rates['NGN'] ?? RATES_FALLBACK.NGN });
       })
-      .catch(() => {}) // garde les taux fallback
+      .catch(() => {})
       .finally(() => setRatesLoading(false));
   }, []);
 
-  // Montants convertis dans la devise choisie
-  const fraisDevise   = convertFromXof(FRAIS_XOF,   devise, rates);
-  const cautionDevise = convertFromXof(CAUTION_XOF, devise, rates);
-  const totalDevise   = convertFromXof(FRAIS_XOF + CAUTION_XOF, devise, rates);
-  const soldeDevise   = normWalletLocal[devise] ?? 0;
+  const fraisDevise      = convertFromXof(FRAIS_XOF,              devise, rates);
+  const cautionDevise    = convertFromXof(CAUTION_XOF,            devise, rates);
+  const totalDevise      = convertFromXof(FRAIS_XOF + CAUTION_XOF, devise, rates);
+  const soldeDevise      = normWalletLocal[devise] ?? 0;
   const soldeInsuffisant = soldeDevise < totalDevise;
 
   const lookup = async () => {
@@ -672,172 +614,56 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
         const byId = await getDoc(doc(db, 'powerBanks', id));
         if (byId.exists()) docSnap = byId;
       }
-      if (!docSnap) {
-        setError(`Power bank "${id}" introuvable. Vérifie le code sur l'étiquette.`);
-        setLoading(false); return;
-      }
+      if (!docSnap) { setError(`Power bank "${id}" introuvable. Vérifie le code sur l'étiquette.`); setLoading(false); return; }
       const data  = docSnap.data();
-      const docId = docSnap.id;
       if (data.state !== 'disponible') {
         const labels = { en_location: 'en cours de location', hors_service: 'hors service' };
-        setError(`Ce power bank est ${labels[data.state] ?? data.state}.`);
-        setLoading(false); return;
+        setError(`Ce power bank est ${labels[data.state] ?? data.state}.`); setLoading(false); return;
       }
-      setPbData({ ...data, docId });
+      setPbData({ ...data, docId: docSnap.id });
       setStep('confirm');
-    } catch (e) {
-      console.error('lookup:', e);
-      setError('Erreur réseau : ' + e.message);
-    }
+    } catch (e) { setError('Erreur réseau : ' + e.message); }
     setLoading(false);
   };
 
   const confirmRent = async () => {
     setLoading(true); setError('');
     try {
-      // ── Paiement Wallet Fritok ───────────────────────────────────────────
       if (payMethod === 'wallet') {
-        if (soldeInsuffisant) {
-          setError(`Solde ${devise} insuffisant. Requis : ${fmtCur(totalDevise, devise)} · Solde : ${fmtCur(soldeDevise, devise)}`);
-          setLoading(false); return;
-        }
+        if (soldeInsuffisant) { setError(`Solde ${devise} insuffisant. Requis : ${fmtCur(totalDevise, devise)} · Solde : ${fmtCur(soldeDevise, devise)}`); setLoading(false); return; }
 
-        // Crée la Rental en Firestore
         const rentalRef = await addDoc(collection(db, 'rentals'), {
-          userId        : user.uid,
-          qrCode        : pbData.qrCode || pbData.docId,
-          partnerId     : pbData.currentPartnerId || null,
-          status        : 'en_cours',
-          paymentMethod : 'wallet',
-          fraisXof      : FRAIS_XOF,
-          cautionXof    : CAUTION_XOF,
-          fraisDevise   : fraisDevise,
-          cautionDevise : cautionDevise,
-          devise,
-          startTime     : serverTimestamp(),
+          userId: user.uid, qrCode: pbData.qrCode || pbData.docId,
+          partnerId: pbData.currentPartnerId || null, status: 'en_cours',
+          paymentMethod: 'wallet', fraisXof: FRAIS_XOF, cautionXof: CAUTION_XOF,
+          fraisDevise, cautionDevise, devise, startTime: serverTimestamp(),
         });
 
-        // Débite le wallet client dans la devise choisie (frais + caution)
-        await updateDoc(doc(db, 'users', user.uid), {
-          [`wallet.${devise}`]: increment(-totalDevise),
-        });
+        await updateDoc(doc(db, 'users', user.uid), { [`wallet.${devise}`]: increment(-totalDevise) });
 
-        // Mise à jour Escrow — UNE SEULE lecture + UNE SEULE écriture
-        // solde.{devise}        += fraisDevise   (frais de location)
-        // totalCaution.{devise} += cautionDevise (caution bloquée)
         const escrowRef  = doc(db, 'users', ESCROW_UID);
         const escrowSnap = await getDoc(escrowRef);
         const escrowData = escrowSnap.exists() ? escrowSnap.data() : {};
+        const oldTotal   = (escrowData.totalCaution && typeof escrowData.totalCaution === 'object') ? escrowData.totalCaution : {};
+        const oldFrais   = (escrowData.totalFrais   && typeof escrowData.totalFrais   === 'object') ? escrowData.totalFrais   : {};
+        const newTotal   = { XOF: toNum(oldTotal.XOF), GHS: toNum(oldTotal.GHS), NGN: toNum(oldTotal.NGN), [devise]: toNum(oldTotal[devise]) + cautionDevise };
+        const newFrais   = { XOF: toNum(oldFrais.XOF), GHS: toNum(oldFrais.GHS), NGN: toNum(oldFrais.NGN), [devise]: toNum(oldFrais[devise]) + fraisDevise };
+        await setDoc(escrowRef, { totalCaution: newTotal, totalFrais: newFrais, updatedAt: serverTimestamp() }, { merge: true });
 
+        await updateDoc(doc(db, 'powerBanks', pbData.docId), { state: 'en_location', currentUserId: user.uid, updatedAt: serverTimestamp() });
 
-        const oldTotal = (escrowData.totalCaution && typeof escrowData.totalCaution === 'object')
-          ? escrowData.totalCaution : {};
+        await writeTranstet(db, { type: 'rental', currency: devise, montantEnvoye: fraisDevise, frais: 0, expediteurId: user.uid, expediteurEmail: user.email || '', expediteurPhoto: profile?.photoUrl || '', destinataireId: pbData.currentPartnerId || 'fritok-system', destinataireNom: pbData.currentPartnerId ? 'Partenaire Fritok' : 'Fritok', status: 'completed' });
+        await writeTranstet(db, { type: 'caution', currency: devise, montantEnvoye: cautionDevise, frais: 0, expediteurId: user.uid, expediteurEmail: user.email || '', expediteurPhoto: profile?.photoUrl || '', destinataireId: ESCROW_UID, destinataireNom: 'FriTok Escrow', destinataireTel: '+2250716585294', status: 'completed' });
+        await writeTranstet(db, { type: 'restitution', currency: devise, montantEnvoye: cautionDevise, frais: 0, expediteurId: ESCROW_UID, expediteurEmail: 'escrow@fritok.app', destinataireId: user.uid, destinataireNom: profile?.username || user.email || '', destinataireTel: profile?.phone || '', status: 'pending' });
 
-        const oldFrais = (escrowData.totalFrais && typeof escrowData.totalFrais === 'object')
-          ? escrowData.totalFrais : {};
-
-        const newTotal = {
-          XOF: toNum(oldTotal.XOF),
-          GHS: toNum(oldTotal.GHS),
-          NGN: toNum(oldTotal.NGN),
-          [devise]: toNum(oldTotal[devise]) + cautionDevise,
-        };
-        const newFrais = {
-          XOF: toNum(oldFrais.XOF),
-          GHS: toNum(oldFrais.GHS),
-          NGN: toNum(oldFrais.NGN),
-          [devise]: toNum(oldFrais[devise]) + fraisDevise,
-        };
-
-        // setDoc merge: crée les champs s'ils n'existent pas, met à jour sinon
-        await setDoc(escrowRef, {
-          totalCaution: newTotal,
-          totalFrais  : newFrais,
-          updatedAt   : serverTimestamp(),
-        }, { merge: true });
-
-        // Libère le power bank
-        await updateDoc(doc(db, 'powerBanks', pbData.docId), {
-          state: 'en_location', currentUserId: user.uid, updatedAt: serverTimestamp(),
-        });
-
-        // TransfetMoney "rental" — frais de location → partenaire/Fritok
-        await writeTranstet(db, {
-          type            : 'rental',
-          currency        : devise,
-          montantEnvoye   : fraisDevise,      // frais seuls (hors caution)
-          frais           : 0,
-          expediteurId    : user.uid,
-          expediteurEmail : user.email || '',
-          expediteurPhoto : profile?.photoUrl || '',
-          destinataireId  : pbData.currentPartnerId || 'fritok-system',
-          destinataireNom : pbData.currentPartnerId ? 'Partenaire Fritok' : 'Fritok',
-          destinataireTel : '',
-          status          : 'completed',
-        });
-
-        // TransfetMoney "caution" — caution bloquée chez l'Escrow Fritok
-        await writeTranstet(db, {
-          type            : 'caution',
-          currency        : devise,
-          montantEnvoye   : cautionDevise,
-          frais           : 0,
-          expediteurId    : user.uid,
-          expediteurEmail : user.email || '',
-          expediteurPhoto : profile?.photoUrl || '',
-          destinataireId  : ESCROW_UID,
-          destinataireNom : 'FriTok Escrow',
-          destinataireTel : '+2250716585294',
-          status          : 'completed',        // bien reçu par l'escrow
-        });
-
-        // TransfetMoney "restitution" — remboursement futur en pending
-        await writeTranstet(db, {
-          type            : 'restitution',
-          currency        : devise,
-          montantEnvoye   : cautionDevise,
-          frais           : 0,
-          expediteurId    : ESCROW_UID,         // c'est l'escrow qui rembourse
-          expediteurEmail : 'escrow@fritok.app',
-          expediteurPhoto : '',
-          destinataireId  : user.uid,
-          destinataireNom : profile?.username || user.email || '',
-          destinataireTel : profile?.phone || '',
-          status          : 'pending',          // en attente du retour physique
-        });
-
-        setRental({
-          id: rentalRef.id,
-          qrCode      : pbData.qrCode || pbData.docId,
-          fraisXof    : FRAIS_XOF,
-          cautionXof  : CAUTION_XOF,
-          fraisDevise,
-          cautionDevise,
-          devise,
-          paymentMethod: 'wallet',
-          batteryLevel : pbData.batteryLevel,
-        });
+        setRental({ id: rentalRef.id, qrCode: pbData.qrCode || pbData.docId, fraisXof: FRAIS_XOF, cautionXof: CAUTION_XOF, fraisDevise, cautionDevise, devise, paymentMethod: 'wallet', batteryLevel: pbData.batteryLevel });
         setStep('done');
-
-      // ── Paiement Flutterwave ─────────────────────────────────────────────
       } else {
-        const result = await createFlutterwaveRentalPayment({
-          powerBankId   : pbData.qrCode || pbData.docId,
-          powerBankDocId: pbData.docId,
-          partnerStartId: pbData.currentPartnerId || '',
-          amountXof     : FRAIS_XOF,
-          cautionXof    : CAUTION_XOF,
-          devise,
-          amountDevise  : fraisDevise,
-          cautionDevise,
-        });
+        const result = await createFlutterwaveRentalPayment({ powerBankId: pbData.qrCode || pbData.docId, powerBankDocId: pbData.docId, partnerStartId: pbData.currentPartnerId || '', amountXof: FRAIS_XOF, cautionXof: CAUTION_XOF, devise, amountDevise: fraisDevise, cautionDevise });
         window.location.href = result.payment_url;
         return;
       }
-    } catch (e) {
-      console.error('confirmRent:', e);
-      setError(e.message || 'Erreur lors du paiement.');
-    }
+    } catch (e) { setError(e.message || 'Erreur lors du paiement.'); }
     setLoading(false);
   };
 
@@ -846,28 +672,21 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
   return (
     <div style={{ padding: 24 }}>
       <div style={{ fontSize: 20, fontWeight: 800, color: D.text1, marginBottom: 20 }}>📷 Louer un power bank</div>
-
       {step === 'scan' && (
         <QrScanStep qrCode={qrCode} setQrCode={setQrCode} onLookup={lookup} loading={loading} error={error} setError={setError} />
       )}
-
       {step === 'confirm' && pbData && (
         <>
-          {/* Fiche power bank */}
           <div style={{ background: D.surface, borderRadius: 16, padding: 20, border: `1px solid ${D.border}`, marginBottom: 16 }}>
             <div style={{ fontSize: 11, color: D.green, letterSpacing: 1, marginBottom: 12, fontWeight: 700 }}>✓ POWER BANK TROUVÉ</div>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: D.text1 }}>{pbData.qrCode || pbData.docId}</div>
-                {pbData.currentPartnerId && (
-                  <div style={{ fontSize: 11, color: D.text3, marginTop: 4 }}>Partenaire : {pbData.currentPartnerId.slice(0, 10)}…</div>
-                )}
+                {pbData.currentPartnerId && <div style={{ fontSize: 11, color: D.text3, marginTop: 4 }}>Partenaire : {pbData.currentPartnerId.slice(0, 10)}…</div>}
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: 22 }}>{batteryIcon(pbData.batteryLevel)}</div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: batteryColor(pbData.batteryLevel) }}>
-                  {pbData.batteryLevel != null ? `${pbData.batteryLevel}%` : '–'}
-                </div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: batteryColor(pbData.batteryLevel) }}>{pbData.batteryLevel != null ? `${pbData.batteryLevel}%` : '–'}</div>
               </div>
             </div>
             {pbData.batteryLevel != null && (
@@ -875,36 +694,26 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
                 <div style={{ height: '100%', width: `${pbData.batteryLevel}%`, background: batteryColor(pbData.batteryLevel), borderRadius: 99, transition: 'width 0.4s' }} />
               </div>
             )}
-            {/* Montants en XOF de référence */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <AmountChip label="Frais" amount={FRAIS_XOF} />
               <AmountChip label="Caution (remb.)" amount={CAUTION_XOF} amber />
             </div>
           </div>
 
-          {/* Sélecteur de devise */}
           {availableDevises.length > 1 && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, color: D.text2, fontWeight: 700, marginBottom: 10 }}>Devise de paiement</div>
               <div style={{ display: 'flex', gap: 8 }}>
                 {availableDevises.map(d => {
-                  const solde    = normWalletLocal[d] ?? 0;
-                  const totalD   = convertFromXof(FRAIS_XOF + CAUTION_XOF, d, rates);
+                  const solde     = normWalletLocal[d] ?? 0;
+                  const totalD    = convertFromXof(FRAIS_XOF + CAUTION_XOF, d, rates);
                   const suffisant = solde >= totalD;
                   const selected  = devise === d;
                   return (
-                    <button key={d} onClick={() => setDevise(d)} style={{
-                      flex: 1, padding: '12px 8px', borderRadius: 12, cursor: 'pointer', textAlign: 'center',
-                      border: `2px solid ${selected ? D.orange : suffisant ? D.border : D.red + '44'}`,
-                      background: selected ? D.orangeDim : D.surface,
-                    }}>
+                    <button key={d} onClick={() => setDevise(d)} style={{ flex: 1, padding: '12px 8px', borderRadius: 12, cursor: 'pointer', textAlign: 'center', border: `2px solid ${selected ? D.orange : suffisant ? D.border : D.red + '44'}`, background: selected ? D.orangeDim : D.surface }}>
                       <div style={{ fontSize: 14, fontWeight: 800, color: selected ? D.orange : D.text1 }}>{d}</div>
-                      <div style={{ fontSize: 11, color: suffisant ? D.green : D.red, fontWeight: 600, marginTop: 2 }}>
-                        {fmtCur(solde, d)}
-                      </div>
-                      <div style={{ fontSize: 10, color: D.text3, marginTop: 1 }}>
-                        {suffisant ? '✓ suffisant' : '✗ insuffisant'}
-                      </div>
+                      <div style={{ fontSize: 11, color: suffisant ? D.green : D.red, fontWeight: 600, marginTop: 2 }}>{fmtCur(solde, d)}</div>
+                      <div style={{ fontSize: 10, color: D.text3, marginTop: 1 }}>{suffisant ? '✓ suffisant' : '✗ insuffisant'}</div>
                     </button>
                   );
                 })}
@@ -912,7 +721,6 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
             </div>
           )}
 
-          {/* Récapitulatif converti */}
           <div style={{ background: D.surface, borderRadius: 14, border: `1px solid ${D.border}`, padding: '14px 16px', marginBottom: 16 }}>
             <div style={{ fontSize: 11, color: D.text3, fontWeight: 700, letterSpacing: 1.2, marginBottom: 12 }}>
               TOTAL À PAYER {devise !== 'XOF' && <span style={{ color: D.orange }}>· Converti en {devise}</span>}
@@ -931,55 +739,29 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
               <span style={{ fontSize: 14, fontWeight: 700, color: D.text1 }}>Total</span>
               <span style={{ fontSize: 20, fontWeight: 800, color: D.orange }}>{fmtCur(totalDevise, devise)}</span>
             </div>
-            {devise !== 'XOF' && (
-              <div style={{ fontSize: 11, color: D.text3, marginTop: 6, textAlign: 'right' }}>
-                = {fmt(FRAIS_XOF + CAUTION_XOF)} FCFA · taux 1 XOF = {(rates[devise] ?? 1).toFixed(4)} {devise}
-              </div>
-            )}
-            {/* Solde après paiement */}
+            {devise !== 'XOF' && <div style={{ fontSize: 11, color: D.text3, marginTop: 6, textAlign: 'right' }}>= {fmt(FRAIS_XOF + CAUTION_XOF)} FCFA · taux 1 XOF = {(rates[devise] ?? 1).toFixed(4)} {devise}</div>}
             <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: soldeInsuffisant ? '#FEE2E2' : D.greenLight }}>
               <div style={{ fontSize: 12, color: soldeInsuffisant ? D.red : D.green, fontWeight: 600 }}>
-                {soldeInsuffisant
-                  ? `⚠️ Solde ${devise} insuffisant — manque ${fmtCur(totalDevise - soldeDevise, devise)}`
-                  : `✓ Solde après paiement : ${fmtCur(soldeDevise - totalDevise, devise)}`
-                }
+                {soldeInsuffisant ? `⚠️ Solde ${devise} insuffisant — manque ${fmtCur(totalDevise - soldeDevise, devise)}` : `✓ Solde après paiement : ${fmtCur(soldeDevise - totalDevise, devise)}`}
               </div>
             </div>
           </div>
 
-          {/* Méthode de paiement */}
           <div style={{ fontSize: 13, color: D.text2, fontWeight: 700, marginBottom: 10 }}>Méthode de paiement</div>
           {['wallet', 'flutterwave'].map(m => (
-            <button key={m} onClick={() => setPayMethod(m)} style={{
-              width: '100%', padding: '13px 16px', marginBottom: 10,
-              background: payMethod === m ? D.orangeDim : D.surface,
-              border: `1.5px solid ${payMethod === m ? D.orange : D.border}`,
-              borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
-              fontSize: 14, fontWeight: payMethod === m ? 700 : 400, color: D.text1,
-            }}>
+            <button key={m} onClick={() => setPayMethod(m)} style={{ width: '100%', padding: '13px 16px', marginBottom: 10, background: payMethod === m ? D.orangeDim : D.surface, border: `1.5px solid ${payMethod === m ? D.orange : D.border}`, borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, fontSize: 14, fontWeight: payMethod === m ? 700 : 400, color: D.text1 }}>
               <span style={{ fontSize: 22 }}>{m === 'wallet' ? '👛' : '💳'}</span>
               <div style={{ textAlign: 'left' }}>
                 <div>{m === 'wallet' ? `Wallet Fritok (${devise})` : 'Flutterwave'}</div>
-                {m === 'wallet' && (
-                  <div style={{ fontSize: 11, color: soldeInsuffisant ? D.red : D.text3, marginTop: 1, fontWeight: soldeInsuffisant ? 700 : 400 }}>
-                    Solde : {fmtCur(soldeDevise, devise)}{soldeInsuffisant ? ' — insuffisant' : ''}
-                  </div>
-                )}
-                {m === 'flutterwave' && (
-                  <div style={{ fontSize: 11, color: D.text3, marginTop: 1 }}>Carte, Mobile Money…</div>
-                )}
+                {m === 'wallet' && <div style={{ fontSize: 11, color: soldeInsuffisant ? D.red : D.text3, marginTop: 1, fontWeight: soldeInsuffisant ? 700 : 400 }}>Solde : {fmtCur(soldeDevise, devise)}{soldeInsuffisant ? ' — insuffisant' : ''}</div>}
+                {m === 'flutterwave' && <div style={{ fontSize: 11, color: D.text3, marginTop: 1 }}>Carte, Mobile Money…</div>}
               </div>
               {payMethod === m && <span style={{ marginLeft: 'auto', color: D.orange, fontSize: 16 }}>✓</span>}
             </button>
           ))}
 
           {error && <div style={{ fontSize: 12, color: D.red, marginBottom: 12, padding: '10px 14px', background: '#FEE2E2', borderRadius: 10 }}>{error}</div>}
-
-          <button
-            onClick={confirmRent}
-            disabled={loading || (payMethod === 'wallet' && soldeInsuffisant)}
-            style={primaryBtn(loading || (payMethod === 'wallet' && soldeInsuffisant))}
-          >
+          <button onClick={confirmRent} disabled={loading || (payMethod === 'wallet' && soldeInsuffisant)} style={primaryBtn(loading || (payMethod === 'wallet' && soldeInsuffisant))}>
             {loading ? <Spinner /> : `Payer ${fmtCur(totalDevise, devise)}`}
           </button>
           <button onClick={() => { setStep('scan'); setError(''); setPbData(null); }} style={ghostBtn}>Annuler</button>
@@ -991,109 +773,48 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  ReturnTab
-//  Met le powerBank.state → "disponible" et currentUserId → ""
 // ─────────────────────────────────────────────────────────────────────────────
 function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
-  const [selected, setSelected] = useState(null);
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState('');
-  const [done,     setDone]     = useState(false);
+  const [selected,     setSelected]     = useState(null);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState('');
+  const [done,         setDone]         = useState(false);
   const [refund,       setRefund]       = useState(0);
-  const [refundDevise,  setRefundDevise]  = useState('XOF');
+  const [refundDevise, setRefundDevise] = useState('XOF');
 
   const doReturn = async () => {
     if (!selected) return;
     const r          = activeRentals.find(x => x.id === selected);
     const caution    = r.cautionXof    ?? CAUTION_XOF;
-    const cautionDev = r.cautionDevise ?? caution;        // montant dans la devise d'origine
+    const cautionDev = r.cautionDevise ?? caution;
     const devise     = r.devise        ?? 'XOF';
     setLoading(true); setError('');
     try {
-      // 1. Clôturer la Rental
-      await updateDoc(doc(db, 'rentals', r.id), {
-        status : 'restitue',
-        endTime: serverTimestamp(),
-      });
+      await updateDoc(doc(db, 'rentals', r.id), { status: 'restitue', endTime: serverTimestamp() });
+      await updateDoc(doc(db, 'users', user.uid), { [`wallet.${devise}`]: increment(cautionDev) });
 
-      // 2. Rembourser la caution sur le wallet du client (dans sa devise d'origine)
-      await updateDoc(doc(db, 'users', user.uid), {
-        [`wallet.${devise}`]: increment(cautionDev),
-      });
-
-      // 3. Restitution : décrémenter totalCaution.{devise} dans l'Escrow
       const escrowRef2  = doc(db, 'users', ESCROW_UID);
       const escrowSnap2 = await getDoc(escrowRef2);
       const escrowData2 = escrowSnap2.exists() ? escrowSnap2.data() : {};
+      const oldTotal2   = (escrowData2.totalCaution && typeof escrowData2.totalCaution === 'object') ? escrowData2.totalCaution : {};
+      const newTotal2   = { XOF: toNum(oldTotal2.XOF), GHS: toNum(oldTotal2.GHS), NGN: toNum(oldTotal2.NGN), [devise]: Math.max(0, toNum(oldTotal2[devise]) - cautionDev) };
+      await setDoc(escrowRef2, { totalCaution: newTotal2, updatedAt: serverTimestamp() }, { merge: true });
 
-      const oldTotal2 = (escrowData2.totalCaution && typeof escrowData2.totalCaution === 'object')
-        ? escrowData2.totalCaution
-        : {};
-
-      const newTotal2 = {
-        XOF: toNum(oldTotal2.XOF),
-        GHS: toNum(oldTotal2.GHS),
-        NGN: toNum(oldTotal2.NGN),
-        [devise]: Math.max(0, toNum(oldTotal2[devise]) - cautionDev),
-      };
-
-      await setDoc(escrowRef2, {
-        totalCaution: newTotal2,
-        updatedAt   : serverTimestamp(),
-      }, { merge: true });
-
-      // 4. Libérer le power bank
       if (r.qrCode) {
-        const qSnap = await getDocs(
-          query(collection(db, 'powerBanks'), where('qrCode', '==', r.qrCode))
-        );
-        const pbRef = qSnap.empty
-          ? doc(db, 'powerBanks', r.qrCode)
-          : qSnap.docs[0].ref;
-        await updateDoc(pbRef, {
-          state        : 'disponible',
-          currentUserId: '',
-          updatedAt    : serverTimestamp(),
-        });
+        const qSnap = await getDocs(query(collection(db, 'powerBanks'), where('qrCode', '==', r.qrCode)));
+        const pbRef = qSnap.empty ? doc(db, 'powerBanks', r.qrCode) : qSnap.docs[0].ref;
+        await updateDoc(pbRef, { state: 'disponible', currentUserId: '', updatedAt: serverTimestamp() });
       }
 
-      // 5. TransfetMoney "restitution" pending → completed
-      const pendingSnap = await getDocs(
-        query(
-          collection(db, 'TransfetMoney'),
-          where('type',           '==', 'restitution'),
-          where('destinataireId', '==', user.uid),
-          where('status',         '==', 'pending'),
-          orderBy('timestamp',    'desc'),
-          limit(1),
-        )
-      );
-
+      const pendingSnap = await getDocs(query(collection(db, 'TransfetMoney'), where('type', '==', 'restitution'), where('destinataireId', '==', user.uid), where('status', '==', 'pending'), orderBy('timestamp', 'desc'), limit(1)));
       if (!pendingSnap.empty) {
         await updateDoc(pendingSnap.docs[0].ref, { status: 'completed' });
       } else {
-        // Fallback : crée une nouvelle entrée completed
-        await writeTranstet(db, {
-          type            : 'restitution',
-          currency        : devise,
-          montantEnvoye   : cautionDev,
-          frais           : 0,
-          expediteurId    : ESCROW_UID,
-          expediteurEmail : 'escrow@fritok.app',
-          expediteurPhoto : '',
-          destinataireId  : user.uid,
-          destinataireNom : profile?.username || user.email || '',
-          destinataireTel : profile?.phone || '',
-          status          : 'completed',
-        });
+        await writeTranstet(db, { type: 'restitution', currency: devise, montantEnvoye: cautionDev, frais: 0, expediteurId: ESCROW_UID, expediteurEmail: 'escrow@fritok.app', destinataireId: user.uid, destinataireNom: profile?.username || user.email || '', destinataireTel: profile?.phone || '', status: 'completed' });
       }
 
-      setRefund(cautionDev);
-      setRefundDevise(devise);
-      setDone(true);
-    } catch (e) {
-      console.error('doReturn:', e);
-      setError(e.message || 'Erreur lors de la restitution.');
-    }
+      setRefund(cautionDev); setRefundDevise(devise); setDone(true);
+    } catch (e) { setError(e.message || 'Erreur lors de la restitution.'); }
     setLoading(false);
   };
 
@@ -1109,9 +830,7 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
     <div style={{ padding: 24, textAlign: 'center', paddingTop: 60 }}>
       <div style={{ width: 90, height: 90, borderRadius: '50%', background: D.greenLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, margin: '0 auto 20px' }}>✓</div>
       <div style={{ fontSize: 22, fontWeight: 800, color: D.text1, marginBottom: 8 }}>Power bank rendu !</div>
-      <div style={{ fontSize: 14, color: D.text2, marginBottom: 24 }}>
-        Ta caution de <strong style={{ color: D.green }}>{fmtCur(refund, refundDevise)}</strong> a été remboursée sur ton wallet.
-      </div>
+      <div style={{ fontSize: 14, color: D.text2, marginBottom: 24 }}>Ta caution de <strong style={{ color: D.green }}>{fmtCur(refund, refundDevise)}</strong> a été remboursée sur ton wallet.</div>
       <button onClick={onSuccess} style={primaryBtn(false)}>Retour à l'accueil</button>
     </div>
   );
@@ -1120,7 +839,6 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
     <div style={{ padding: 24 }}>
       <div style={{ fontSize: 20, fontWeight: 800, color: D.text1, marginBottom: 20 }}>↩️ Rendre un power bank</div>
       <div style={{ fontSize: 13, color: D.text2, fontWeight: 700, marginBottom: 10 }}>Sélectionne la location à terminer</div>
-
       {activeRentals.map(r => (
         <button key={r.id} onClick={() => setSelected(r.id)} style={{ width: '100%', padding: 16, marginBottom: 10, textAlign: 'left', background: selected === r.id ? D.orangeDim : D.surface, border: `1.5px solid ${selected === r.id ? D.orange : D.border}`, borderRadius: 14, cursor: 'pointer' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1131,7 +849,6 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
           <div style={{ fontSize: 12, color: D.amber, marginTop: 2, fontWeight: 600 }}>Caution : {fmt(r.cautionXof ?? CAUTION_XOF)} FCFA</div>
         </button>
       ))}
-
       {selected && (
         <>
           <div style={{ margin: '12px 0', padding: 14, background: D.greenLight, borderRadius: 12, fontSize: 13, color: D.green, fontWeight: 500 }}>
@@ -1150,53 +867,34 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
 // ─────────────────────────────────────────────────────────────────────────────
 //  HistoryTab
 // ─────────────────────────────────────────────────────────────────────────────
-// Types et icônes pour TransfetMoney
 const TX_META = {
-  rental     : { icon: '🔋', label: 'Location',           dir: 'out', color: (D) => D.text2 },
-  caution    : { icon: '🔒', label: 'Caution bloquée',    dir: 'out', color: (D) => D.amber  },
-  restitution: { icon: '↩️', label: 'Caution remboursée', dir: 'in',  color: (D) => D.green  },
-  topup      : { icon: '💳', label: 'Recharge wallet',    dir: 'in',  color: (D) => D.green  },
-  transfer   : { icon: '↗️', label: 'Transfert',          dir: 'out', color: (D) => D.text2  },
+  rental     : { icon: '🔋', label: 'Location' },
+  caution    : { icon: '🔒', label: 'Caution bloquée' },
+  restitution: { icon: '↩️', label: 'Caution remboursée' },
+  topup      : { icon: '💳', label: 'Recharge wallet' },
+  transfer   : { icon: '↗️', label: 'Transfert' },
 };
 
 function HistoryTab({ txHistory }) {
   const [filter, setFilter] = useState('tous');
-
   const filters = [
     { key: 'tous',        label: 'Tout' },
     { key: 'rental',      label: '🔋 Locations' },
     { key: 'restitution', label: '↩️ Remboursements' },
     { key: 'topup',       label: '💳 Recharges' },
   ];
-
-  const filtered = filter === 'tous'
-    ? txHistory
-    : txHistory.filter(tx => tx.type === filter);
+  const filtered = filter === 'tous' ? txHistory : txHistory.filter(tx => tx.type === filter);
 
   return (
     <div style={{ padding: '24px 0 0' }}>
-      <div style={{ padding: '0 24px 12px', fontSize: 20, fontWeight: 800, color: D.text1 }}>
-        Historique
-      </div>
-
-      {/* Filtres */}
+      <div style={{ padding: '0 24px 12px', fontSize: 20, fontWeight: 800, color: D.text1 }}>Historique</div>
       <div style={{ display: 'flex', gap: 8, padding: '0 24px 16px', overflowX: 'auto' }}>
         {filters.map(f => (
-          <button key={f.key} onClick={() => setFilter(f.key)} style={{
-            padding: '5px 14px', borderRadius: 99, whiteSpace: 'nowrap', cursor: 'pointer',
-            border: `1px solid ${filter === f.key ? D.orange : D.border}`,
-            background: filter === f.key ? D.orangeDim : D.surface,
-            color: filter === f.key ? D.orange : D.text2,
-            fontWeight: filter === f.key ? 700 : 400, fontSize: 12,
-          }}>{f.label}</button>
+          <button key={f.key} onClick={() => setFilter(f.key)} style={{ padding: '5px 14px', borderRadius: 99, whiteSpace: 'nowrap', cursor: 'pointer', border: `1px solid ${filter === f.key ? D.orange : D.border}`, background: filter === f.key ? D.orangeDim : D.surface, color: filter === f.key ? D.orange : D.text2, fontWeight: filter === f.key ? 700 : 400, fontSize: 12 }}>{f.label}</button>
         ))}
       </div>
-
       {filtered.length === 0
-        ? <div style={{ textAlign: 'center', padding: '60px 24px', color: D.text2, fontSize: 13 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🧾</div>
-            Aucune transaction
-          </div>
+        ? <div style={{ textAlign: 'center', padding: '60px 24px', color: D.text2, fontSize: 13 }}><div style={{ fontSize: 40, marginBottom: 12 }}>🧾</div>Aucune transaction</div>
         : filtered.map(tx => <TxRow key={tx.id} tx={tx} />)
       }
     </div>
@@ -1204,46 +902,26 @@ function HistoryTab({ txHistory }) {
 }
 
 function TxRow({ tx }) {
-  const meta    = TX_META[tx.type] ?? TX_META.transfer;
-  const isIn    = tx._dir === 'in' || tx.type === 'restitution' || tx.type === 'topup';
-  const isPend  = tx.status === 'pending';
-  const amount  = isIn
-    ? `+${fmtCur(tx.montantRecu ?? tx.montantEnvoye, tx.currency)}`
-    : `-${fmtCur(tx.montantEnvoye, tx.currency)}`;
-  const color   = isPend ? D.text3 : (isIn ? D.green : D.text2);
-  const fmtTs   = (ts) => {
+  const meta   = TX_META[tx.type] ?? TX_META.transfer;
+  const isIn   = tx._dir === 'in' || tx.type === 'restitution' || tx.type === 'topup';
+  const isPend = tx.status === 'pending';
+  const amount = isIn ? `+${fmtCur(tx.montantRecu ?? tx.montantEnvoye, tx.currency)}` : `-${fmtCur(tx.montantEnvoye, tx.currency)}`;
+  const color  = isPend ? D.text3 : (isIn ? D.green : D.text2);
+  const fmtTs  = (ts) => {
     if (!ts) return '–';
     const d = new Date(typeof ts === 'number' ? ts : ts?.toDate?.() ?? ts);
     return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   };
-
   return (
     <div style={{ padding: '14px 24px', borderBottom: `0.5px solid ${D.border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
-      {/* Icône */}
-      <div style={{
-        width: 42, height: 42, borderRadius: 12, flexShrink: 0,
-        background: isPend ? '#F5F5F5' : (isIn ? D.greenLight : D.orangeDim),
-        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
-      }}>
-        {meta.icon}
-      </div>
-
-      {/* Infos */}
+      <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, background: isPend ? '#F5F5F5' : (isIn ? D.greenLight : D.orangeDim), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{meta.icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: D.text1 }}>{meta.label}</div>
-          {isPend && (
-            <div style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: D.amberLight, color: D.amber }}>
-              EN ATTENTE
-            </div>
-          )}
+          {isPend && <div style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: D.amberLight, color: D.amber }}>EN ATTENTE</div>}
         </div>
-        <div style={{ fontSize: 11, color: D.text2, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {tx.destinataireNom || tx.expediteurId} · {fmtTs(tx.timestamp)}
-        </div>
+        <div style={{ fontSize: 11, color: D.text2, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.destinataireNom || tx.expediteurId} · {fmtTs(tx.timestamp)}</div>
       </div>
-
-      {/* Montant */}
       <div style={{ fontSize: 14, fontWeight: 700, color, flexShrink: 0 }}>
         {amount}
         {isPend && <div style={{ fontSize: 10, color: D.text3, textAlign: 'right', fontWeight: 400 }}>pending</div>}
@@ -1269,12 +947,12 @@ function PaySuccess({ rental, onHome }) {
       </div>
       <div style={{ background: D.surface, borderRadius: 16, padding: 20, border: `1px solid ${D.border}`, textAlign: 'left', marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: D.text3, letterSpacing: 1.5, marginBottom: 14, fontWeight: 700 }}>RÉCAPITULATIF</div>
-        <RecapRow label="Location payée"     value={`${fmt(rental?.fraisXof   ?? FRAIS_XOF)}   FCFA`} />
+        <RecapRow label="Location payée"     value={`${fmt(rental?.fraisXof   ?? FRAIS_XOF)} FCFA`} />
         <RecapRow label="Caution en attente" value={`${fmt(rental?.cautionXof ?? CAUTION_XOF)} FCFA`} valueColor={D.amber} />
       </div>
       <div style={{ background: D.amberLight, borderRadius: 12, padding: 14, display: 'flex', gap: 10, alignItems: 'flex-start', textAlign: 'left', marginBottom: 24 }}>
         <span>⏱️</span>
-        <div style={{ fontSize: 12, color: D.amber }}>Rappel dans 24h — Restitue avant 48h pour récupérer ta caution.</div>
+        <div style={{ fontSize: 12, color: D.amber }}>Rappel dans 45 min — Restitue avant 1h pour récupérer ta caution.</div>
       </div>
       <button onClick={onHome} style={primaryBtn(false)}>Retour à l'accueil</button>
     </div>
@@ -1282,7 +960,7 @@ function PaySuccess({ rental, onHome }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  ProfileTab — schéma réel Firestore
+//  ProfileTab
 // ─────────────────────────────────────────────────────────────────────────────
 function ProfileTab({ profile, user, onSignOut, onNav }) {
   const kycLabel = {
@@ -1290,43 +968,31 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
     verified: { text: 'Compte vérifié',          color: D.green, bg: D.greenLight,  icon: '✅' },
     rejected: { text: 'Vérification refusée',    color: D.red,   bg: '#FEE2E2',     icon: '❌' },
   };
-  const kyc = kycLabel[profile?.kyc_status] ?? kycLabel.pending;
+  const kyc       = kycLabel[profile?.kyc_status] ?? kycLabel.pending;
   const levelColors = { bronze: '#CD7F32', silver: '#9E9E9E', gold: D.zest };
   const lvlColor    = levelColors[profile?.level] ?? levelColors.bronze;
   const isVendeur   = profile?.role === 'Vendeur';
-
   const walletEntries = Object.entries(profile?.wallet ?? {})
     .map(([k, v]) => [k, toNum(v)])
     .sort(([a], [b]) => a === profile?.currency ? -1 : b === profile?.currency ? 1 : 0);
 
   return (
     <div style={{ padding: '24px 24px 48px' }}>
-
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
         <div style={{ position: 'relative', flexShrink: 0 }}>
           {profile?.photoUrl
             ? <img src={profile.photoUrl} alt="avatar" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', border: `3px solid ${D.border}` }} />
-            : <div style={{ width: 72, height: 72, borderRadius: '50%', background: D.orangeDim, border: `3px solid ${D.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 800, color: D.orange }}>
-                {profile?.username?.charAt(0)?.toUpperCase() || '?'}
-              </div>
+            : <div style={{ width: 72, height: 72, borderRadius: '50%', background: D.orangeDim, border: `3px solid ${D.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 800, color: D.orange }}>{profile?.username?.charAt(0)?.toUpperCase() || '?'}</div>
           }
-          {profile?.level && (
-            <div style={{ position: 'absolute', bottom: -4, right: -4, background: lvlColor, color: '#fff', fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 99, border: '2px solid #fff', textTransform: 'uppercase' }}>
-              {profile.level}
-            </div>
-          )}
+          {profile?.level && <div style={{ position: 'absolute', bottom: -4, right: -4, background: lvlColor, color: '#fff', fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 99, border: '2px solid #fff', textTransform: 'uppercase' }}>{profile.level}</div>}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: D.text1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {profile?.username || profile?.nomBoutique || '–'}
-          </div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: D.text1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile?.username || profile?.nomBoutique || '–'}</div>
           <div style={{ fontSize: 13, color: D.text2, marginTop: 2 }}>{profile?.email || user?.email}</div>
           {profile?.phone && <div style={{ fontSize: 12, color: D.text3, marginTop: 2 }}>{profile.phone}</div>}
         </div>
       </div>
 
-      {/* Points + niveau */}
       {profile?.points != null && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
           <div style={{ background: D.surface, border: `1px solid ${D.border}`, borderRadius: 12, padding: '12px 16px', textAlign: 'center' }}>
@@ -1340,7 +1006,6 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
         </div>
       )}
 
-      {/* KYC */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 12, background: kyc.bg, marginBottom: 16 }}>
         <span style={{ fontSize: 20 }}>{kyc.icon}</span>
         <div>
@@ -1349,7 +1014,6 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
         </div>
       </div>
 
-      {/* Wallet */}
       <div style={{ fontSize: 11, color: D.text3, letterSpacing: 1.5, fontWeight: 700, marginBottom: 10 }}>WALLET</div>
       <div style={{ background: D.surface, borderRadius: 16, border: `1px solid ${D.border}`, overflow: 'hidden', marginBottom: 16 }}>
         {walletEntries.length === 0
@@ -1360,15 +1024,12 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
                 <div style={{ fontSize: 12, fontWeight: 700, color: cur === profile?.currency ? D.orange : D.text2, background: cur === profile?.currency ? D.orangeDim : '#F5F5F5', padding: '3px 9px', borderRadius: 6 }}>{cur}</div>
                 {cur === profile?.currency && <div style={{ fontSize: 10, color: D.orange }}>devise préférée</div>}
               </div>
-              <div style={{ fontSize: 16, fontWeight: 800, color: amt > 0 ? D.text1 : D.text3 }}>
-                {fmt(amt)} <span style={{ fontSize: 11, fontWeight: 500 }}>{cur}</span>
-              </div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: amt > 0 ? D.text1 : D.text3 }}>{fmt(amt)} <span style={{ fontSize: 11, fontWeight: 500 }}>{cur}</span></div>
             </div>
           ))
         }
       </div>
 
-      {/* Infos compte */}
       <div style={{ fontSize: 11, color: D.text3, letterSpacing: 1.5, fontWeight: 700, marginBottom: 10 }}>COMPTE</div>
       <div style={{ background: D.surface, borderRadius: 16, border: `1px solid ${D.border}`, overflow: 'hidden', marginBottom: 16 }}>
         <InfoRow label="Rôle"          value={profile?.role ?? '–'} />
@@ -1380,7 +1041,6 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
         {isVendeur && profile?.id_boutique && <InfoRow label="ID Boutique" value={profile.id_boutique} last />}
       </div>
 
-      {/* Actions */}
       <button onClick={() => { if (typeof window !== 'undefined') window.location.href = '/wallet/topup'; }} style={{ width: '100%', padding: '14px 0', background: D.orange, color: '#fff', border: 'none', borderRadius: 14, cursor: 'pointer', fontSize: 15, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
         💳 Recharger mon wallet
       </button>
@@ -1395,12 +1055,12 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  QrScanStep — caméra html5-qrcode + saisie manuelle
+//  QrScanStep
 // ─────────────────────────────────────────────────────────────────────────────
 function QrScanStep({ qrCode, setQrCode, onLookup, loading, error, setError }) {
-  const [cameraOn,  setCameraOn]  = useState(false);
-  const [camError,  setCamError]  = useState('');
-  const scannerRef  = useRef(null);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [camError, setCamError] = useState('');
+  const scannerRef = useRef(null);
 
   const startCamera = async () => {
     setCamError('');
@@ -1411,29 +1071,17 @@ function QrScanStep({ qrCode, setQrCode, onLookup, loading, error, setError }) {
       await scanner.start(
         { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 220, height: 220 } },
-        (decoded) => {
-          const code = decoded.trim().toUpperCase();
-          setQrCode(code);
-          stopCamera();
-          setTimeout(onLookup, 150);
-        },
+        (decoded) => { const code = decoded.trim().toUpperCase(); setQrCode(code); stopCamera(); setTimeout(onLookup, 150); },
         () => {},
       );
       setCameraOn(true);
     } catch (e) {
-      setCamError(
-        e.name === 'NotAllowedError'
-          ? 'Permission caméra refusée. Autorise-la dans les paramètres du navigateur.'
-          : 'Caméra indisponible. Utilise la saisie manuelle ci-dessous.',
-      );
+      setCamError(e.name === 'NotAllowedError' ? 'Permission caméra refusée. Autorise-la dans les paramètres du navigateur.' : 'Caméra indisponible. Utilise la saisie manuelle ci-dessous.');
     }
   };
 
   const stopCamera = () => {
-    if (scannerRef.current) {
-      scannerRef.current.stop().catch(() => {});
-      scannerRef.current = null;
-    }
+    if (scannerRef.current) { scannerRef.current.stop().catch(() => {}); scannerRef.current = null; }
     setCameraOn(false);
   };
 
@@ -1441,55 +1089,30 @@ function QrScanStep({ qrCode, setQrCode, onLookup, loading, error, setError }) {
 
   return (
     <>
-      {/* Zone caméra */}
       <div style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 16, background: '#111', position: 'relative' }}>
-        {/* html5-qrcode monte le flux vidéo ici */}
         <div id="fritok-qr-reader" style={{ width: '100%', display: cameraOn ? 'block' : 'none', minHeight: 280 }} />
-
         {!cameraOn && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 220, padding: 24, position: 'relative' }}>
-            {/* Coins viewfinder */}
             {[['top','left'],['top','right'],['bottom','left'],['bottom','right']].map(([v, h]) => (
               <div key={v+h} style={{ position: 'absolute', [v]: 18, [h]: 18, width: 30, height: 30, borderTop: v === 'top' ? `3px solid ${D.orange}` : 'none', borderBottom: v === 'bottom' ? `3px solid ${D.orange}` : 'none', borderLeft: h === 'left' ? `3px solid ${D.orange}` : 'none', borderRight: h === 'right' ? `3px solid ${D.orange}` : 'none' }} />
             ))}
             <div style={{ fontSize: 44, marginBottom: 10 }}>📷</div>
             <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: 600, textAlign: 'center' }}>Scanner le QR code</div>
             <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>sur le sticker du power bank</div>
-            <button onClick={startCamera} style={{ marginTop: 18, padding: '10px 28px', background: D.orange, color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
-              📸 Activer la caméra
-            </button>
+            <button onClick={startCamera} style={{ marginTop: 18, padding: '10px 28px', background: D.orange, color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>📸 Activer la caméra</button>
           </div>
         )}
-
-        {cameraOn && (
-          <button onClick={stopCamera} style={{ position: 'absolute', top: 10, right: 10, zIndex: 20, background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, cursor: 'pointer', fontWeight: 700 }}>
-            ✕ Stop
-          </button>
-        )}
+        {cameraOn && <button onClick={stopCamera} style={{ position: 'absolute', top: 10, right: 10, zIndex: 20, background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, cursor: 'pointer', fontWeight: 700 }}>✕ Stop</button>}
       </div>
-
-      {camError && (
-        <div style={{ fontSize: 12, color: D.amber, background: D.amberLight, padding: '10px 14px', borderRadius: 10, marginBottom: 12 }}>⚠️ {camError}</div>
-      )}
-
-      {/* Séparateur */}
+      {camError && <div style={{ fontSize: 12, color: D.amber, background: D.amberLight, padding: '10px 14px', borderRadius: 10, marginBottom: 12 }}>⚠️ {camError}</div>}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 14px' }}>
         <div style={{ flex: 1, height: 1, background: D.border }} />
         <div style={{ fontSize: 11, color: D.text3, fontWeight: 700, whiteSpace: 'nowrap' }}>OU SAISIR MANUELLEMENT</div>
         <div style={{ flex: 1, height: 1, background: D.border }} />
       </div>
-
-      <input
-        placeholder="Ex : PB-ABJ-000193"
-        value={qrCode}
-        onChange={e => { setQrCode(e.target.value.toUpperCase()); setError(''); }}
-        onKeyDown={e => e.key === 'Enter' && onLookup()}
-        style={{ ...inputStyle, textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}
-      />
+      <input placeholder="Ex : PB-ABJ-000193" value={qrCode} onChange={e => { setQrCode(e.target.value.toUpperCase()); setError(''); }} onKeyDown={e => e.key === 'Enter' && onLookup()} style={{ ...inputStyle, textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }} />
       {error && <div style={{ fontSize: 12, color: D.red, marginBottom: 10, padding: '10px 14px', background: '#FEE2E2', borderRadius: 10 }}>{error}</div>}
-      <button onClick={onLookup} disabled={loading} style={primaryBtn(loading)}>
-        {loading ? <Spinner /> : '🔍 Rechercher'}
-      </button>
+      <button onClick={onLookup} disabled={loading} style={primaryBtn(loading)}>{loading ? <Spinner /> : '🔍 Rechercher'}</button>
     </>
   );
 }
@@ -1516,17 +1139,13 @@ function HistoryRow({ rental }) {
   const amount   = isReturn ? `+${fmt(rental.cautionXof ?? CAUTION_XOF)} FCFA` : `-${fmt(rental.fraisXof ?? FRAIS_XOF)} FCFA`;
   return (
     <div style={{ padding: '14px 24px', borderBottom: `0.5px solid ${D.border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
-      <div style={{ width: 40, height: 40, borderRadius: 10, background: isReturn ? D.greenLight : D.orangeDim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
-        {isReturn ? '↩️' : '🔋'}
-      </div>
+      <div style={{ width: 40, height: 40, borderRadius: 10, background: isReturn ? D.greenLight : D.orangeDim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>{isReturn ? '↩️' : '🔋'}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: D.text1 }}>{isReturn ? 'Restitution' : 'Location'}</div>
           <div style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: isFlw ? '#F5A62320' : D.orangeDim, color: isFlw ? '#D4891F' : D.orange }}>{isFlw ? 'FLW' : 'Wallet'}</div>
         </div>
-        <div style={{ fontSize: 11, color: D.text2, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {rental.qrCode} · {fmtDate(rental.startTime)}
-        </div>
+        <div style={{ fontSize: 11, color: D.text2, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rental.qrCode} · {fmtDate(rental.startTime)}</div>
       </div>
       <div style={{ fontSize: 14, fontWeight: 700, color: isReturn ? D.green : D.text2, flexShrink: 0 }}>{amount}</div>
     </div>
@@ -1577,10 +1196,10 @@ function BottomNav({ tab, onNav, hasActive, profile }) {
   const items = [
     { key: 'home',    icon: '🏠', label: 'Accueil' },
     { key: 'map',     icon: '🗺️', label: 'Carte' },
-    { key: 'rent',    icon: '⚡', label: 'Louer',       primary: true },
-    { key: 'return',  icon: '↩️', label: 'Rendre',      badge: hasActive },
+    { key: 'rent',    icon: '⚡', label: 'Louer',   primary: true },
+    { key: 'return',  icon: '↩️', label: 'Rendre',  badge: hasActive },
     { key: 'history', icon: '📋', label: 'Historique' },
-    { key: 'profile', icon: '👤', label: 'Profil',       isAvatar: true },
+    { key: 'profile', icon: '👤', label: 'Profil',   isAvatar: true },
   ];
   return (
     <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: D.surface, borderTop: `1px solid ${D.border}`, display: 'flex', alignItems: 'center', paddingBottom: 'env(safe-area-inset-bottom)', zIndex: 50 }}>
@@ -1591,9 +1210,7 @@ function BottomNav({ tab, onNav, hasActive, profile }) {
             ? <img src={profile.photoUrl} alt="profil" style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${tab === 'profile' ? D.orange : D.border}` }} />
             : <span style={{ fontSize: 20, lineHeight: 1 }}>{item.icon}</span>
           }
-          <span style={{ fontSize: 10, fontWeight: tab === item.key ? 700 : 400, color: item.primary ? (tab === item.key ? '#fff' : D.orange) : (tab === item.key ? D.orange : D.text3), lineHeight: 1 }}>
-            {item.label}
-          </span>
+          <span style={{ fontSize: 10, fontWeight: tab === item.key ? 700 : 400, color: item.primary ? (tab === item.key ? '#fff' : D.orange) : (tab === item.key ? D.orange : D.text3), lineHeight: 1 }}>{item.label}</span>
         </button>
       ))}
     </div>
