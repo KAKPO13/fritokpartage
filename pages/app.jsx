@@ -14,7 +14,8 @@ import { createFlutterwaveRentalPayment } from '../app/hooks/useWallet';
 import useRentalAlerts  from '../app/hooks/useRentalAlerts';
 import RentalAlertBanner from '../components/app/RentalAlertBanner';
 
-export const config = { runtime: 'client' }; // désactive SSR pour cette page
+export const config = { runtime: "nodejs" }
+
 
 // ─── Firebase ────────────────────────────────────────────────────────────────
 const firebaseConfig = {
