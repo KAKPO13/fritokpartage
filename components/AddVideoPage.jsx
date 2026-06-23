@@ -24,33 +24,21 @@ function generateKeywords(title, name, description) {
   )];
 }
 
-// ─── Upload R2 via URL présignée ───────────────────────────
-// Étape 1 : /api/upload génère une URL présignée R2 (léger, ~1 KB)
-// Étape 2 : le fichier est envoyé directement vers R2 via XHR PUT
-//           → pas de limite de taille Netlify, vraie progression
+// ─── Upload direct vers le worker Cloudflare ───────────────
+// Exactement la même logique que Flutter (_uploadSecureWorker)
+// Le worker gère le CORS → pas de proxy Next.js nécessaire
+const WORKER_URL = "https://divine-haze-26a2.fritok013.workers.dev";
+
 async function uploadToR2(file, bucket, userId, contentType, onProgress) {
   const uuid     = uuidv4();
   const ext      = bucket.includes("video") ? ".mp4" : ".jpg";
   const filePath = `${bucket}/${userId}/${uuid}${ext}`;
   const token    = await auth.currentUser.getIdToken();
 
-  // ── 1. Obtenir l'URL présignée depuis notre API ───────────
-  const res = await fetch(
-    `/api/upload?filePath=${encodeURIComponent(filePath)}&contentType=${encodeURIComponent(contentType)}&bucket=${encodeURIComponent(bucket)}`,
-    { method: "POST", headers: { Authorization: `Bearer ${token}` } }
-  );
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error ?? `Erreur API ${res.status}`);
-  }
-
-  const { presignedUrl, publicUrl } = await res.json();
-
-  // ── 2. Upload direct vers R2 avec progression ─────────────
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", presignedUrl);
+    xhr.open("POST", `${WORKER_URL}?filePath=${encodeURIComponent(filePath)}&contentType=${encodeURIComponent(contentType)}`);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.setRequestHeader("Content-Type", contentType);
     xhr.timeout = 15 * 60 * 1000; // 15 min
 
@@ -59,11 +47,15 @@ async function uploadToR2(file, bucket, userId, contentType, onProgress) {
     };
 
     xhr.onload = () => {
-      // R2 présigné renvoie 200 ou 204 sans body JSON
-      if (xhr.status >= 200 && xhr.status < 300) resolve(publicUrl);
-      else reject(new Error(`R2 a répondu ${xhr.status}`));
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (data.success) resolve(data.url);
+        else reject(new Error(data.error ?? "Upload échoué"));
+      } catch {
+        reject(new Error(`Worker a répondu ${xhr.status}`));
+      }
     };
-    xhr.onerror   = () => reject(new Error("Erreur réseau vers R2"));
+    xhr.onerror   = () => reject(new Error("Erreur réseau worker"));
     xhr.ontimeout = () => reject(new Error("Délai dépassé"));
     xhr.send(file);
   });
