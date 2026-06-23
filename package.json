@@ -16,6 +16,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@headlessui/react": "^2.2.7",
     "@supabase/supabase-js": "^2.55.0",
+    "africastalking": "^0.7.9",
     "agora-access-token": "^2.0.4",
     "agora-rtc-sdk-ng": "^4.24.1",
     "agora-token": "^2.0.5",

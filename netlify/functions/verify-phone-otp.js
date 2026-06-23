@@ -1,68 +1,76 @@
-/**
- * verify-phone-otp.js
- * Netlify Function — Vérifie l'OTP soumis par l'utilisateur.
- *
- * Body attendu : { uid, code }
- * Header       : Authorization: Bearer <Firebase ID token>
- *
- * Règles :
- *  - Max 5 tentatives avant invalidation de l'OTP
- *  - OTP expiré → erreur explicite
- *  - Succès → users/{uid}.phoneVerified = true
- *             users/{uid}.phoneVerifiedAt = timestamp
- *             phoneOtps/{uid} supprimé
- */
+// verify-phone-otp.js
+// Netlify Function — Vérifie l'OTP soumis par l'utilisateur.
+//
+// Body attendu : { uid, code }
+// Header       : Authorization: Bearer <Firebase ID token>
+//
+// Règles :
+//  - Max 5 tentatives avant invalidation de l'OTP
+//  - OTP expiré → erreur explicite
+//  - Succès → users/{uid}.phoneVerified = true
+//             users/{uid}.phoneVerifiedAt = timestamp
+//             phoneOtps/{uid} supprimé
 
-const admin = require('firebase-admin');
+import admin from 'firebase-admin';
 
 if (!admin.apps.length) {
-  const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   admin.initializeApp({
-    credential: admin.credential.cert(sa),
-    projectId : process.env.FIREBASE_PROJECT_ID,
+    credential: admin.credential.cert({
+      projectId  : process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey : process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    }),
   });
 }
 
-const db = admin.firestore();
+export const adminDb   = admin.firestore();
+export const adminAuth = admin.auth();
 
 const MAX_ATTEMPTS = 5;
 
-exports.handler = async (event) => {
-  const headers = {
-    'Access-Control-Allow-Origin' : '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Content-Type'                : 'application/json',
-  };
+const HEADERS = {
+  'Access-Control-Allow-Origin' : '*',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Content-Type'                : 'application/json',
+};
 
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
-  if (event.httpMethod !== 'POST')   return { statusCode: 405, headers, body: JSON.stringify({ error: 'Méthode non autorisée' }) };
+const ok  = (body)       => ({ statusCode: 200, headers: HEADERS, body: JSON.stringify(body) });
+const err = (code, msg, extra = {}) => ({
+  statusCode: code,
+  headers   : HEADERS,
+  body      : JSON.stringify({ error: msg, ...extra }),
+});
+
+export const handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: HEADERS, body: '' };
+  if (event.httpMethod !== 'POST')   return err(405, 'Méthode non autorisée');
 
   try {
     // ── 1. Vérifier l'ID token ───────────────────────────────────────────────
     const authHeader = event.headers.authorization || event.headers.Authorization || '';
-    if (!authHeader.startsWith('Bearer ')) {
-      return { statusCode: 401, headers, body: JSON.stringify({ error: 'Token manquant' }) };
-    }
+    if (!authHeader.startsWith('Bearer ')) return err(401, 'Token manquant');
+
     const idToken  = authHeader.slice(7);
-    const decoded  = await admin.auth().verifyIdToken(idToken);
+    const decoded  = await adminAuth.verifyIdToken(idToken);
     const tokenUid = decoded.uid;
 
     // ── 2. Parser le body ────────────────────────────────────────────────────
-    const { uid, code } = JSON.parse(event.body || '{}');
+    let uid, code;
+    try {
+      ({ uid, code } = JSON.parse(event.body || '{}'));
+    } catch {
+      return err(400, 'Body JSON invalide');
+    }
 
-    if (!uid || !code) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: 'uid et code sont requis' }) };
-    }
-    if (uid !== tokenUid) {
-      return { statusCode: 403, headers, body: JSON.stringify({ error: 'uid ne correspond pas au token' }) };
-    }
+    if (!uid || !code) return err(400, 'uid et code sont requis');
+    if (uid !== tokenUid) return err(403, 'uid ne correspond pas au token');
 
     // ── 3. Lire l'OTP en attente ─────────────────────────────────────────────
-    const otpRef  = db.collection('phoneOtps').doc(uid);
+    const otpRef  = adminDb.collection('phoneOtps').doc(uid);
     const otpSnap = await otpRef.get();
 
     if (!otpSnap.exists) {
-      return { statusCode: 404, headers, body: JSON.stringify({ error: 'Aucun code en attente. Demande un nouveau code.' }) };
+      return err(404, 'Aucun code en attente. Demande un nouveau code.');
     }
 
     const otpData = otpSnap.data();
@@ -70,36 +78,28 @@ exports.handler = async (event) => {
     // ── 4. Vérifier expiration ───────────────────────────────────────────────
     if (Date.now() > otpData.expiresAt) {
       await otpRef.delete();
-      return { statusCode: 410, headers, body: JSON.stringify({ error: 'Code expiré. Demande un nouveau code.' }) };
+      return err(410, 'Code expiré. Demande un nouveau code.');
     }
 
     // ── 5. Vérifier tentatives max ───────────────────────────────────────────
     if (otpData.attempts >= MAX_ATTEMPTS) {
       await otpRef.delete();
-      return { statusCode: 429, headers, body: JSON.stringify({ error: 'Trop de tentatives. Demande un nouveau code.' }) };
+      return err(429, 'Trop de tentatives. Demande un nouveau code.');
     }
 
     // ── 6. Vérifier le code ──────────────────────────────────────────────────
     const submittedCode = String(code).trim();
 
     if (submittedCode !== otpData.code) {
-      // Incrémenter les tentatives
       await otpRef.update({ attempts: admin.firestore.FieldValue.increment(1) });
       const remaining = MAX_ATTEMPTS - otpData.attempts - 1;
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          error    : `Code incorrect. ${remaining} tentative${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''}.`,
-          remaining,
-        }),
-      };
+      return err(400, `Code incorrect. ${remaining} tentative${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''}.`, { remaining });
     }
 
     // ── 7. Succès : marquer phoneVerified dans Firestore ────────────────────
-    const batch = db.batch();
+    const batch = adminDb.batch();
 
-    batch.update(db.collection('users').doc(uid), {
+    batch.update(adminDb.collection('users').doc(uid), {
       phoneVerified  : true,
       phoneVerifiedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -109,22 +109,15 @@ exports.handler = async (event) => {
 
     console.log(`Téléphone vérifié pour uid=${uid}, phone=${otpData.phone}`);
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        success        : true,
-        message        : 'Numéro de téléphone vérifié avec succès.',
-        phoneVerified  : true,
-        phoneVerifiedAt: Date.now(),
-      }),
-    };
-  } catch (err) {
-    console.error('verify-phone-otp error:', err);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: err.message || 'Erreur serveur' }),
-    };
+    return ok({
+      success        : true,
+      message        : 'Numéro de téléphone vérifié avec succès.',
+      phoneVerified  : true,
+      phoneVerifiedAt: Date.now(),
+    });
+
+  } catch (e) {
+    console.error('verify-phone-otp error:', e);
+    return err(500, e.message || 'Erreur serveur');
   }
 };
