@@ -25,7 +25,7 @@ export default function Hero() {
           🚀 Créer ma vitrine
         </Link>
         <Link href="/demo" className={styles.btnSecondary}>
-          ▶ Voir une démo live
+          ▶ Voir une vidéo produit
         </Link>
       </div>
     </section>

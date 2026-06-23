@@ -187,7 +187,7 @@ export default function LiveBanner() {
             Démarrer mon live
           </Link>
 
-          <Link href="/golive/explore" style={{
+          <Link href="/live/explore" style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
             padding: '15px 32px', borderRadius: 50,
             background: 'rgba(255,255,255,0.07)',
