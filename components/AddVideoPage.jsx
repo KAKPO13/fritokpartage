@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import { db, auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
+import SubscriptionGuard from "@/components/SubscriptionGuard";
 
 // ─── Buckets R2 ────────────────────────────────────────────
 const BUCKET_VIDEOS = "shop-videos";
@@ -340,7 +341,7 @@ function SuccessPage({ onHome, onPublishAnother }) {
 // ─────────────────────────────────────────────────────────────
 // 🚀 Page principale AddVideoPage
 // ─────────────────────────────────────────────────────────────
-export default function AddVideoPage() {
+function AddVideoContent() {
   const [page,      setPage]      = useState("form");
   const [user,      setUser]      = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -690,5 +691,17 @@ export default function AddVideoPage() {
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
       `}</style>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// 🔒 Export default — protégé par SubscriptionGuard
+//    Vérifie trial/abonnement avant d'afficher le formulaire
+// ─────────────────────────────────────────────────────────────
+export default function AddVideoPage() {
+  return (
+    <SubscriptionGuard>
+      <AddVideoContent />
+    </SubscriptionGuard>
   );
 }
