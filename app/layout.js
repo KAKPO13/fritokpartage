@@ -10,15 +10,15 @@ export const metadata = {
   },
   icons: {
     icon: [
-      { url: '/icon.png', sizes: '32x32', type: 'image/png' },   // favicon classique
-      { url: '/icon.png', sizes: '192x192', type: 'image/png' }, // Android/Chrome
-      { url: '/icon.png', sizes: '512x512', type: 'image/png' }, // PWA
+      { url: '/icon-32x32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512x512.png', sizes: '512x512', type: 'image/png' },
     ],
     apple: [
-      { url: '/icon.png', sizes: '180x180', type: 'image/png' }, // iOS homescreen
+      { url: '/icon-192x192.png', sizes: '180x180', type: 'image/png' },
     ],
   },
-  manifest: '/manifest.json', // pour PWA si tu en as un
+  manifest: '/manifest.json',
 };
 
 export default function RootLayout({ children }) {
