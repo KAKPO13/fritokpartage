@@ -1,14 +1,18 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  collection, getDocs, orderBy, query,
+  addDoc, serverTimestamp, doc,
+  setDoc, deleteDoc, onSnapshot,
+  getCountFromServer,
+} from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebaseClient';
 import styles from './demo.module.css';
 
 /* ══════════════════════════════════════════════════════════
-   CONSTANTES LIVRAISON (identiques shop.js + live)
+   CONSTANTES LIVRAISON
 ══════════════════════════════════════════════════════════ */
 const VILLES_CI = [
   'Abidjan','Bouaké','Daloa','Korhogo','Yamoussoukro','San-Pédro',
@@ -114,6 +118,14 @@ function IconUserCheck() {
     </svg>
   );
 }
+function IconSend() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="22" y1="2" x2="11" y2="13"/>
+      <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+    </svg>
+  );
+}
 
 /* ══════════════════════════════════════════════════════════
    PETITS COMPOSANTS
@@ -147,7 +159,7 @@ function AuthRequiredModal({ onClose }) {
           <div className={styles.authIconWrap}><IconLock/></div>
           <h2 className={styles.authTitle}>Connexion requise</h2>
           <p className={styles.authSub}>
-            Connectez-vous pour passer une commande sur FriTok.
+            Connectez-vous pour interagir sur FriTok.
           </p>
           <a className={styles.authBtnPrimary} href="/login">
             <IconUser/> Se connecter
@@ -159,6 +171,160 @@ function AuthRequiredModal({ onClose }) {
             Continuer à regarder
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   MODAL : COMMENTAIRES
+══════════════════════════════════════════════════════════ */
+function CommentsModal({ videoId, authUser, onClose, onAuthRequired }) {
+  const [comments,  setComments]  = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [text,      setText]      = useState('');
+  const [sending,   setSending]   = useState(false);
+  const [toast,     setToast]     = useState(null);
+  const inputRef = useRef(null);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+
+  // Écoute temps-réel des commentaires
+  useEffect(() => {
+    if (!videoId) return;
+    const q = query(
+      collection(db, 'video_playlist', videoId, 'comments'),
+      orderBy('createdAt', 'desc')
+    );
+    const unsub = onSnapshot(q, snap => {
+      setComments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    }, () => setLoading(false));
+    return unsub;
+  }, [videoId]);
+
+  const handleSend = async () => {
+    if (!authUser) { onClose(); onAuthRequired(); return; }
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setSending(true);
+    try {
+      await addDoc(collection(db, 'video_playlist', videoId, 'comments'), {
+        text     : trimmed,
+        userId   : authUser.uid,
+        userName : authUser.displayName || authUser.email?.split('@')[0] || 'Anonyme',
+        userPhoto: authUser.photoURL || '',
+        createdAt: serverTimestamp(),
+      });
+      setText('');
+      inputRef.current?.focus();
+    } catch (e) {
+      showToast('Erreur : ' + e.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleKeyDown = e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
+
+  const formatTs = (ts) => {
+    if (!ts) return '';
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    const diff = Date.now() - d.getTime();
+    if (diff < 60000)   return 'À l\'instant';
+    if (diff < 3600000) return Math.floor(diff / 60000) + ' min';
+    if (diff < 86400000)return Math.floor(diff / 3600000) + 'h';
+    return d.toLocaleDateString('fr-FR');
+  };
+
+  return (
+    <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modalSheet}>
+        <div className={styles.modalHandle}/>
+
+        <div className={styles.modalHeader}>
+          <div>
+            <p className={styles.modalTitle}>Commentaires</p>
+            {!loading && <p className={styles.modalSub}>{comments.length} commentaire{comments.length !== 1 ? 's' : ''}</p>}
+          </div>
+          <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
+        </div>
+
+        {/* Liste commentaires */}
+        <div className={styles.commentList}>
+          {loading && (
+            <div className={styles.commentLoading}>
+              <Spinner/>
+            </div>
+          )}
+          {!loading && comments.length === 0 && (
+            <div className={styles.commentEmpty}>
+              <p>Aucun commentaire pour l'instant.</p>
+              <p>Soyez le premier à commenter !</p>
+            </div>
+          )}
+          {!loading && comments.map(c => (
+            <div key={c.id} className={styles.commentItem}>
+              <div className={styles.commentAvatar}>
+                {c.userPhoto
+                  ? <img src={c.userPhoto} alt="" className={styles.commentAvatarImg}/>
+                  : <div className={styles.commentAvatarFallback}>
+                      {(c.userName || '?')[0].toUpperCase()}
+                    </div>
+                }
+              </div>
+              <div className={styles.commentContent}>
+                <div className={styles.commentMeta}>
+                  <span className={styles.commentName}>{c.userName || 'Anonyme'}</span>
+                  <span className={styles.commentTime}>{formatTs(c.createdAt)}</span>
+                </div>
+                <p className={styles.commentText}>{c.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Saisie commentaire */}
+        <div className={styles.commentInputBar}>
+          {authUser
+            ? (
+              <div className={styles.commentInputWrap}>
+                <div className={styles.commentAvatarSm}>
+                  {authUser.photoURL
+                    ? <img src={authUser.photoURL} alt="" className={styles.commentAvatarImg}/>
+                    : <div className={styles.commentAvatarFallback} style={{ width: 36, height: 36, fontSize: '.85rem' }}>
+                        {(authUser.displayName || authUser.email || '?')[0].toUpperCase()}
+                      </div>
+                  }
+                </div>
+                <textarea
+                  ref={inputRef}
+                  className={styles.commentInput}
+                  placeholder="Ajouter un commentaire…"
+                  value={text}
+                  onChange={e => setText(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  rows={1}
+                />
+                <button
+                  className={styles.commentSendBtn}
+                  onClick={handleSend}
+                  disabled={sending || !text.trim()}
+                >
+                  {sending ? <Spinner/> : <IconSend/>}
+                </button>
+              </div>
+            ) : (
+              <button className={styles.commentLoginPrompt} onClick={() => { onClose(); onAuthRequired(); }}>
+                <IconUser/> Connectez-vous pour commenter
+              </button>
+            )
+          }
+        </div>
+
+        <ToastMsg msg={toast}/>
       </div>
     </div>
   );
@@ -216,7 +382,6 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
     setSubmitting(true);
     try {
       const codeVerification = String(Math.floor(100000 + Math.random() * 900000));
-
       const articles = [{
         boutiqueId  : sellerId,
         imageUrl    : product?.image ?? product?.thumbnail ?? '',
@@ -226,12 +391,10 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
         userIdVend  : sellerId,
       }];
       const refArticles = [product?.productId ?? product?.refArticle ?? ''];
-
       const payload = {
         clientId         : authUser?.uid ?? null,
         userIdVend       : sellerId,
-        articles,
-        refArticles,
+        articles, refArticles,
         adresse          : adresse.trim(),
         villeDepart      : 'Abidjan',
         villeDestination : villeClient,
@@ -242,46 +405,32 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
         latLivraison     : null,
         lngLivraison     : null,
         fraisLivraison   : fraisXof,
-        totalXof,
-        totalDevise      : totalXof,
+        totalXof, totalDevise: totalXof,
         devise           : 'XOF',
         modePaiement     : modePaiem === 'immediat' ? 'enLigne' : 'aLaLivraison',
         transactionId    : null,
-        livreurId        : null,
-        livreur          : null,
-        batchId          : null,
+        livreurId        : null, livreur: null, batchId: null,
         statut           : 'en_attente',
         codeVerification,
         source           : 'video_shop',
         extraData: {
-          clientLat       : gpsCoords?.lat ?? null,
-          clientLng       : gpsCoords?.lng ?? null,
-          devise          : 'XOF',
-          fraisLivraison  : fraisXof,
-          refArticles,
-          telephoneClient : telephone.trim(),
-          userIdVend      : sellerId,
-          villeDepart     : 'Abidjan',
-          villeDestination: villeClient,
+          clientLat: gpsCoords?.lat ?? null, clientLng: gpsCoords?.lng ?? null,
+          devise: 'XOF', fraisLivraison: fraisXof, refArticles,
+          telephoneClient: telephone.trim(), userIdVend: sellerId,
+          villeDepart: 'Abidjan', villeDestination: villeClient,
         },
         createdAt        : serverTimestamp(),
         updatedAt        : null,
         collecteValideeAt: null,
       };
-
       const docRef = await addDoc(collection(db, 'commandes'), payload);
       const cId    = docRef.id;
-
       const qrPayload = JSON.stringify({
-        commandeId : cId,
-        userIdVend : sellerId,
-        client     : telephone.trim(),
-        adresse    : adresse.trim(),
+        commandeId: cId, userIdVend: sellerId,
+        client: telephone.trim(), adresse: adresse.trim(),
         ...(gpsCoords ? { lat: gpsCoords.lat.toFixed(6), lng: gpsCoords.lng.toFixed(6) } : {}),
-        total      : fmt(totalXof),
-        ts         : Date.now(),
+        total: fmt(totalXof), ts: Date.now(),
       });
-
       setCommandeId(cId);
       setQrData(qrPayload);
       setStep('qr');
@@ -298,7 +447,6 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
     <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.modalSheet}>
         <div className={styles.modalHandle}/>
-
         <div className={styles.modalHeader}>
           <div>
             <p className={styles.modalTitle}>
@@ -443,18 +591,92 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   HOOK : LIKES persistés Firestore
+   Sous-collection : video_playlist/{videoId}/likes/{userId}
+══════════════════════════════════════════════════════════ */
+function useLike(videoId, initialCount, authUser) {
+  const [liked,  setLiked]  = useState(false);
+  const [count,  setCount]  = useState(initialCount ?? 0);
+  const [ready,  setReady]  = useState(false);
+
+  // Vérifie si l'utilisateur a déjà liké (une seule fois à l'init)
+  useEffect(() => {
+    if (!videoId || !authUser?.uid) { setReady(true); return; }
+    const likeRef = doc(db, 'video_playlist', videoId, 'likes', authUser.uid);
+    // onSnapshot pour rester sync si multiple onglets
+    const unsub = onSnapshot(likeRef, snap => {
+      setLiked(snap.exists());
+      setReady(true);
+    });
+    return unsub;
+  }, [videoId, authUser?.uid]);
+
+  // Écoute le count en temps réel (optionnel mais propre)
+  useEffect(() => {
+    if (!videoId) return;
+    const unsub = onSnapshot(
+      collection(db, 'video_playlist', videoId, 'likes'),
+      snap => setCount(snap.size),
+      () => {} // ignore erreur silencieusement
+    );
+    return unsub;
+  }, [videoId]);
+
+  const toggle = useCallback(async (e) => {
+    e?.stopPropagation();
+    if (!authUser?.uid || !videoId) return;
+    const likeRef = doc(db, 'video_playlist', videoId, 'likes', authUser.uid);
+    if (liked) {
+      setLiked(false);
+      setCount(c => Math.max(0, c - 1));
+      await deleteDoc(likeRef).catch(() => { setLiked(true); setCount(c => c + 1); });
+    } else {
+      setLiked(true);
+      setCount(c => c + 1);
+      await setDoc(likeRef, { userId: authUser.uid, createdAt: serverTimestamp() })
+            .catch(() => { setLiked(false); setCount(c => Math.max(0, c - 1)); });
+    }
+  }, [liked, videoId, authUser?.uid]);
+
+  return { liked, count, toggle, ready };
+}
+
+/* ══════════════════════════════════════════════════════════
+   HOOK : COMMENT COUNT temps réel
+══════════════════════════════════════════════════════════ */
+function useCommentCount(videoId, initialCount) {
+  const [count, setCount] = useState(initialCount ?? 0);
+  useEffect(() => {
+    if (!videoId) return;
+    const unsub = onSnapshot(
+      collection(db, 'video_playlist', videoId, 'comments'),
+      snap => setCount(snap.size),
+      () => {}
+    );
+    return unsub;
+  }, [videoId]);
+  return count;
+}
+
+/* ══════════════════════════════════════════════════════════
    VIDEO SLIDE
 ══════════════════════════════════════════════════════════ */
 function VideoSlide({ item, isActive, authUser, authReady }) {
-  const videoRef = useRef(null);
-  const [playing, setPlaying]     = useState(false);
-  const [muted,   setMuted]       = useState(true);
-  const [liked,   setLiked]       = useState(false);
-  const [likeCount,setLikeCount]  = useState(item.likes ?? 0);
-  const [tapIcon, setTapIcon]     = useState(null);
+  const videoRef  = useRef(null);
+  const tapTimer  = useRef(null);
+  const [playing,      setPlaying]      = useState(false);
+  const [muted,        setMuted]        = useState(true);
+  const [tapIcon,      setTapIcon]      = useState(null);
   const [orderProduct, setOrderProduct] = useState(null);
   const [authPrompt,   setAuthPrompt]   = useState(false);
-  const tapTimer = useRef(null);
+  const [showComments, setShowComments] = useState(false);
+
+  // Likes Firestore
+  const { liked, count: likeCount, toggle: toggleLike, ready: likeReady } =
+    useLike(item.id, item.likes ?? 0, authUser);
+
+  // Comment count temps réel
+  const commentCount = useCommentCount(item.id, item.comments ?? 0);
 
   useEffect(() => {
     const vid = videoRef.current;
@@ -477,13 +699,18 @@ function VideoSlide({ item, isActive, authUser, authReady }) {
     tapTimer.current = setTimeout(() => setTapIcon(null), 800);
   };
 
-  const toggleLike = e => {
+  const handleLike = (e) => {
     e.stopPropagation();
-    setLiked(v => !v);
-    setLikeCount(c => liked ? c - 1 : c + 1);
+    if (!authReady) return;
+    if (!authUser) { setAuthPrompt(true); return; }
+    toggleLike(e);
   };
 
-  // Même logique que shop.js handleOrder
+  const handleComment = (e) => {
+    e.stopPropagation();
+    setShowComments(true);
+  };
+
   const handleOrder = e => {
     e.stopPropagation();
     if (!authReady) return;
@@ -541,19 +768,28 @@ function VideoSlide({ item, isActive, authUser, authReady }) {
           <div className={styles.avatar}>{initials}</div>
           <div className={styles.followDot}>+</div>
         </div>
-        <button className={styles.actionBtn} onClick={toggleLike}>
+
+        {/* LIKE */}
+        <button className={styles.actionBtn} onClick={handleLike}>
           <IconHeart filled={liked}/>
-          <span className={liked ? styles.countLiked : styles.count}>{likeCount > 0 ? likeCount : ''}</span>
+          <span className={liked ? styles.countLiked : styles.count}>
+            {likeCount > 0 ? likeCount : ''}
+          </span>
         </button>
-        <button className={styles.actionBtn} onClick={e => e.stopPropagation()}>
+
+        {/* COMMENTAIRES */}
+        <button className={styles.actionBtn} onClick={handleComment}>
           <IconComment/>
-          <span className={styles.count}>{item.comments > 0 ? item.comments : ''}</span>
+          <span className={styles.count}>{commentCount > 0 ? commentCount : ''}</span>
         </button>
-        {/* Bouton Commander (panier) */}
+
+        {/* COMMANDER */}
         <button className={`${styles.actionBtn} ${styles.cartBtn}`} onClick={handleOrder}>
           <IconCart/>
           <span className={styles.countGold}>Shop</span>
         </button>
+
+        {/* PARTAGER */}
         <button className={styles.actionBtn} onClick={e => e.stopPropagation()}>
           <IconShare/>
           <span className={styles.count}>{item.views > 0 ? item.views : ''}</span>
@@ -584,11 +820,19 @@ function VideoSlide({ item, isActive, authUser, authReady }) {
       </div>
 
       {/* Modal connexion requise */}
-      {authPrompt && (
-        <AuthRequiredModal onClose={() => setAuthPrompt(false)}/>
+      {authPrompt && <AuthRequiredModal onClose={() => setAuthPrompt(false)}/>}
+
+      {/* Modal commentaires */}
+      {showComments && (
+        <CommentsModal
+          videoId={item.id}
+          authUser={authUser}
+          onClose={() => setShowComments(false)}
+          onAuthRequired={() => setAuthPrompt(true)}
+        />
       )}
 
-      {/* Modal commande + livraison */}
+      {/* Modal commande */}
       {orderProduct && (
         <OrderModal
           product={orderProduct}
@@ -627,7 +871,6 @@ export default function DemoPage() {
   const [activeIdx, setActiveIdx] = useState(0);
   const feedRef = useRef(null);
 
-  // Auth — même pattern que shop.js
   const [authUser,  setAuthUser]  = useState(null);
   const [authReady, setAuthReady] = useState(false);
 
@@ -639,7 +882,6 @@ export default function DemoPage() {
     return unsub;
   }, []);
 
-  // Charger video_playlist
   useEffect(() => {
     async function load() {
       try {
@@ -661,7 +903,6 @@ export default function DemoPage() {
     load();
   }, []);
 
-  // IntersectionObserver → slide active
   useEffect(() => {
     if (!feedRef.current || playlist.length === 0) return;
     const slides = feedRef.current.querySelectorAll('[data-slide]');
@@ -678,7 +919,6 @@ export default function DemoPage() {
     return () => observer.disconnect();
   }, [playlist]);
 
-  // Navigation clavier
   useEffect(() => {
     const onKey = e => {
       if (e.key === 'ArrowDown') setActiveIdx(i => Math.min(i + 1, playlist.length - 1));
