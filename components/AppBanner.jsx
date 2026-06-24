@@ -34,7 +34,7 @@ export default function AppBanner() {
             SANS TÉLÉCHARGER L'APP ✦
           </div>
           <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', lineHeight: 1.2, marginBottom: 4 }}>
-            Loue depuis ton navigateur
+            Location intelligente de Power Bank
           </div>
           <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.80)' }}>
             Carte, paiement, restitution — tout en ligne.
@@ -48,7 +48,7 @@ export default function AppBanner() {
           flexShrink: 0, whiteSpace: 'nowrap',
           boxShadow: '0 4px 14px rgba(0,0,0,0.14)',
         }}>
-          Accéder à l'app web →
+          Louer un power bank →
         </Link>
       </div>
     </section>
