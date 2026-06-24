@@ -37,20 +37,20 @@
     }
   ],
   "screenshots": [
-    {
-      "src": "/screenshot-desktop.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "FriTok – Vitrine desktop"
-    },
-    {
-      "src": "/screenshot-mobile.png",
-      "sizes": "390x844",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "FriTok – Vitrine mobile"
-    }
-  ],
+  {
+    "src": "/screenshot-desktop.png",
+    "sizes": "1517x766",
+    "type": "image/png",
+    "form_factor": "wide",
+    "label": "FriTok – Vitrine desktop"
+  },
+  {
+    "src": "/screenshot-mobile.png",
+    "sizes": "474x1080",
+    "type": "image/png",
+    "form_factor": "narrow",
+    "label": "FriTok – Vitrine mobile"
+  }
+],
   "prefer_related_applications": false
 }
