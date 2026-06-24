@@ -1,4 +1,5 @@
 import './globals.css';
+import InstallButton from '../components/InstallButton';
 
 export const metadata = {
   title: 'FriTok – Vitrines e-commerce interactives',
@@ -24,7 +25,14 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="fr">
-      <body>{children}</body>
+      <body>
+        <nav className="flex justify-between items-center p-4 bg-gray-100">
+          <span className="font-bold text-lg">FriTok</span>
+          <InstallButton />
+        </nav>
+        {children}
+      </body>
     </html>
   );
 }
+
