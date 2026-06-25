@@ -1,68 +1,126 @@
 [build]
-  command = "npm run build -- --webpack"
-  publish = ".next"
+  command   = "npm run build -- --webpack"
+  publish   = ".next"
   functions = "netlify/functions"
 
-  [build.environment]
+[build.environment]
   NODE_VERSION = "20.19.0"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
 [dev]
-  command = "npm run dev"
-  port = 8888
+  command   = "npm run dev"
+  port      = 8888
   framework = "next"
 
-# ==============================
-# 🔁 REDIRECTIONS (Next.js + API)
-# ==============================
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔒 HEADERS DE SÉCURITÉ — Pages web
+# ══════════════════════════════════════════════════════════════════════════════
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Empêche le clickjacking
+    X-Frame-Options = "DENY"
 
-[[redirects]]
-  from = "/share/:videoId"
-  to = "/.netlify/functions/share"
-  status = 200
-  force = true
+    # Empêche le MIME sniffing
+    X-Content-Type-Options = "nosniff"
 
-  # Callback Flutterwave (si besoin d'alias court)
-[[redirects]]
-  from   = "/seller/subscribe/success"
-  to     = "/seller/subscribe/callback?status=successful"
-  status = 200
- 
-[[redirects]]
-  from   = "/seller/subscribe/cancel"
-  to     = "/seller/subscribe/callback?status=cancelled"
-  status = 200
+    # Force HTTPS pour 1 an, incluant sous-domaines
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
 
-# ==============================
-# ⏰ CRON – LIVE AVATAR PROGRAMMÉ
-# ==============================
+    # Contrôle le Referer envoyé aux tiers
+    Referrer-Policy = "strict-origin-when-cross-origin"
 
-[[scheduled]]
-  path = "/.netlify/functions/startScheduledLives"
-  schedule = "*/1 * * * *"
-  # CRON – exécution chaque minute
+    # Désactive les APIs navigateur non utilisées
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(self), payment=()"
 
-  # ── Cron : expire les abonnements chaque jour à 02h UTC ──────
-[functions."expire-subscriptions"]
-  schedule = "0 2 * * *"
+    # ── Content Security Policy ───────────────────────────────────────────────
+    # Adapte les domaines selon tes intégrations réelles
+    # Mode "strict" : démarre en report-only pour valider, puis retire le préfixe
+    Content-Security-Policy = '''
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval'
+        https://www.gstatic.com
+        https://www.googleapis.com
+        https://cdn.jsdelivr.net
+        https://unpkg.com;
+      style-src 'self' 'unsafe-inline'
+        https://fonts.googleapis.com;
+      font-src 'self'
+        https://fonts.gstatic.com;
+      img-src 'self' data: blob:
+        https://firebasestorage.googleapis.com
+        https://storage.googleapis.com
+        https://lh3.googleusercontent.com;
+      connect-src 'self'
+        https://*.firebaseapp.com
+        https://*.googleapis.com
+        https://firestore.googleapis.com
+        https://firebase.googleapis.com
+        https://identitytoolkit.googleapis.com
+        https://securetoken.googleapis.com
+        https://api.flutterwave.com
+        https://api.exchangerate-api.com
+        https://api.africa-sms.com
+        wss://*.firebaseio.com;
+      frame-src 'none';
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';
+      upgrade-insecure-requests;
+    '''
 
-
-# ── Headers de sécurité ──────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔒 HEADERS — Netlify Functions (API)
+# ══════════════════════════════════════════════════════════════════════════════
 [[headers]]
   for = "/.netlify/functions/*"
   [headers.values]
     X-Frame-Options        = "DENY"
     X-Content-Type-Options = "nosniff"
+    # CORS restreint : UNIQUEMENT fritok.net
+    # Le header dynamique Access-Control-Allow-Origin doit être géré dans
+    # chaque Function (voir patch ci-dessous) — ce header statique sert
+    # de fallback pour les requêtes sans Origin valide.
+    Access-Control-Allow-Origin = "https://fritok.net"
 
-   
-# Déclenche check-rental-alerts toutes les 5 minutes
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔒 HEADERS — Service Worker (pas de cache)
+# ══════════════════════════════════════════════════════════════════════════════
+[[headers]]
+  for = "/sw-fritok.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔁 REDIRECTIONS
+# ══════════════════════════════════════════════════════════════════════════════
+[[redirects]]
+  from   = "/share/:videoId"
+  to     = "/.netlify/functions/share"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/seller/subscribe/success"
+  to     = "/seller/subscribe/callback?status=successful"
+  status = 200
+
+[[redirects]]
+  from   = "/seller/subscribe/cancel"
+  to     = "/seller/subscribe/callback?status=cancelled"
+  status = 200
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ⏰ CRON
+# ══════════════════════════════════════════════════════════════════════════════
+[[scheduled]]
+  path     = "/.netlify/functions/startScheduledLives"
+  schedule = "*/1 * * * *"
+
+[functions."expire-subscriptions"]
+  schedule = "0 2 * * *"
 
 [functions."check-rental-alerts"]
   schedule = "*/5 * * * *"
-
-[[headers]]
-  for = "/sw.js"
-  [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
