@@ -13,12 +13,14 @@ import CtaBottom from '../components/CtaBottom';
 import Footer from '../components/Footer';
 import AppBanner from '../components/AppBanner';
 import PublishBanner from '../components/PublishBanner';
+import PushManager from '../components/PushManager';
 
 
 
 export default function Home() {
   return (
     <>
+    <PushManager />
       <Navbar />
       <main>
         <Hero />
