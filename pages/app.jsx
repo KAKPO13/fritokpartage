@@ -5,17 +5,16 @@ import { useRouter } from 'next/router';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
 import {
-  getFirestore, doc, getDoc, getDocs, updateDoc, setDoc,
-  collection, addDoc, query, where, orderBy, limit,
-  onSnapshot, serverTimestamp, increment,
+  getFirestore, doc, getDocs,
+  collection, query, where, orderBy, limit,
+  onSnapshot,
 } from 'firebase/firestore';
 import dynamic from 'next/dynamic';
-import { createFlutterwaveRentalPayment } from '../app/hooks/useWallet';
+import { createWalletRental, createFlutterwaveRentalPayment } from '../app/hooks/useWallet';
 import useRentalAlerts  from '../app/hooks/useRentalAlerts';
 import RentalAlertBanner from '../components/app/RentalAlertBanner';
 
-export const config = { runtime: "nodejs" }
-
+export const config = { runtime: 'nodejs' };
 
 // ─── Firebase ────────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -40,11 +39,16 @@ const D = {
   red       : '#E53E00',
 };
 
-// ─── Tarifs fixes ────────────────────────────────────────────────────────────
+// ─── Tarifs — AFFICHAGE UNIQUEMENT ───────────────────────────────────────────
+// Ces constantes servent uniquement à l'UI (récapitulatif avant paiement).
+// Les montants réels sont toujours calculés et validés côté serveur
+// depuis config/tarifs Firestore. Ne jamais les envoyer comme montants à débiter.
 const FRAIS_XOF   = 300;
 const CAUTION_XOF = 200;
 
-// ── Compte Escrow Fritok ──────────────────────────────────────────────────────
+// ─── ESCROW_UID — lecture TransfetMoney côté client uniquement ───────────────
+// Utilisé dans la query de déduplication de l'historique (filtre où expediteurId != ESCROW_UID).
+// L'Escrow en lui-même est inaccessible depuis le client (bloqué par les Security Rules).
 const ESCROW_UID = 'escrow_fritok';
 
 // ─── Leaflet (SSR disabled) ──────────────────────────────────────────────────
@@ -80,35 +84,6 @@ const batteryColor = (lvl) => lvl == null ? D.text3 : lvl >= 60 ? D.green : lvl 
 const batteryIcon  = (lvl) => lvl == null ? '🔋' : lvl >= 60 ? '🔋' : lvl >= 30 ? '🪫' : '🔴';
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  writeTranstet
-// ─────────────────────────────────────────────────────────────────────────────
-async function writeTranstet(db, {
-  type, currency, montantEnvoye, frais = 0,
-  expediteurId, expediteurEmail, expediteurPhoto = '',
-  destinataireId, destinataireNom, destinataireTel = '',
-  status = 'completed',
-}) {
-  const now    = Date.now();
-  const date   = new Date(now).toISOString().slice(0, 10);
-  const docRef = doc(collection(db, 'TransfetMoney'));
-  await setDoc(docRef, {
-    transactionId         : docRef.id,
-    type, currency, date,
-    timestamp             : now,
-    montantEnvoye         : Number(montantEnvoye),
-    frais                 : Number(frais),
-    montantRecu           : Number(montantEnvoye) - Number(frais),
-    expediteurId, expediteurEmail,
-    profilePictureUrl     : expediteurPhoto || '',
-    destinataireId, destinataireNom,
-    destinataireTelephone : destinataireTel,
-    status,
-  });
-  return docRef.id;
-}
-
-
-// ─────────────────────────────────────────────────────────────────────────────
 //  ROOT
 // ─────────────────────────────────────────────────────────────────────────────
 export default function FritokApp() {
@@ -126,7 +101,6 @@ export default function FritokApp() {
   const [history,       setHistory]       = useState([]);
   const [txHistory,     setTxHistory]     = useState([]);
 
-  // ── MODIFICATION 2 : hook alertes location ────────────────────────────────
   const { alerts, dismissAlert } = useRentalAlerts(activeRentals);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -142,23 +116,20 @@ export default function FritokApp() {
     return unsub;
   }, []);
 
-  // ── MODIFICATION 4 : Service Worker + FCM token ───────────────────────────
+  // ── Service Worker + FCM token ────────────────────────────────────────────
   useEffect(() => {
     if (typeof window === 'undefined' || !user) return;
 
-    // Enregistre le Service Worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker
         .register('/sw-fritok.js')
         .catch(e => console.warn('SW registration failed:', e));
     }
 
-    // Demande permission + récupère FCM token
     const initFcm = async () => {
       if (!('Notification' in window)) return;
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') return;
-
       try {
         const { getMessaging, getToken } = await import('firebase/messaging');
         const app     = getFirebaseApp();
@@ -168,11 +139,9 @@ export default function FritokApp() {
           serviceWorkerRegistration: await navigator.serviceWorker.ready,
         });
         if (!token) return;
-
-        // Sauvegarde le token → utilisé par check-rental-alerts
+        // Sauvegarde le FCM token — autorisé par les Security Rules (champ non financier)
         const { getFirestore: gfs, doc: d2, updateDoc: upd } = await import('firebase/firestore');
-        const db2 = gfs(app);
-        await upd(d2(db2, 'users', user.uid), { fcmToken: token });
+        await upd(d2(gfs(app), 'users', user.uid), { fcmToken: token });
       } catch (e) {
         console.warn('FCM token error:', e.message);
       }
@@ -217,7 +186,7 @@ export default function FritokApp() {
         collection(db, 'TransfetMoney'),
         where('expediteurId', '==', user.uid),
         orderBy('timestamp', 'desc'),
-        limit(50)
+        limit(50),
       ),
       (snapExp) => {
         const sent = snapExp.docs.map(d => ({ id: d.id, ...d.data(), _dir: 'out' }));
@@ -227,19 +196,18 @@ export default function FritokApp() {
           where('expediteurId',   '!=', ESCROW_UID),
           orderBy('expediteurId'),
           orderBy('timestamp', 'desc'),
-          limit(20)
+          limit(20),
         )).then(snapDest => {
           const received = snapDest.docs.map(d => ({ id: d.id, ...d.data(), _dir: 'in' }));
-          const all    = [...sent, ...received];
-          const seen   = new Set();
-          const deduped = all.filter(tx => {
+          const seen     = new Set();
+          const deduped  = [...sent, ...received].filter(tx => {
             if (seen.has(tx.id)) return false;
             seen.add(tx.id); return true;
           });
           deduped.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
           setTxHistory(deduped);
         }).catch(console.error);
-      }
+      },
     );
 
     return () => { unsubUser(); unsubActive(); unsubHist(); unsubTx(); };
@@ -258,15 +226,8 @@ export default function FritokApp() {
 
   return (
     <div style={{ background: D.bg, minHeight: '100dvh', display: 'flex', flexDirection: 'column', maxWidth: 480, margin: '0 auto' }}>
-      {/* ── MODIFICATION 3 : div avec bannière alertes ── */}
       <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 80 }}>
-
-        <RentalAlertBanner
-          alerts    = {alerts}
-          onDismiss = {dismissAlert}
-          onNav     = {setTab}
-        />
-
+        <RentalAlertBanner alerts={alerts} onDismiss={dismissAlert} onNav={setTab} />
         {tab === 'home'    && <HomeTab    balance={balance} currency={currency} currencies={currencies} normWallet={normWallet} onCurrencyChange={setCurrency} activeRentals={activeRentals} history={history} profile={profile} onNav={setTab} />}
         {tab === 'map'     && <MapTab     db={db} />}
         {tab === 'rent'    && <RentTab    db={db} user={user} wallet={wallet} profile={profile} onSuccess={() => setTab('home')} />}
@@ -422,10 +383,7 @@ function MapTab({ db }) {
   useEffect(() => {
     const unsub = onSnapshot(
       query(collection(db, 'powerBanks')),
-      (snap) => {
-        setPowerBanks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setLoading(false);
-      },
+      (snap) => { setPowerBanks(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); },
       () => setLoading(false),
     );
     return unsub;
@@ -445,9 +403,7 @@ function MapTab({ db }) {
             stock  : data.stockAvailable ?? null,
             active : data.active ?? true,
             address: data.address || data.adresse || '',
-            photos : Array.isArray(data.partnerPhotos)
-              ? data.partnerPhotos.filter(Boolean).slice(0, 3)
-              : [],
+            photos : Array.isArray(data.partnerPhotos) ? data.partnerPhotos.filter(Boolean).slice(0, 3) : [],
           };
           map[d.id] = entry;
           if (data.uid)    map[data.uid]    = entry;
@@ -464,50 +420,30 @@ function MapTab({ db }) {
   const markers = powerBanks
     .filter(pb => filter === 'tous' || pb.state === filter)
     .filter(pb => pb.location?.latitude != null)
-    .map(pb => {
-      const ptn = partners[pb.currentPartnerId] ?? null;
-      return {
-        id              : pb.id,
-        lat             : pb.location.latitude,
-        lng             : pb.location.longitude,
-        qrCode          : pb.qrCode || pb.id,
-        state           : pb.state,
-        batteryLevel    : pb.batteryLevel,
-        currentPartnerId: pb.currentPartnerId ?? null,
-        partnerEmoji    : ptn?.emoji ?? null,
-      };
-    });
+    .map(pb => ({
+      id              : pb.id,
+      lat             : pb.location.latitude,
+      lng             : pb.location.longitude,
+      qrCode          : pb.qrCode || pb.id,
+      state           : pb.state,
+      batteryLevel    : pb.batteryLevel,
+      currentPartnerId: pb.currentPartnerId ?? null,
+      partnerEmoji    : (partners[pb.currentPartnerId] ?? null)?.emoji ?? null,
+    }));
 
   const fetchPartner = async (partnerId) => {
     if (!partnerId) return null;
     if (partners[partnerId]) return partners[partnerId];
+    const { getDoc } = await import('firebase/firestore');
     const snap = await getDoc(doc(db, 'partners', partnerId));
     if (snap.exists()) {
       const d = snap.data();
-      return {
-        name   : d.name   || 'Partenaire Fritok',
-        emoji  : d.emoji  || '🏪',
-        type   : d.type   || '',
-        stock  : d.stockAvailable ?? null,
-        active : d.active ?? true,
-        address: d.address || d.adresse || '',
-        photos : Array.isArray(d.partnerPhotos) ? d.partnerPhotos.filter(Boolean).slice(0, 3) : [],
-      };
+      return { name: d.name || 'Partenaire Fritok', emoji: d.emoji || '🏪', type: d.type || '', stock: d.stockAvailable ?? null, active: d.active ?? true, address: d.address || d.adresse || '', photos: Array.isArray(d.partnerPhotos) ? d.partnerPhotos.filter(Boolean).slice(0, 3) : [] };
     }
-    const q = await getDocs(
-      query(collection(db, 'partners'), where('uid', '==', partnerId))
-    );
+    const q = await getDocs(query(collection(db, 'partners'), where('uid', '==', partnerId)));
     if (!q.empty) {
       const d = q.docs[0].data();
-      return {
-        name   : d.name   || 'Partenaire Fritok',
-        emoji  : d.emoji  || '🏪',
-        type   : d.type   || '',
-        stock  : d.stockAvailable ?? null,
-        active : d.active ?? true,
-        address: d.address || d.adresse || '',
-        photos : Array.isArray(d.partnerPhotos) ? d.partnerPhotos.filter(Boolean).slice(0, 3) : [],
-      };
+      return { name: d.name || 'Partenaire Fritok', emoji: d.emoji || '🏪', type: d.type || '', stock: d.stockAvailable ?? null, active: d.active ?? true, address: d.address || d.adresse || '', photos: Array.isArray(d.partnerPhotos) ? d.partnerPhotos.filter(Boolean).slice(0, 3) : [] };
     }
     return null;
   };
@@ -517,25 +453,11 @@ function MapTab({ db }) {
       <div style={{ padding: '24px 24px 0', background: D.bg, flexShrink: 0 }}>
         <div style={{ fontSize: 20, fontWeight: 800, color: D.text1 }}>📍 Power banks</div>
         <div style={{ fontSize: 13, color: D.text2, marginTop: 2, marginBottom: 12 }}>
-          {loading
-            ? 'Chargement…'
-            : `${dispoCount} disponible${dispoCount !== 1 ? 's' : ''} · ${powerBanks.length} au total`}
+          {loading ? 'Chargement…' : `${dispoCount} disponible${dispoCount !== 1 ? 's' : ''} · ${powerBanks.length} au total`}
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', paddingBottom: 4 }}>
-          {[
-            { key: 'tous',         label: 'Tous' },
-            { key: 'disponible',   label: '✅ Disponibles' },
-            { key: 'en_location',  label: '🔋 En location' },
-            { key: 'hors_service', label: '🚫 Hors service' },
-          ].map(f => (
-            <button key={f.key} onClick={() => setFilter(f.key)} style={{
-              padding: '5px 14px', borderRadius: 99,
-              border: `1px solid ${filter === f.key ? D.orange : D.border}`,
-              background: filter === f.key ? D.orangeDim : D.surface,
-              color: filter === f.key ? D.orange : D.text2,
-              fontWeight: filter === f.key ? 700 : 400,
-              fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap',
-            }}>
+          {[{ key: 'tous', label: 'Tous' }, { key: 'disponible', label: '✅ Disponibles' }, { key: 'en_location', label: '🔋 En location' }, { key: 'hors_service', label: '🚫 Hors service' }].map(f => (
+            <button key={f.key} onClick={() => setFilter(f.key)} style={{ padding: '5px 14px', borderRadius: 99, border: `1px solid ${filter === f.key ? D.orange : D.border}`, background: filter === f.key ? D.orangeDim : D.surface, color: filter === f.key ? D.orange : D.text2, fontWeight: filter === f.key ? 700 : 400, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               {f.label}
             </button>
           ))}
@@ -555,8 +477,7 @@ const RATES_FALLBACK = { XOF: 1, GHS: 0.013, NGN: 4.75 };
 
 function convertFromXof(amountXof, toCurrency, rates) {
   if (toCurrency === 'XOF') return amountXof;
-  const rate = rates[toCurrency] ?? RATES_FALLBACK[toCurrency] ?? 1;
-  return Math.round(amountXof * rate * 100) / 100;
+  return Math.round(amountXof * (rates[toCurrency] ?? RATES_FALLBACK[toCurrency] ?? 1) * 100) / 100;
 }
 
 const CUR_META = {
@@ -589,6 +510,7 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
   const normWalletLocal  = Object.fromEntries(Object.entries(wallet).map(([k, v]) => [k, toNum(v)]));
   const availableDevises = Object.keys(normWalletLocal).filter(k => CUR_META[k]);
 
+  // Taux côté client — affichage uniquement, jamais envoyés comme montants à débiter
   useEffect(() => {
     setRatesLoading(true);
     fetch('https://api.exchangerate-api.com/v4/latest/XOF')
@@ -600,10 +522,11 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
       .finally(() => setRatesLoading(false));
   }, []);
 
-  const fraisDevise      = convertFromXof(FRAIS_XOF,              devise, rates);
-  const cautionDevise    = convertFromXof(CAUTION_XOF,            devise, rates);
-  const totalDevise      = convertFromXof(FRAIS_XOF + CAUTION_XOF, devise, rates);
-  const soldeDevise      = normWalletLocal[devise] ?? 0;
+  // Montants locaux — affichage uniquement
+  const fraisDevise   = convertFromXof(FRAIS_XOF,               devise, rates);
+  const cautionDevise = convertFromXof(CAUTION_XOF,             devise, rates);
+  const totalDevise   = convertFromXof(FRAIS_XOF + CAUTION_XOF, devise, rates);
+  const soldeDevise   = normWalletLocal[devise] ?? 0;
   const soldeInsuffisant = soldeDevise < totalDevise;
 
   const lookup = async () => {
@@ -611,17 +534,18 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
     if (!id) { setError('Saisis le code QR du power bank.'); return; }
     setLoading(true); setError('');
     try {
-      const q    = query(collection(db, 'powerBanks'), where('qrCode', '==', id));
-      const snap = await getDocs(q);
-      let docSnap = snap.empty ? null : snap.docs[0];
+      const { getDocs: gd, getDoc: gdc, collection: col, query: q, where: wh, doc: dc } = await import('firebase/firestore');
+      const snap    = await gd(q(col(db, 'powerBanks'), wh('qrCode', '==', id)));
+      let docSnap   = snap.empty ? null : snap.docs[0];
       if (!docSnap) {
-        const byId = await getDoc(doc(db, 'powerBanks', id));
+        const byId = await gdc(dc(db, 'powerBanks', id));
         if (byId.exists()) docSnap = byId;
       }
       if (!docSnap) { setError(`Power bank "${id}" introuvable. Vérifie le code sur l'étiquette.`); setLoading(false); return; }
-      const data  = docSnap.data();
-      if (data.state !== 'disponible') {
-        const labels = { en_location: 'en cours de location', hors_service: 'hors service' };
+      const data = docSnap.data();
+      // Afficher également l'état en_attente_paiement comme non disponible
+      if (!['disponible'].includes(data.state)) {
+        const labels = { en_location: 'en cours de location', hors_service: 'hors service', en_attente_paiement: 'en cours de réservation' };
         setError(`Ce power bank est ${labels[data.state] ?? data.state}.`); setLoading(false); return;
       }
       setPbData({ ...data, docId: docSnap.id });
@@ -634,40 +558,50 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
     setLoading(true); setError('');
     try {
       if (payMethod === 'wallet') {
-        if (soldeInsuffisant) { setError(`Solde ${devise} insuffisant. Requis : ${fmtCur(totalDevise, devise)} · Solde : ${fmtCur(soldeDevise, devise)}`); setLoading(false); return; }
-
-        const rentalRef = await addDoc(collection(db, 'rentals'), {
-          userId: user.uid, qrCode: pbData.qrCode || pbData.docId,
-          partnerId: pbData.currentPartnerId || null, status: 'en_cours',
-          paymentMethod: 'wallet', fraisXof: FRAIS_XOF, cautionXof: CAUTION_XOF,
-          fraisDevise, cautionDevise, devise, startTime: serverTimestamp(),
+        // ── Tout délégué au serveur ───────────────────────────────────────────
+        // On n'envoie que powerBankId et devise.
+        // Le serveur : vérifie le solde, lit les tarifs depuis config/tarifs,
+        // exécute tout dans une transaction Firestore atomique.
+        const result = await createWalletRental({
+          powerBankId: pbData.qrCode || pbData.docId,
+          devise,
         });
-
-        await updateDoc(doc(db, 'users', user.uid), { [`wallet.${devise}`]: increment(-totalDevise) });
-
-        const escrowRef  = doc(db, 'users', ESCROW_UID);
-        const escrowSnap = await getDoc(escrowRef);
-        const escrowData = escrowSnap.exists() ? escrowSnap.data() : {};
-        const oldTotal   = (escrowData.totalCaution && typeof escrowData.totalCaution === 'object') ? escrowData.totalCaution : {};
-        const oldFrais   = (escrowData.totalFrais   && typeof escrowData.totalFrais   === 'object') ? escrowData.totalFrais   : {};
-        const newTotal   = { XOF: toNum(oldTotal.XOF), GHS: toNum(oldTotal.GHS), NGN: toNum(oldTotal.NGN), [devise]: toNum(oldTotal[devise]) + cautionDevise };
-        const newFrais   = { XOF: toNum(oldFrais.XOF), GHS: toNum(oldFrais.GHS), NGN: toNum(oldFrais.NGN), [devise]: toNum(oldFrais[devise]) + fraisDevise };
-        await setDoc(escrowRef, { totalCaution: newTotal, totalFrais: newFrais, updatedAt: serverTimestamp() }, { merge: true });
-
-        await updateDoc(doc(db, 'powerBanks', pbData.docId), { state: 'en_location', currentUserId: user.uid, updatedAt: serverTimestamp() });
-
-        await writeTranstet(db, { type: 'rental', currency: devise, montantEnvoye: fraisDevise, frais: 0, expediteurId: user.uid, expediteurEmail: user.email || '', expediteurPhoto: profile?.photoUrl || '', destinataireId: pbData.currentPartnerId || 'fritok-system', destinataireNom: pbData.currentPartnerId ? 'Partenaire Fritok' : 'Fritok', status: 'completed' });
-        await writeTranstet(db, { type: 'caution', currency: devise, montantEnvoye: cautionDevise, frais: 0, expediteurId: user.uid, expediteurEmail: user.email || '', expediteurPhoto: profile?.photoUrl || '', destinataireId: ESCROW_UID, destinataireNom: 'FriTok Escrow', destinataireTel: '+2250716585294', status: 'completed' });
-        await writeTranstet(db, { type: 'restitution', currency: devise, montantEnvoye: cautionDevise, frais: 0, expediteurId: ESCROW_UID, expediteurEmail: 'escrow@fritok.app', destinataireId: user.uid, destinataireNom: profile?.username || user.email || '', destinataireTel: profile?.phone || '', status: 'pending' });
-
-        setRental({ id: rentalRef.id, qrCode: pbData.qrCode || pbData.docId, fraisXof: FRAIS_XOF, cautionXof: CAUTION_XOF, fraisDevise, cautionDevise, devise, paymentMethod: 'wallet', batteryLevel: pbData.batteryLevel });
+        setRental({
+          id           : result.rentalId,
+          qrCode       : result.qrCode,
+          fraisXof     : FRAIS_XOF,    // affichage uniquement
+          cautionXof   : CAUTION_XOF,  // affichage uniquement
+          fraisDevise  : result.fraisDevise,
+          cautionDevise: result.cautionDevise,
+          devise       : result.devise,
+          paymentMethod: 'wallet',
+          batteryLevel : result.batteryLevel,
+        });
         setStep('done');
+
       } else {
-        const result = await createFlutterwaveRentalPayment({ powerBankId: pbData.qrCode || pbData.docId, powerBankDocId: pbData.docId, partnerStartId: pbData.currentPartnerId || '', amountXof: FRAIS_XOF, cautionXof: CAUTION_XOF, devise, amountDevise: fraisDevise, cautionDevise });
+        // ── Flow Flutterwave — inchangé ───────────────────────────────────────
+        const result = await createFlutterwaveRentalPayment({
+          powerBankId   : pbData.qrCode || pbData.docId,
+          powerBankDocId: pbData.docId,
+          partnerStartId: pbData.currentPartnerId || '',
+          amountXof     : FRAIS_XOF,
+          cautionXof    : CAUTION_XOF,
+          devise,
+          amountDevise  : fraisDevise,
+          cautionDevise,
+        });
         window.location.href = result.payment_url;
         return;
       }
-    } catch (e) { setError(e.message || 'Erreur lors du paiement.'); }
+    } catch (e) {
+      const msg = e.message || 'Erreur lors du paiement.';
+      if      (msg.includes('insuffisant'))      setError(msg);
+      else if (msg.includes('non vérifié'))      setError('Vérifie ton numéro de téléphone dans ton profil avant de louer.');
+      else if (msg.includes('Limite'))           setError('Tu as déjà 2 locations actives. Rends un power bank avant d\'en louer un nouveau.');
+      else if (msg.includes('non disponible'))   setError('Ce power bank vient d\'être loué. Scanne un autre QR code.');
+      else                                       setError(msg);
+    }
     setLoading(false);
   };
 
@@ -746,7 +680,9 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
             {devise !== 'XOF' && <div style={{ fontSize: 11, color: D.text3, marginTop: 6, textAlign: 'right' }}>= {fmt(FRAIS_XOF + CAUTION_XOF)} FCFA · taux 1 XOF = {(rates[devise] ?? 1).toFixed(4)} {devise}</div>}
             <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: soldeInsuffisant ? '#FEE2E2' : D.greenLight }}>
               <div style={{ fontSize: 12, color: soldeInsuffisant ? D.red : D.green, fontWeight: 600 }}>
-                {soldeInsuffisant ? `⚠️ Solde ${devise} insuffisant — manque ${fmtCur(totalDevise - soldeDevise, devise)}` : `✓ Solde après paiement : ${fmtCur(soldeDevise - totalDevise, devise)}`}
+                {soldeInsuffisant
+                  ? `⚠️ Solde ${devise} insuffisant — manque ${fmtCur(totalDevise - soldeDevise, devise)}`
+                  : `✓ Solde estimé après paiement : ${fmtCur(soldeDevise - totalDevise, devise)}`}
               </div>
             </div>
           </div>
@@ -757,7 +693,7 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
               <span style={{ fontSize: 22 }}>{m === 'wallet' ? '👛' : '💳'}</span>
               <div style={{ textAlign: 'left' }}>
                 <div>{m === 'wallet' ? `Wallet Fritok (${devise})` : 'Flutterwave'}</div>
-                {m === 'wallet' && <div style={{ fontSize: 11, color: soldeInsuffisant ? D.red : D.text3, marginTop: 1, fontWeight: soldeInsuffisant ? 700 : 400 }}>Solde : {fmtCur(soldeDevise, devise)}{soldeInsuffisant ? ' — insuffisant' : ''}</div>}
+                {m === 'wallet'       && <div style={{ fontSize: 11, color: soldeInsuffisant ? D.red : D.text3, marginTop: 1, fontWeight: soldeInsuffisant ? 700 : 400 }}>Solde : {fmtCur(soldeDevise, devise)}{soldeInsuffisant ? ' — insuffisant' : ''}</div>}
                 {m === 'flutterwave' && <div style={{ fontSize: 11, color: D.text3, marginTop: 1 }}>Carte, Mobile Money…</div>}
               </div>
               {payMethod === m && <span style={{ marginLeft: 'auto', color: D.orange, fontSize: 16 }}>✓</span>}
@@ -776,8 +712,10 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  ReturnTab
+//  ReturnTab — restitution déléguée au serveur via confirmRestitution
 // ─────────────────────────────────────────────────────────────────────────────
+import { confirmRestitution } from '../app/hooks/useWallet';
+
 function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
   const [selected,     setSelected]     = useState(null);
   const [loading,      setLoading]      = useState(false);
@@ -788,37 +726,19 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
 
   const doReturn = async () => {
     if (!selected) return;
-    const r          = activeRentals.find(x => x.id === selected);
-    const caution    = r.cautionXof    ?? CAUTION_XOF;
-    const cautionDev = r.cautionDevise ?? caution;
-    const devise     = r.devise        ?? 'XOF';
     setLoading(true); setError('');
     try {
-      await updateDoc(doc(db, 'rentals', r.id), { status: 'restitue', endTime: serverTimestamp() });
-      await updateDoc(doc(db, 'users', user.uid), { [`wallet.${devise}`]: increment(cautionDev) });
-
-      const escrowRef2  = doc(db, 'users', ESCROW_UID);
-      const escrowSnap2 = await getDoc(escrowRef2);
-      const escrowData2 = escrowSnap2.exists() ? escrowSnap2.data() : {};
-      const oldTotal2   = (escrowData2.totalCaution && typeof escrowData2.totalCaution === 'object') ? escrowData2.totalCaution : {};
-      const newTotal2   = { XOF: toNum(oldTotal2.XOF), GHS: toNum(oldTotal2.GHS), NGN: toNum(oldTotal2.NGN), [devise]: Math.max(0, toNum(oldTotal2[devise]) - cautionDev) };
-      await setDoc(escrowRef2, { totalCaution: newTotal2, updatedAt: serverTimestamp() }, { merge: true });
-
-      if (r.qrCode) {
-        const qSnap = await getDocs(query(collection(db, 'powerBanks'), where('qrCode', '==', r.qrCode)));
-        const pbRef = qSnap.empty ? doc(db, 'powerBanks', r.qrCode) : qSnap.docs[0].ref;
-        await updateDoc(pbRef, { state: 'disponible', currentUserId: '', updatedAt: serverTimestamp() });
-      }
-
-      const pendingSnap = await getDocs(query(collection(db, 'TransfetMoney'), where('type', '==', 'restitution'), where('destinataireId', '==', user.uid), where('status', '==', 'pending'), orderBy('timestamp', 'desc'), limit(1)));
-      if (!pendingSnap.empty) {
-        await updateDoc(pendingSnap.docs[0].ref, { status: 'completed' });
-      } else {
-        await writeTranstet(db, { type: 'restitution', currency: devise, montantEnvoye: cautionDev, frais: 0, expediteurId: ESCROW_UID, expediteurEmail: 'escrow@fritok.app', destinataireId: user.uid, destinataireNom: profile?.username || user.email || '', destinataireTel: profile?.phone || '', status: 'completed' });
-      }
-
-      setRefund(cautionDev); setRefundDevise(devise); setDone(true);
-    } catch (e) { setError(e.message || 'Erreur lors de la restitution.'); }
+      // Délégation totale au serveur — même logique que le flow wallet :
+      // le serveur recrédite le wallet, met à jour l'Escrow, le rental et le power bank
+      // dans une transaction atomique.
+      const r      = activeRentals.find(x => x.id === selected);
+      const result = await confirmRestitution({ rentalId: r.id });
+      setRefund(result.cautionRefunded ?? r.cautionDevise ?? r.cautionXof ?? CAUTION_XOF);
+      setRefundDevise(r.devise ?? 'XOF');
+      setDone(true);
+    } catch (e) {
+      setError(e.message || 'Erreur lors de la restitution.');
+    }
     setLoading(false);
   };
 
@@ -906,8 +826,8 @@ function HistoryTab({ txHistory }) {
 }
 
 function TxRow({ tx }) {
-  const meta   = TX_META[tx.type] ?? TX_META.transfer;
-  const isIn   = tx._dir === 'in' || tx.type === 'restitution' || tx.type === 'topup';
+  const meta  = TX_META[tx.type] ?? TX_META.transfer;
+  const isIn  = tx._dir === 'in' || tx.type === 'restitution' || tx.type === 'topup';
   const isPend = tx.status === 'pending';
   const amount = isIn ? `+${fmtCur(tx.montantRecu ?? tx.montantEnvoye, tx.currency)}` : `-${fmtCur(tx.montantEnvoye, tx.currency)}`;
   const color  = isPend ? D.text3 : (isIn ? D.green : D.text2);
@@ -972,7 +892,7 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
     verified: { text: 'Compte vérifié',          color: D.green, bg: D.greenLight,  icon: '✅' },
     rejected: { text: 'Vérification refusée',    color: D.red,   bg: '#FEE2E2',     icon: '❌' },
   };
-  const kyc       = kycLabel[profile?.kyc_status] ?? kycLabel.pending;
+  const kyc         = kycLabel[profile?.kyc_status] ?? kycLabel.pending;
   const levelColors = { bronze: '#CD7F32', silver: '#9E9E9E', gold: D.zest };
   const lvlColor    = levelColors[profile?.level] ?? levelColors.bronze;
   const isVendeur   = profile?.role === 'Vendeur';
@@ -1038,8 +958,8 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
       <div style={{ background: D.surface, borderRadius: 16, border: `1px solid ${D.border}`, overflow: 'hidden', marginBottom: 16 }}>
         <InfoRow label="Rôle"          value={profile?.role ?? '–'} />
         <InfoRow label="Devise"        value={profile?.currency ?? 'XOF'} />
-        {profile?.adresse  && <InfoRow label="Adresse"      value={profile.adresse} />}
-        {profile?.location?.address && <InfoRow label="Localisation" value={profile.location.address} />}
+        {profile?.adresse             && <InfoRow label="Adresse"      value={profile.adresse} />}
+        {profile?.location?.address   && <InfoRow label="Localisation" value={profile.location.address} />}
         <InfoRow label="Membre depuis" value={fmtDateLong(profile?.createdAt)} last={!isVendeur} />
         {isVendeur && profile?.nomBoutique && <InfoRow label="Boutique"    value={profile.nomBoutique} />}
         {isVendeur && profile?.id_boutique && <InfoRow label="ID Boutique" value={profile.id_boutique} last />}
@@ -1080,7 +1000,9 @@ function QrScanStep({ qrCode, setQrCode, onLookup, loading, error, setError }) {
       );
       setCameraOn(true);
     } catch (e) {
-      setCamError(e.name === 'NotAllowedError' ? 'Permission caméra refusée. Autorise-la dans les paramètres du navigateur.' : 'Caméra indisponible. Utilise la saisie manuelle ci-dessous.');
+      setCamError(e.name === 'NotAllowedError'
+        ? 'Permission caméra refusée. Autorise-la dans les paramètres du navigateur.'
+        : 'Caméra indisponible. Utilise la saisie manuelle ci-dessous.');
     }
   };
 
@@ -1200,10 +1122,10 @@ function BottomNav({ tab, onNav, hasActive, profile }) {
   const items = [
     { key: 'home',    icon: '🏠', label: 'Accueil' },
     { key: 'map',     icon: '🗺️', label: 'Carte' },
-    { key: 'rent',    icon: '⚡', label: 'Louer',   primary: true },
-    { key: 'return',  icon: '↩️', label: 'Rendre',  badge: hasActive },
+    { key: 'rent',    icon: '⚡', label: 'Louer',  primary: true },
+    { key: 'return',  icon: '↩️', label: 'Rendre', badge: hasActive },
     { key: 'history', icon: '📋', label: 'Historique' },
-    { key: 'profile', icon: '👤', label: 'Profil',   isAvatar: true },
+    { key: 'profile', icon: '👤', label: 'Profil',  isAvatar: true },
   ];
   return (
     <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: D.surface, borderTop: `1px solid ${D.border}`, display: 'flex', alignItems: 'center', paddingBottom: 'env(safe-area-inset-bottom)', zIndex: 50 }}>

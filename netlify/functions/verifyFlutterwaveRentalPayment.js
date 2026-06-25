@@ -1,12 +1,18 @@
 // netlify/functions/verifyFlutterwaveRentalPayment.js
 // ─────────────────────────────────────────────────────────────────────────────
-// Vérifie côté serveur une transaction FLW et crée la Rental dans Firestore.
-// ➜ Met à jour la TransfetMoney "rental" → "completed"
-// ➜ Crée une TransfetMoney "restitution" en "pending" (remboursement caution)
+//  PATCHÉ — Audit sécurité
+//  Changements :
+//    1. CORS restreint via _cors.js
+//    2. Vérification montant NaN-safe + tolérance par devise
+//    3. State check accepte 'en_attente_paiement' + vérifie lockedBy === uid
+//    4. Vérification tx.meta.userId === uid (prévient réutilisation de tx tierce)
+//    5. expediteurId ESCROW_UID (cohérence avec le reste du codebase)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const admin = require('firebase-admin');
 const { createTranstetEntry } = require('./_transtet');
+const { ok, err, handleOptions, isAllowedOrigin } = require('./_cors');
+const { ESCROW_UID } = require('./_constants');
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -21,122 +27,172 @@ if (!admin.apps.length) {
 const db   = admin.firestore();
 const auth = admin.auth();
 
-const HEADERS = {
-  'Access-Control-Allow-Origin' : '*',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Content-Type'                : 'application/json',
-};
-function ok(body)       { return { statusCode: 200, headers: HEADERS, body: JSON.stringify(body) }; }
-function err(code, msg) { return { statusCode: code, headers: HEADERS, body: JSON.stringify({ error: msg }) }; }
+// Tolérance de vérification montant selon la devise
+// XOF : entier, tolérance 1 FCFA
+// GHS/NGN : décimaux, tolérance 0.01
+const AMOUNT_TOLERANCE = { XOF: 1, GHS: 0.01, NGN: 0.01 };
 
 exports.handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: HEADERS };
-  if (event.httpMethod !== 'POST')    return err(405, 'Method not allowed');
+  const origin = event.headers['origin'] || event.headers['Origin'] || '';
+
+  if (event.httpMethod === 'OPTIONS') return handleOptions(origin);
+  if (event.httpMethod !== 'POST')    return err(405, 'Method not allowed', origin);
+
+  if (!isAllowedOrigin(origin)) {
+    console.warn('[verifyFLW] Origine non autorisée :', origin);
+    return err(403, 'Origine non autorisée', origin);
+  }
 
   try {
-    // 1. Auth
+    // ── 1. Auth ───────────────────────────────────────────────────────────────
     const authHeader = event.headers['authorization'] || event.headers['Authorization'] || '';
     const idToken    = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (!idToken) return err(401, 'Token manquant');
+    if (!idToken) return err(401, 'Token manquant', origin);
 
     let decoded;
     try { decoded = await auth.verifyIdToken(idToken); }
-    catch (e) { return err(401, `Token invalide : ${e.message}`); }
+    catch (e) { return err(401, `Token invalide : ${e.message}`, origin); }
     const uid = decoded.uid;
 
-    // 2. Body
+    // ── 2. Body ───────────────────────────────────────────────────────────────
     let body;
     try { body = JSON.parse(event.body || '{}'); }
-    catch { return err(400, 'Body invalide'); }
+    catch { return err(400, 'Body invalide', origin); }
 
     const { paymentRef, transactionId } = body;
     if (!paymentRef || !transactionId) {
-      return err(400, 'paymentRef et transactionId requis');
+      return err(400, 'paymentRef et transactionId requis', origin);
     }
 
-    // 3. Vérifier avec l'API Flutterwave (clé secrète — jamais côté client)
-    const flwRes = await fetch(`https://api.flutterwave.com/v3/transactions/${transactionId}/verify`, {
-      headers: { Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}` },
-    });
-    const flwData = await flwRes.json();
-
-    if (flwData.status !== 'success') {
-      return ok({ verified: false, error: flwData.message || 'Vérification FLW échouée' });
-    }
-    const tx = flwData.data;
-
-    // 4. Récupérer la pré-commande
+    // ── 3. Récupérer la pré-commande en premier ───────────────────────────────
+    //  On vérifie l'ownership AVANT d'appeler l'API Flutterwave
+    //  pour éviter des appels API inutiles sur des refs invalides
     const pendingSnap = await db.collection('pendingRentalPayments').doc(paymentRef).get();
     if (!pendingSnap.exists) {
-      return ok({ verified: false, error: 'Référence de transaction introuvable' });
+      return ok({ verified: false, error: 'Référence de transaction introuvable' }, origin);
     }
     const pending = pendingSnap.data();
 
-    // 5. Contrôles de sécurité
     if (pending.userId !== uid) {
-      return err(403, 'Accès non autorisé');
-    }
-    if (tx.tx_ref !== paymentRef) {
-      return ok({ verified: false, error: 'Référence transaction incorrecte' });
-    }
-    if (tx.status !== 'successful') {
-      return ok({ verified: false, error: `Statut transaction FLW : ${tx.status}` });
+      return err(403, 'Accès non autorisé', origin);
     }
 
-    // Vérification montant (tolérance 1 unité pour arrondis de conversion)
-    const expectedAmount = pending.devise === 'XOF'
-      ? pending.amountXof + pending.cautionXof
-      : pending.amountDevise + pending.cautionDevise;
-
-    if (Math.abs(tx.amount - expectedAmount) > 1) {
-      console.error(`Amount mismatch: expected ${expectedAmount}, got ${tx.amount}`);
-      return ok({ verified: false, error: 'Montant de la transaction incorrect' });
-    }
-
-    // 6. Idempotence — déjà traité ?
+    // ── 4. Idempotence — déjà traité ? ────────────────────────────────────────
     if (pending.status === 'completed' && pending.rentalId) {
-      return ok({ verified: true, rentalId: pending.rentalId });
+      return ok({ verified: true, rentalId: pending.rentalId }, origin);
     }
 
-    // 7. Trouver le doc powerBanks
+    // ── 5. Vérification Flutterwave côté serveur ──────────────────────────────
+    const flwRes = await fetch(
+      `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(transactionId)}/verify`,
+      { headers: { Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}` } },
+    );
+    const flwData = await flwRes.json();
+
+    if (flwData.status !== 'success') {
+      return ok({ verified: false, error: flwData.message || 'Vérification FLW échouée' }, origin);
+    }
+    const tx = flwData.data;
+
+    // ── 6. Contrôles de sécurité sur la transaction FLW ──────────────────────
+
+    // 6a. Référence cohérente
+    if (tx.tx_ref !== paymentRef) {
+      return ok({ verified: false, error: 'Référence transaction incorrecte' }, origin);
+    }
+
+    // 6b. Statut du paiement
+    if (tx.status !== 'successful') {
+      return ok({ verified: false, error: `Statut transaction FLW : ${tx.status}` }, origin);
+    }
+
+    // 6c. Le paiement appartient bien à cet utilisateur
+    //     (empêche la réutilisation d'une transaction légitime d'un autre compte)
+    const metaUserId = tx.meta?.userId || tx.meta?.metaData?.userId;
+    if (metaUserId && metaUserId !== uid) {
+      console.error(`[verifyFLW] userId mismatch: tx.meta.userId=${metaUserId} uid=${uid}`);
+      return ok({ verified: false, error: 'Transaction non associée à ce compte' }, origin);
+    }
+
+    // 6d. Vérification montant — NaN-safe, tolérance par devise
+    const devise = pending.devise || 'XOF';
+    const expectedAmount = devise === 'XOF'
+      ? (pending.amountXof   ?? NaN) + (pending.cautionXof   ?? NaN)
+      : (pending.fraisDevise ?? NaN) + (pending.cautionDevise ?? NaN);
+
+    if (!isFinite(expectedAmount)) {
+      console.error('[verifyFLW] Montant attendu invalide (NaN/Infinity) pour paymentRef:', paymentRef);
+      return ok({ verified: false, error: 'Montant attendu invalide — contacter le support' }, origin);
+    }
+
+    const tolerance = AMOUNT_TOLERANCE[devise] ?? 1;
+    if (Math.abs(tx.amount - expectedAmount) > tolerance) {
+      console.error(`[verifyFLW] Amount mismatch: expected=${expectedAmount} got=${tx.amount} devise=${devise}`);
+      return ok({ verified: false, error: 'Montant de la transaction incorrect' }, origin);
+    }
+
+    // ── 7. Trouver le document powerBanks ─────────────────────────────────────
     let pbDocRef;
-    const directSnap = await db.collection('powerBanks').doc(pending.powerBankDocId || pending.powerBankId).get();
+    const directSnap = await db.collection('powerBanks')
+      .doc(pending.powerBankDocId || pending.powerBankId)
+      .get();
     if (directSnap.exists) {
       pbDocRef = directSnap.ref;
     } else {
-      const qSnap = await db.collection('powerBanks').where('qrCode', '==', pending.powerBankId).limit(1).get();
-      if (qSnap.empty) return ok({ verified: false, error: 'Power bank introuvable' });
+      const qSnap = await db.collection('powerBanks')
+        .where('qrCode', '==', pending.powerBankId)
+        .limit(1)
+        .get();
+      if (qSnap.empty) return ok({ verified: false, error: 'Power bank introuvable' }, origin);
       pbDocRef = qSnap.docs[0].ref;
     }
 
-    // 8. Récupérer le profil utilisateur pour TransfetMoney
+    // ── 8. Profils utilisateur + partenaire ───────────────────────────────────
     const userSnap = await db.collection('users').doc(uid).get();
     const user     = userSnap.exists ? userSnap.data() : {};
 
-    // Profil partenaire
     let partnerNom = 'Partenaire Fritok';
     let partnerTel = '';
     if (pending.partnerStartId) {
       const pSnap = await db.collection('users').doc(pending.partnerStartId).get();
       if (pSnap.exists) {
-        const p  = pSnap.data();
-        partnerNom = p.nomBoutique || p.username || partnerNom;
-        partnerTel = p.phone || '';
+        partnerNom = pSnap.data().nomBoutique || pSnap.data().username || partnerNom;
+        partnerTel = pSnap.data().phone || '';
       }
     }
 
-    // 9. Transaction Firestore atomique
+    // ── 9. Transaction Firestore atomique ─────────────────────────────────────
+    //  Vérifie l'état du power bank, crée le rental, met à jour le PB,
+    //  clôture le pendingRentalPayment — tout en une seule opération.
     const rentalRef = db.collection('rentals').doc();
 
     await db.runTransaction(async (t) => {
-      // Vérifier que le PB est toujours disponible
       const pbSnap = await t.get(pbDocRef);
-      if (!pbSnap.exists || pbSnap.data().state !== 'disponible') {
-        throw new Error('Power bank non disponible au moment de la confirmation');
+
+      if (!pbSnap.exists) {
+        throw Object.assign(new Error('Power bank introuvable dans la transaction'), { code: 404 });
       }
 
-      // Créer la Rental
+      const pbState = pbSnap.data().state;
+
+      // Accepte 'disponible' (flow sans verrouillage préalable)
+      // et 'en_attente_paiement' (flow avec verrouillage via createFlutterwaveRentalPayment)
+      if (!['disponible', 'en_attente_paiement'].includes(pbState)) {
+        throw Object.assign(
+          new Error(`Power bank non disponible (état : ${pbState})`),
+          { code: 409 }
+        );
+      }
+
+      // Si verrouillé, vérifier que c'est bien par cet utilisateur
+      if (pbState === 'en_attente_paiement' && pbSnap.data().lockedBy !== uid) {
+        throw Object.assign(
+          new Error('Power bank verrouillé par un autre utilisateur'),
+          { code: 409 }
+        );
+      }
+
+      // Créer le rental
       t.set(rentalRef, {
         userId        : uid,
         qrCode        : pending.powerBankId,
@@ -147,8 +203,8 @@ exports.handler = async (event) => {
         transactionId,
         fraisXof      : pending.amountXof,
         cautionXof    : pending.cautionXof,
-        devise        : pending.devise,
-        fraisDevise   : pending.amountDevise  || pending.amountXof,
+        devise,
+        fraisDevise   : pending.fraisDevise   || pending.amountXof,
         cautionDevise : pending.cautionDevise || pending.cautionXof,
         startTime     : admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -157,46 +213,52 @@ exports.handler = async (event) => {
       t.update(pbDocRef, {
         state        : 'en_location',
         currentUserId: uid,
+        lockedBy     : null,
+        lockedAt     : null,
         updatedAt    : admin.firestore.FieldValue.serverTimestamp(),
       });
 
       // Clôturer la pré-commande
-      t.update(db.collection('pendingRentalPayments').doc(paymentRef), {
-        status     : 'completed',
-        rentalId   : rentalRef.id,
-        completedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      t.update(
+        db.collection('pendingRentalPayments').doc(paymentRef),
+        {
+          status     : 'completed',
+          rentalId   : rentalRef.id,
+          completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+      );
     });
 
-    // 10. Mettre à jour TransfetMoney "rental" → "completed"
+    // ── 10. TransfetMoney "rental" → completed ────────────────────────────────
     if (pending.transtetId) {
       await db.collection('TransfetMoney').doc(pending.transtetId).update({
         status       : 'completed',
-        transactionId: transactionId,  // ID FLW réel
-      });
+        transactionId,
+      }).catch(e => console.error('[verifyFLW] Mise à jour TransfetMoney rental échouée (non bloquant):', e.message));
     }
 
-    // 11. Créer TransfetMoney "restitution" en "pending"
-    //     (sera mis à "completed" quand l'utilisateur rend le power bank)
+    // ── 11. TransfetMoney "restitution" pending ───────────────────────────────
+    //  expediteurId = ESCROW_UID (cohérence avec createWalletRental et doReturn)
     await createTranstetEntry(db, {
-      type            : 'restitution',
-      currency        : pending.devise,
-      montantEnvoye   : pending.cautionDevise || pending.cautionXof,
-      frais           : 0,
-      // La restitution va de Fritok → utilisateur
-      expediteurId    : 'fritok-system',
-      expediteurEmail : 'noreply@fritok.net',
-      expediteurPhoto : '',
-      destinataireId  : uid,
-      destinataireNom : user.username || user.email || uid,
-      destinataireTel : user.phone || '',
-      status          : 'pending', // mis à "completed" lors du retour physique
-    });
+      type           : 'restitution',
+      currency       : devise,
+      montantEnvoye  : pending.cautionDevise || pending.cautionXof,
+      frais          : 0,
+      expediteurId   : ESCROW_UID,
+      expediteurEmail: 'escrow@fritok.net',
+      expediteurPhoto: '',
+      destinataireId : uid,
+      destinataireNom: user.username || user.email || uid,
+      destinataireTel: user.phone || '',
+      status         : 'pending',
+    }).catch(e => console.error('[verifyFLW] Écriture TransfetMoney restitution échouée (non bloquant):', e.message));
 
-    return ok({ verified: true, rentalId: rentalRef.id });
+    return ok({ verified: true, rentalId: rentalRef.id }, origin);
 
   } catch (e) {
-    console.error('verifyFlutterwaveRentalPayment fatal:', e);
-    return err(500, e.message || 'Erreur interne');
+    if (e.code === 404) return err(404, e.message, origin);
+    if (e.code === 409) return err(409, e.message, origin);
+    console.error('[verifyFlutterwaveRentalPayment] fatal:', e);
+    return err(500, 'Erreur interne', origin);
   }
 };
