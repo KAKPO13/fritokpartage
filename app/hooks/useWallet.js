@@ -75,3 +75,17 @@ export async function confirmRestitution({ rentalId }) {
 export async function createWalletRentalRecord({ rentalId, powerBankId, partnerId }) {
   return post('createWalletRentalRecord', { rentalId, powerBankId, partnerId: partnerId || null });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  6. createWalletRental
+//  Initie une location de powerbank avec paiement wallet
+//  Retourne { rentalId, payment_url?, status }
+// ─────────────────────────────────────────────────────────────────────────────
+export async function createWalletRental({ powerBankId, partnerId, amountXof, cautionXof }) {
+  return post('createWalletRental', {
+    powerBankId,
+    partnerId,
+    amountXof : Number(amountXof),
+    cautionXof: Number(cautionXof),
+  });
+}
