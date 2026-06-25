@@ -7,12 +7,12 @@ importScripts(
 );
 
 firebase.initializeApp({
-  apiKey: 'VOTRE_API_KEY',
+  apiKey: 'AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M',
   authDomain: 'VOTRE_AUTH_DOMAIN',
-  projectId: 'VOTRE_PROJECT_ID',
-  storageBucket: 'VOTRE_STORAGE_BUCKET',
-  messagingSenderId: 'VOTRE_MESSAGING_SENDER_ID',
-  appId: 'VOTRE_APP_ID',
+  projectId: 'cgsp-app',
+  storageBucket: 'cgsp-app.appspot.com',
+  messagingSenderId: '463987328508',
+  appId: '1:463987328508:web:dc6c86e684a04b45739e79',
 });
 
 const messaging = firebase.messaging();
