@@ -1,23 +1,20 @@
 // netlify/functions/createWalletRental.js
 // ─────────────────────────────────────────────────────────────────────────────
 //  Flow de location par Wallet Fritok — ENTIÈREMENT côté serveur.
-//
-//  Remplace le flow client dans pages/app.js (confirmRent → wallet).
-//  Le client n'envoie QUE { powerBankId, devise }.
-//  Toute la logique financière est ici : tarifs, débit, escrow, transtet.
-//
-//  POST body : { powerBankId: string, devise?: 'XOF'|'GHS'|'NGN' }
-//  Réponse   : { rentalId: string, fraisDevise: number, cautionDevise: number, devise: string }
-// /─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
-const admin = require('firebase-admin');
+const { initializeApp, getApps, cert } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+
 const { createTranstetEntry } = require('./_transtet');
 const { ok, err, handleOptions, isAllowedOrigin } = require('./_cors');
 const { ESCROW_UID, SUPPORTED_CURRENCIES, MAX_ACTIVE_RENTALS } = require('./_constants');
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
+// ── Initialisation Firebase ──────────────────────────────────────────────────
+if (!getApps().length) {
+  initializeApp({
+    credential: cert({
       projectId  : process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
       privateKey : (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
@@ -25,8 +22,8 @@ if (!admin.apps.length) {
   });
 }
 
-const db   = admin.firestore();
-const auth = admin.auth();
+const db   = getFirestore();
+const auth = getAuth();
 
 exports.handler = async (event) => {
   const origin = event.headers['origin'] || event.headers['Origin'] || '';
@@ -34,7 +31,6 @@ exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return handleOptions(origin);
   if (event.httpMethod !== 'POST')    return err(405, 'Method not allowed', origin);
 
-  // ── Vérification origine ───────────────────────────────────────────────────
   if (!isAllowedOrigin(origin)) {
     console.warn('[createWalletRental] Origine non autorisée :', origin);
     return err(403, 'Origine non autorisée', origin);
@@ -56,16 +52,11 @@ exports.handler = async (event) => {
     if (!userSnap.exists) return err(404, 'Utilisateur introuvable', origin);
     const user = userSnap.data();
 
-    // ── 3. Vérifications métier ───────────────────────────────────────────────
     if (user.phoneVerified !== true) {
       return err(403, 'Numéro de téléphone non vérifié. Vérifie ton numéro avant de louer.', origin);
     }
-    // Décommenter si KYC obligatoire :
-    // if (user.kyc_status !== 'verified') {
-    //   return err(403, 'Vérification KYC requise.', origin);
-    // }
 
-    // ── 4. Body — uniquement powerBankId et devise acceptés du client ─────────
+    // ── 3. Body ──────────────────────────────────────────────────────────────
     let body;
     try { body = JSON.parse(event.body || '{}'); }
     catch { return err(400, 'Body JSON invalide', origin); }
@@ -77,7 +68,7 @@ exports.handler = async (event) => {
       return err(400, `Devise non supportée : ${devise}`, origin);
     }
 
-    // ── 5. Tarifs officiels depuis Firestore ──────────────────────────────────
+    // ── 4. Tarifs & taux de change ────────────────────────────────────────────
     const tarifsSnap = await db.collection('config').doc('tarifs').get();
     if (!tarifsSnap.exists) {
       console.error('[createWalletRental] config/tarifs manquant');
@@ -85,7 +76,6 @@ exports.handler = async (event) => {
     }
     const { fraisXof: FRAIS_XOF = 300, cautionXof: CAUTION_XOF = 200 } = tarifsSnap.data();
 
-    // ── 6. Taux de change depuis Firestore ────────────────────────────────────
     let fraisDevise   = FRAIS_XOF;
     let cautionDevise = CAUTION_XOF;
     let totalDevise   = FRAIS_XOF + CAUTION_XOF;
@@ -101,13 +91,13 @@ exports.handler = async (event) => {
       totalDevise   = Math.round((FRAIS_XOF + CAUTION_XOF) * rate * 100) / 100;
     }
 
-    // ── 7. Vérification solde wallet côté serveur ─────────────────────────────
+    // ── 5. Vérification solde wallet ─────────────────────────────────────────
     const walletBalance = Number(user.wallet?.[devise] ?? 0);
     if (walletBalance < totalDevise) {
       return err(402, `Solde ${devise} insuffisant. Requis : ${totalDevise} · Disponible : ${walletBalance}`, origin);
     }
 
-    // ── 8. Rate limiting : max locations actives simultanées par uid ──────────
+    // ── 6. Rate limiting ─────────────────────────────────────────────────────
     const activeSnap = await db.collection('rentals')
       .where('userId', '==', uid)
       .where('status', '==', 'en_cours')
@@ -117,8 +107,7 @@ exports.handler = async (event) => {
       return err(429, `Limite atteinte : ${MAX_ACTIVE_RENTALS} locations actives simultanées maximum.`, origin);
     }
 
-    // ── 9. Trouver le power bank ──────────────────────────────────────────────
-    // On fait un pre-fetch hors transaction pour avoir l'ID du document
+    // ── 7. Recherche du power bank ───────────────────────────────────────────
     let pbDocRef = null;
     const directSnap = await db.collection('powerBanks').doc(powerBankId).get();
     if (directSnap.exists) {
@@ -132,13 +121,7 @@ exports.handler = async (event) => {
       pbDocRef = qSnap.docs[0].ref;
     }
 
-    // ── 10. Transaction Firestore atomique ────────────────────────────────────
-    //  Lit et modifie en une seule opération atomique :
-    //  - powerBank   : vérifie 'disponible' → passe à 'en_location'
-    //  - user wallet : débite le montant total
-    //  - escrow      : crédite frais + caution
-    //  - rental      : crée le document
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── 8. Transaction Firestore atomique ────────────────────────────────────
     const rentalRef  = db.collection('rentals').doc();
     const userRef    = db.collection('users').doc(uid);
     const escrowRef  = db.collection('users').doc(ESCROW_UID);
@@ -146,33 +129,23 @@ exports.handler = async (event) => {
     let pbData;
 
     await db.runTransaction(async (t) => {
-      // Lecture atomique des 3 documents
       const [pbSnap, userSnap2, escrowSnap] = await Promise.all([
         t.get(pbDocRef),
         t.get(userRef),
         t.get(escrowRef),
       ]);
 
-      // Vérifier état power bank
       if (!pbSnap.exists) throw Object.assign(new Error('Power bank introuvable'), { code: 404 });
       pbData = pbSnap.data();
       if (pbData.state !== 'disponible') {
-        throw Object.assign(
-          new Error(`Power bank non disponible (état actuel : ${pbData.state})`),
-          { code: 409 }
-        );
+        throw Object.assign(new Error(`Power bank non disponible (état actuel : ${pbData.state})`), { code: 409 });
       }
 
-      // Re-vérifier le solde dans la transaction (évite les doubles dépenses simultanées)
       const currentBalance = Number(userSnap2.data()?.wallet?.[devise] ?? 0);
       if (currentBalance < totalDevise) {
-        throw Object.assign(
-          new Error(`Solde insuffisant dans la transaction (${currentBalance} < ${totalDevise})`),
-          { code: 402 }
-        );
+        throw Object.assign(new Error(`Solde insuffisant dans la transaction (${currentBalance} < ${totalDevise})`), { code: 402 });
       }
 
-      // Récupérer et mettre à jour l'Escrow (read-modify-write sur les maps)
       const escrowData    = escrowSnap.exists ? escrowSnap.data() : {};
       const oldTotalCaution = typeof escrowData.totalCaution === 'object' ? escrowData.totalCaution : {};
       const oldTotalFrais   = typeof escrowData.totalFrais   === 'object' ? escrowData.totalFrais   : {};
@@ -190,27 +163,23 @@ exports.handler = async (event) => {
         [devise]: Number(oldTotalFrais[devise] ?? 0) + fraisDevise,
       };
 
-      // Écriture 1 : power bank → en_location
       t.update(pbDocRef, {
         state        : 'en_location',
         currentUserId: uid,
-        updatedAt    : admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt    : FieldValue.serverTimestamp(),
       });
 
-      // Écriture 2 : débit wallet utilisateur
       t.update(userRef, {
-        [`wallet.${devise}`]: admin.firestore.FieldValue.increment(-totalDevise),
+        [`wallet.${devise}`]: FieldValue.increment(-totalDevise),
       });
 
-      // Écriture 3 : crédit Escrow (setDoc merge pour gérer le premier accès)
       t.set(escrowRef, {
         totalCaution: newTotalCaution,
         totalFrais  : newTotalFrais,
-        updatedAt   : admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt   : FieldValue.serverTimestamp(),
       }, { merge: true });
 
-      // Écriture 4 : créer le rental
-      t.set(rentalRef, {
+           t.set(rentalRef, {
         userId        : uid,
         qrCode        : pbData.qrCode || pbDocRef.id,
         partnerId     : pbData.currentPartnerId || null,
@@ -221,12 +190,12 @@ exports.handler = async (event) => {
         devise,
         fraisDevise,
         cautionDevise,
-        transtetWritten: false, // sera mis à true après écriture des TransfetMoney
-        startTime     : admin.firestore.FieldValue.serverTimestamp(),
+        transtetWritten: false,
+        startTime     : FieldValue.serverTimestamp(),
       });
     });
 
-    // ── 11. Profil partenaire ─────────────────────────────────────────────────
+    // ── 9. Profil partenaire ─────────────────────────────────────────────────
     const partnerId = pbData.currentPartnerId || null;
     let partnerNom  = 'Partenaire Fritok';
     let partnerTel  = '';
@@ -238,12 +207,9 @@ exports.handler = async (event) => {
       }
     }
 
-    // ── 12. Écriture des TransfetMoney (hors transaction — pas critique) ──────
-    //  Si cette étape échoue, le rental existe déjà et est valide.
-    //  Une Function de réconciliation peut retrouver les rentals sans TransfetMoney.
+    // ── 10. Écriture des TransfetMoney ──────────────────────────────────────
     try {
       await Promise.all([
-        // Frais de location → partenaire
         createTranstetEntry(db, {
           type           : 'rental',
           currency       : devise,
@@ -257,7 +223,6 @@ exports.handler = async (event) => {
           destinataireTel: partnerTel,
           status         : 'completed',
         }),
-        // Caution → Escrow
         createTranstetEntry(db, {
           type           : 'caution',
           currency       : devise,
@@ -271,7 +236,6 @@ exports.handler = async (event) => {
           destinataireTel: '',
           status         : 'completed',
         }),
-        // Restitution future (pending) → utilisateur
         createTranstetEntry(db, {
           type           : 'restitution',
           currency       : devise,
@@ -287,11 +251,8 @@ exports.handler = async (event) => {
         }),
       ]);
 
-      // Marquer les TransfetMoney comme écrites sur le rental
       await rentalRef.update({ transtetWritten: true });
-
     } catch (txErr) {
-      // Non bloquant — le rental est valide, les TransfetMoney seront réconciliées
       console.error('[createWalletRental] Erreur écriture TransfetMoney (non bloquant):', txErr.message);
     }
 
@@ -313,3 +274,4 @@ exports.handler = async (event) => {
     return err(500, 'Erreur interne', origin);
   }
 };
+
