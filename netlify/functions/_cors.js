@@ -32,10 +32,16 @@ function err(code, msg, origin) {
   return { statusCode: code, headers: getCorsHeaders(origin), body: JSON.stringify({ error: msg }) };
 }
 
+function isAllowedOrigin(origin) {
+  return ALLOWED_ORIGINS.has(origin);
+}
+
+module.exports = { getCorsHeaders, ok, err, handleOptions, isAllowedOrigin };
+
+
 function handleOptions(origin) {
   return { statusCode: 204, headers: getCorsHeaders(origin) };
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // netlify/functions/_constants.js
