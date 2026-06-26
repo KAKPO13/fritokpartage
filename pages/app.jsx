@@ -686,6 +686,7 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
               </div>
             </div>
           </div>
+        
 
           <div style={{ fontSize: 13, color: D.text2, fontWeight: 700, marginBottom: 10 }}>Méthode de paiement</div>
           {['wallet', 'flutterwave'].map(m => (
