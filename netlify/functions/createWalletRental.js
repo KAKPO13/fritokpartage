@@ -8,7 +8,7 @@
 //
 //  POST body : { powerBankId: string, devise?: 'XOF'|'GHS'|'NGN' }
 //  Réponse   : { rentalId: string, fraisDevise: number, cautionDevise: number, devise: string }
-// ─────────────────────────────────────────────────────────────────────────────
+// /─────────────────────────────────────────────────────────────────────────────
 
 const admin = require('firebase-admin');
 const { createTranstetEntry } = require('./_transtet');

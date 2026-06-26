@@ -2,7 +2,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  Module partagé — CORS restreint à fritok.net
 //  Usage : const { getCorsHeaders, ok, err, handleOptions } = require('./_cors');
-// ─────────────────────────────────────────────────────────────────────────────
+/// ─────────────────────────────────────────────────────────────────────────────
 
 const ALLOWED_ORIGINS = new Set([
   'https://fritok.net',
