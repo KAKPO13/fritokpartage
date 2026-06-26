@@ -36,12 +36,6 @@ function handleOptions(origin) {
   return { statusCode: 204, headers: getCorsHeaders(origin) };
 }
 
-function isAllowedOrigin(origin) {
-  return ALLOWED_ORIGINS.has(origin);
-}
-
-module.exports = { getCorsHeaders, ok, err, handleOptions, isAllowedOrigin };
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // netlify/functions/_constants.js
