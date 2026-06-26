@@ -11,13 +11,14 @@ importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-com
 
 // Config Firebase — mêmes valeurs que dans app.js
 firebase.initializeApp({
-  apiKey           : self.FIREBASE_API_KEY            || '',
-  authDomain       : self.FIREBASE_AUTH_DOMAIN        || '',
-  projectId        : self.FIREBASE_PROJECT_ID         || '',
-  storageBucket    : self.FIREBASE_STORAGE_BUCKET     || '',
-  messagingSenderId: self.FIREBASE_MESSAGING_SENDER_ID|| '',
-  appId            : self.FIREBASE_APP_ID             || '',
+  apiKey: 'AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M',
+  authDomain: 'cgsp-app.firebaseapp.com',
+  projectId: 'cgsp-app',
+  storageBucket: 'cgsp-app.appspot.com',
+  messagingSenderId: '463987328508',
+  appId: '1:463987328508:web:dc6c86e684a04b45739e79',
 });
+
 
 const messaging = firebase.messaging();
 

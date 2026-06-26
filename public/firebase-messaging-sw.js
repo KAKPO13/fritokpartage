@@ -8,7 +8,7 @@ importScripts(
 
 firebase.initializeApp({
   apiKey: 'AIzaSyDKKayop62AaoC5DnYz5UuDpJIT3RBRX3M',
-  authDomain: 'VOTRE_AUTH_DOMAIN',
+  authDomain: 'cgsp-app.firebaseapp.com',
   projectId: 'cgsp-app',
   storageBucket: 'cgsp-app.appspot.com',
   messagingSenderId: '463987328508',
