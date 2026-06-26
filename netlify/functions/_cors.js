@@ -9,7 +9,7 @@ const ALLOWED_ORIGINS = new Set([
   'https://www.fritok.net',
   // Décommenter uniquement en développement local :
   // 'http://localhost:3000',
-  // 'http://localhost:8888',
+  /// 'http://localhost:8888',
 ]);
 
 function getCorsHeaders(origin) {

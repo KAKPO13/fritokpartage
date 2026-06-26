@@ -22,7 +22,7 @@
 // Usage dans une Netlify Function :
 //   const { createTranstetEntry } = require('./_transtet');
 //   await createTranstetEntry(db, { ... });
-// ─────────────────────────────────────────────────────────────────────────────
+/// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Formate une date JS en "YYYY-MM-DD"
