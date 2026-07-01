@@ -1,6 +1,8 @@
 // netlify/functions/createWalletRental.js
 // ─────────────────────────────────────────────────────────────────────────────
 //  Flow de location par Wallet Fritok — ENTIÈREMENT côté serveur.
+//  CORS inliné ici (pas de dépendance sur _cors.js) pour éliminer tout
+//  problème de bundling Netlify sur les modules partagés.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -8,8 +10,43 @@ const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 const { createTranstetEntry } = require('./_transtet');
-const { ok, err, handleOptions, isAllowedOrigin } = require('./_cors');
 const { ESCROW_UID, SUPPORTED_CURRENCIES, MAX_ACTIVE_RENTALS } = require('./_constants');
+
+// ── CORS inline ──────────────────────────────────────────────────────────────
+const ALLOWED_ORIGINS = new Set([
+  'https://fritok.net',
+  'https://www.fritok.net',
+  // 'http://localhost:3000',
+  // 'http://localhost:8888',
+]);
+
+function getCorsHeaders(origin) {
+  const allowed = ALLOWED_ORIGINS.has(origin) ? origin : 'https://fritok.net';
+  return {
+    'Access-Control-Allow-Origin'      : allowed,
+    'Access-Control-Allow-Headers'     : 'Authorization, Content-Type',
+    'Access-Control-Allow-Methods'     : 'POST, OPTIONS',
+    'Access-Control-Allow-Credentials' : 'true',
+    'Vary'                             : 'Origin',
+    'Content-Type'                     : 'application/json',
+  };
+}
+
+function ok(body, origin) {
+  return { statusCode: 200, headers: getCorsHeaders(origin), body: JSON.stringify(body) };
+}
+
+function err(code, msg, origin) {
+  return { statusCode: code, headers: getCorsHeaders(origin), body: JSON.stringify({ error: msg }) };
+}
+
+function isAllowedOrigin(origin) {
+  return ALLOWED_ORIGINS.has(origin);
+}
+
+function handleOptions(origin) {
+  return { statusCode: 204, headers: getCorsHeaders(origin) };
+}
 
 // ── Initialisation Firebase ──────────────────────────────────────────────────
 if (!getApps().length) {
@@ -179,7 +216,7 @@ exports.handler = async (event) => {
         updatedAt   : FieldValue.serverTimestamp(),
       }, { merge: true });
 
-           t.set(rentalRef, {
+      t.set(rentalRef, {
         userId        : uid,
         qrCode        : pbData.qrCode || pbDocRef.id,
         partnerId     : pbData.currentPartnerId || null,
