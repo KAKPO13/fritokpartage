@@ -7,7 +7,7 @@ import {
   getDoc,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase'; // ⚠️ adapte le chemin si besoin
+import { db, auth } from '../lib/firebaseClient'; // ⚠️ adapte le chemin si besoin
 
 // ─────────────────────────────────────────────
 //  CONFIG R2 (identique à la version Flutter)
