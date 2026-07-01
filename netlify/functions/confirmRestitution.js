@@ -3,7 +3,8 @@
 // Confirme la restitution d'un power bank (paiement FLW ou Wallet) :
 //   • rental.status → "restitue" + endTime
 //   • powerBank.state → "disponible"
-//   • wallet.XOF += cautionXof  (si paiement wallet)
+//   • wallet.[devise] += cautionDevise  (dans la devise réelle de la location)
+//   • escrow.totalCaution.[devise] -= cautionDevise
 //   • TranstetMoney "restitution" → "completed"
 //
 // POST body : { rentalId: string }
@@ -25,6 +26,10 @@ if (!admin.apps.length) {
 
 const db   = admin.firestore();
 const auth = admin.auth();
+
+// ── Constantes inline (cohérent avec createWalletRental.js) ─────────────────
+const ESCROW_UID           = 'escrow_fritok';
+const SUPPORTED_CURRENCIES = ['XOF', 'GHS', 'NGN'];
 
 const HEADERS = {
   'Access-Control-Allow-Origin' : '*',
@@ -65,6 +70,15 @@ exports.handler = async (event) => {
     if (rental.userId !== uid)        return err(403, 'Accès non autorisé');
     if (rental.status === 'restitue') return ok({ success: true, alreadyReturned: true });
 
+    // 3bis. Devise réelle de la location — jamais supposer XOF par défaut
+    //       silencieusement : si le rental n'a pas de devise enregistrée
+    //       (anciennes locations pré-multi-devise), on retombe sur XOF en
+    //       toute connaissance de cause, avec le bon montant XOF associé.
+    const devise        = SUPPORTED_CURRENCIES.includes(rental.devise) ? rental.devise : 'XOF';
+    const cautionDevise = Number(
+      rental.cautionDevise ?? rental.cautionXof ?? 200
+    );
+
     // 4. Trouver le doc powerBanks
     let pbDocRef;
     const qSnap = await db.collection('powerBanks').where('qrCode', '==', rental.qrCode).limit(1).get();
@@ -81,17 +95,34 @@ exports.handler = async (event) => {
 
     // 6. Transaction Firestore atomique
     await db.runTransaction(async (t) => {
+      const escrowRef = db.collection('users').doc(ESCROW_UID);
+      const escrowSnap = await t.get(escrowRef);
+      const escrowData = escrowSnap.exists ? escrowSnap.data() : {};
+      const oldTotalCaution = typeof escrowData.totalCaution === 'object' ? escrowData.totalCaution : {};
+
       // Clôturer la Rental
       t.update(db.collection('rentals').doc(rentalId), {
         status : 'restitue',
         endTime: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // Rembourser la caution sur le wallet (quel que soit le mode de paiement)
-      const caution = rental.cautionXof || 200;
+      // Rembourser la caution sur le wallet, dans la devise réelle de la location
       t.update(db.collection('users').doc(uid), {
-        'wallet.XOF': admin.firestore.FieldValue.increment(caution),
+        [`wallet.${devise}`]: admin.firestore.FieldValue.increment(cautionDevise),
       });
+
+      // Décrémenter l'escrow de la même devise/montant qui avait été bloqué
+      // à la création de la location (cf. createWalletRental.js).
+      const newTotalCaution = {
+        XOF: Number(oldTotalCaution.XOF ?? 0),
+        GHS: Number(oldTotalCaution.GHS ?? 0),
+        NGN: Number(oldTotalCaution.NGN ?? 0),
+        [devise]: Number(oldTotalCaution[devise] ?? 0) - cautionDevise,
+      };
+      t.set(escrowRef, {
+        totalCaution: newTotalCaution,
+        updatedAt   : admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
 
       // Libérer le power bank
       if (pbDocRef) {
@@ -120,8 +151,8 @@ exports.handler = async (event) => {
       // Créer une nouvelle entrée (cas paiement wallet — pas de pending préexistant)
       await createTranstetEntry(db, {
         type            : 'restitution',
-        currency        : rental.devise || 'XOF',
-        montantEnvoye   : rental.cautionXof || 200,
+        currency        : devise,
+        montantEnvoye   : cautionDevise,
         frais           : 0,
         expediteurId    : 'fritok-system',
         expediteurEmail : 'noreply@fritok.net',
@@ -133,7 +164,7 @@ exports.handler = async (event) => {
       });
     }
 
-    return ok({ success: true, cautionRefunded: rental.cautionXof || 200 });
+    return ok({ success: true, cautionRefunded: cautionDevise, devise });
 
   } catch (e) {
     console.error('confirmRestitution fatal:', e);
