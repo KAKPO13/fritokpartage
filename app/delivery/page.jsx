@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../../lib/firebaseClient';
 import styles from './delivery.module.css';
@@ -16,6 +16,11 @@ const STATUT_CONFIG = {
   annule       : { label: 'Annulé',        color: '#ff4520' },
   en_traitement: { label: 'En traitement', color: '#0070f3' },
 };
+
+// Statuts "actifs" — c'est le vivier public visible par tout livreur connecté.
+// ⚠️ Garder strictement synchronisé avec la règle Firestore /commandes
+// (allow read: if ... resource.data.statut in [...]).
+const ACTIVE_STATUTS = ['en_attente', 'en_route', 'en_traitement'];
 
 const fmt = (n) => Number(n ?? 0).toLocaleString('fr-FR') + ' XOF';
 
@@ -271,7 +276,6 @@ function useLeaflet() {
   const [L, setL] = useState(null);
 
   useEffect(() => {
-    // 1. Injecter le CSS Leaflet une seule fois
     if (!document.getElementById('leaflet-css')) {
       const link    = document.createElement('link');
       link.id       = 'leaflet-css';
@@ -280,12 +284,9 @@ function useLeaflet() {
       document.head.appendChild(link);
     }
 
-    // 2. Importer Leaflet dynamiquement (pas de require, pas de SSR crash)
     import('leaflet').then(mod => {
       const Leaflet = mod.default;
 
-      // Corriger le bug des icônes par défaut avec webpack/Next.js
-      // On pointe vers CDN au lieu de require() les fichiers locaux
       delete Leaflet.Icon.Default.prototype._getIconUrl;
       Leaflet.Icon.Default.mergeOptions({
         iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
@@ -352,17 +353,27 @@ export default function DeliveryPage() {
   const [loading,   setLoading]   = useState(true);
   const [selected,  setSelected]  = useState(null);
   const [filter,    setFilter]    = useState('en_attente');
+  const [authReady, setAuthReady] = useState(false);
 
-  /* Observer auth (nécessaire pour les règles Firestore) */
+  /* Observer auth — DOIT être prêt avant de lancer la requête Firestore,
+     sinon le premier appel part sans request.auth et se fait refuser. */
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, () => {});
+    const unsub = onAuthStateChanged(auth, () => setAuthReady(true));
     return unsub;
   }, []);
 
-  /* Écoute temps réel de la collection commandes */
+  /* Écoute temps réel — restreinte aux statuts ACTIFS.
+     ⚠️ Ne jamais retirer ce `where` : la règle Firestore n'autorise la
+     lecture "publique" que pour ces statuts. Une requête plus large
+     (ex: toute la collection) serait entièrement refusée dès qu'un seul
+     document hors de ces statuts appartient à quelqu'un d'autre —
+     Firestore refuse la requête complète, pas juste ce document. */
   useEffect(() => {
+    if (!authReady) return;
+
     const q = query(
       collection(db, 'commandes'),
+      where('statut', 'in', ACTIVE_STATUTS),
       orderBy('createdAt', 'desc')
     );
     const unsub = onSnapshot(
@@ -371,10 +382,10 @@ export default function DeliveryPage() {
         setCommandes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         setLoading(false);
       },
-      err => { console.error('Firestore:', err); setLoading(false); }
+      err => { console.error('Firestore DeliveryMap:', err); setLoading(false); }
     );
     return () => unsub();
-  }, []);
+  }, [authReady]);
 
   /* Initialiser la carte une seule fois */
   useEffect(() => {
@@ -386,22 +397,18 @@ export default function DeliveryPage() {
       zoomControl: true,
     });
 
-    // OpenStreetMap — gratuit, aucune clé
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom    : 19,
     }).addTo(map);
 
-    // Alternative sombre Carto (décommenter pour activer) :
-    // L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    //   attribution: '© OpenStreetMap © CARTO',
-    //   maxZoom: 19,
-    // }).addTo(map);
-
     mapObjRef.current = map;
   }, [L]);
 
-  /* Mettre à jour les marqueurs à chaque changement de filtre ou de données */
+  /* Mettre à jour les marqueurs à chaque changement de filtre ou de données.
+     Note : le filtre "Toutes" ne montre désormais que les statuts actifs
+     (en_attente / en_route / en_traitement) — la requête ne ramène plus
+     les commandes livrées/annulées d'autrui, par design de la règle. */
   const filtered = commandes.filter(c =>
     filter === 'all' ? true : c.statut === filter
   );
@@ -409,7 +416,6 @@ export default function DeliveryPage() {
   useEffect(() => {
     if (!mapObjRef.current || !L) return;
 
-    // Supprimer les anciens marqueurs
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
 
@@ -430,7 +436,6 @@ export default function DeliveryPage() {
       positions.push([lat, lng]);
     });
 
-    // Recentrer la vue sur les marqueurs visibles
     if (positions.length === 1) {
       mapObjRef.current.setView(positions[0], 14);
     } else if (positions.length > 1) {
@@ -438,7 +443,6 @@ export default function DeliveryPage() {
     }
   }, [filtered.length, filter, L]);
 
-  /* Totaux */
   const enAttenteCount = commandes.filter(c => c.statut === 'en_attente').length;
   const totalFrais     = filtered.reduce((s, c) => s + Number(c.fraisLivraison ?? 0), 0);
 
@@ -452,14 +456,12 @@ export default function DeliveryPage() {
   return (
     <div className={styles.page}>
 
-      {/* ── Nav ── */}
       <nav className={styles.nav}>
         <a href="/" className={styles.navLogo}>Fri<span>Tok</span></a>
         <span className={styles.navTitle}>Livraisons</span>
         <a href="/demo" className={styles.navLink}>Vidéos</a>
       </nav>
 
-      {/* ── Barre frais + filtres ── */}
       <div className={styles.fraisBar}>
         <div className={styles.fraisBarItem}>
           <span className={styles.fraisBarLabel}>
@@ -490,11 +492,9 @@ export default function DeliveryPage() {
         </div>
       </div>
 
-      {/* ── Carte ── */}
       <div className={styles.mapWrap}>
         <div ref={mapRef} className={styles.map}/>
 
-        {/* Overlay chargement */}
         {(!L || loading) && (
           <div className={styles.mapLoading}>
             <div className={styles.mapSpinner}/>
@@ -503,7 +503,6 @@ export default function DeliveryPage() {
         )}
       </div>
 
-      {/* Panneau détail — hors mapWrap pour éviter le clipping */}
       {selected && (
         <OrderDetail
           commande={selected}
@@ -511,7 +510,6 @@ export default function DeliveryPage() {
         />
       )}
 
-      {/* ── FAB commandes en attente ── */}
       <button
         className={styles.fab}
         onClick={() => { setFilter('en_attente'); setSelected(null); }}
