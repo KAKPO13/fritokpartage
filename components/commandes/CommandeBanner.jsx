@@ -87,7 +87,7 @@ export default function CommandeBanner() {
 
         {/* CTA */}
         <Link
-          href="/mes-commandes"
+          href="/commandes"
           style={{
             flexShrink: 0,
             padding: '14px 26px',
