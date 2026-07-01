@@ -33,6 +33,11 @@ const fmt = new Intl.NumberFormat('fr-FR');
 const SYMBOLS = { NGN: '₦', GHS: 'GH₵', USD: '$' };
 const symbolFor = (devise) => SYMBOLS[devise] || 'FCFA';
 
+function shortCode(code, max = 10) {
+  if (!code) return '';
+  return code.length > max ? `${code.slice(0, max)}…` : code;
+}
+
 function fmtFcfa(v) {
   const s = Math.round(v).toString();
   let out = '';
@@ -221,29 +226,33 @@ export default function CommandeDetailPage({ commandeId }) {
 
         {/* Aperçu QR */}
         {qrCode && (
-          <div
+          <button
+            type="button"
             onClick={() => setQrOpen(true)}
-            role="button"
-            tabIndex={0}
             style={{
               background: D.card, borderRadius: 18, border: `1.5px solid ${D.border}`,
               padding: 16, display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer',
+              width: '100%', textAlign: 'left', font: 'inherit',
             }}
           >
-            <div style={{ padding: 8, background: '#fff', borderRadius: 12, border: `1px solid ${D.border}` }}>
+            <div style={{ padding: 8, background: '#fff', borderRadius: 12, border: `1px solid ${D.border}`, flexShrink: 0 }}>
               <QRCodeSVG value={qrCode} size={64} />
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ color: D.text1, fontWeight: 700, fontSize: 14 }}>Code QR de validation</div>
               <div style={{ color: D.text2, fontSize: 11, marginTop: 3 }}>
-                Cliquez pour agrandir · Présentez au livreur
+                Touchez pour agrandir · Présentez au livreur
               </div>
-              <div style={{ color: D.orange, fontWeight: 800, fontSize: 16, letterSpacing: 2, marginTop: 8, fontFamily: 'monospace' }}>
-                {qrCode}
+              <div style={{
+                color: D.orange, fontWeight: 800, fontSize: 16, marginTop: 8,
+                fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {shortCode(qrCode)}
               </div>
             </div>
-            <span style={{ color: D.text2, fontSize: 20 }}>›</span>
-          </div>
+            <span style={{ color: D.text2, fontSize: 20, flexShrink: 0 }}>›</span>
+          </button>
         )}
 
         {/* Articles */}
@@ -390,21 +399,24 @@ function QrModal({ qrCode, onClose, onCopy, onShare }) {
             <QRCodeSVG value={qrCode} size={200} />
           </div>
 
-          <div
+          <button
+            type="button"
             onClick={onCopy}
-            role="button"
-            tabIndex={0}
             style={{
-              marginTop: 16, padding: '10px 16px', background: D.orangeDim,
+              marginTop: 16, padding: '10px 14px', background: D.orangeDim,
               borderRadius: 12, border: `1px solid ${D.border}`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              cursor: 'pointer', width: '100%', font: 'inherit',
             }}
           >
-            <span style={{ color: D.orange, fontWeight: 800, fontSize: 18, letterSpacing: 3, fontFamily: 'monospace' }}>
+            <span style={{
+              color: D.orange, fontWeight: 800, fontSize: 15, fontFamily: 'monospace',
+              wordBreak: 'break-all', overflowWrap: 'anywhere', textAlign: 'center',
+            }}>
               {qrCode}
             </span>
-            <span style={{ fontSize: 14 }}>📋</span>
-          </div>
+            <span style={{ fontSize: 14, flexShrink: 0 }}>📋</span>
+          </button>
 
           <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
             <button
