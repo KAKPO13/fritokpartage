@@ -14,6 +14,7 @@ import Footer from '../components/Footer';
 import AppBanner from '../components/AppBanner';
 import PublishBanner from '../components/PublishBanner';
 import PushManager from '../components/PushManager';
+import PublierColisBanner from '../components/PublierColisBanner';
 
 
 
@@ -31,6 +32,7 @@ export default function Home() {
         <Features />
         <LiveGrid />
         <PublishBanner />
+        <PublierColisBanner />   {/* 🆕 CTA "Publier un colis" → /colis/nouveau */}
         <LiveBanner />      {/* ← 🆕 CTA "Vendez en direct" → /live */}
         <DeliveryMap />
         <TrustBand />
