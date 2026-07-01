@@ -1,6 +1,6 @@
 'use client';
 /**
- * GoLive.jsx — version sécurisée
+ * GoLive.jsx — version sécurisée (corrigée)
  *
  * Différences vs version originale :
  *  - startLive()       → POST /api/start-live       (valide produits + génère token côté serveur)
@@ -9,6 +9,11 @@
  *  - toggleLike/gift   → POST /api/update-engagement (incréments atomiques, pas de chiffres client)
  *  - token Agora       → lu dans /notifications/{uid}/items/cohost_token_{channelId}
  *  - userId ajouté dans live_comments (requis par les nouvelles règles Firestore)
+ *
+ * Correctif (juillet 2026) :
+ *  - Le champ propriétaire d'un doc `video_playlist` est niché dans `product.userId`,
+ *    pas à la racine du document. La query de sélection des produits et le mapper
+ *    `videoDocToProduct` ont été corrigés en conséquence (voir `product.userId`).
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -42,6 +47,8 @@ async function secureCall(path, body) {
 }
 
 // ── Mapper doc video_playlist → Product ─────────────────────────────────────
+// ⚠️ Correctif : l'identifiant du vendeur est stocké dans product.userId
+// (et non product.userIdVend, qui n'existe pas dans le schéma réel des docs).
 function videoDocToProduct(docSnap) {
   const d  = docSnap.data ? docSnap.data() : docSnap;
   const id = docSnap.id ?? d.id ?? '';
@@ -54,7 +61,7 @@ function videoDocToProduct(docSnap) {
     imageUrl:    d.thumbnail  ?? d.imageUrl     ?? null,
     boutiqueId:  p.boutiqueId ?? d.boutiqueId   ?? '',
     productId:   p.productId  ?? d.productId    ?? id,
-    userIdVend:  p.userIdVend ?? d.userIdVend   ?? null,
+    userIdVend:  p.userId     ?? d.userId       ?? null, // ✅ corrigé (était p.userIdVend)
   };
 }
 
@@ -120,7 +127,9 @@ function GoLiveContent() {
   useEffect(() => {
     if (!userId) return;
     setLoadingProds(true);
-    const q = query(collection(db, 'video_playlist'), where('userId', '==', userId));
+    // ✅ Correctif : le champ propriétaire est niché dans product.userId,
+    // pas à la racine du document (voir schéma réel dans video_playlist).
+    const q = query(collection(db, 'video_playlist'), where('product.userId', '==', userId));
     const unsub = onSnapshot(q,
       snap => { setAllProducts(snap.docs.map(videoDocToProduct)); setLoadingProds(false); },
       err  => { console.error('❌ video_playlist:', err); setLoadingProds(false); }
