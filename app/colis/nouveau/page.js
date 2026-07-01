@@ -1,42 +1,11 @@
-'use client';
+import AjouterColisPage from '@/components/AjouterColis';
 
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../../../lib/firebaseClient'; // ⚠️ adapte le chemin si besoin
-import AjouterColis from '../../../components/AjouterColis';
+export const metadata = {
+  title: 'Publier un colis | FriTok',
+  description:
+    "Envoie un colis en quelques clics : décris son contenu, fixe tes frais de livraison, et il devient immédiatement visible par tous les livreurs disponibles.",
+};
 
-export default function NouveauColisPage() {
-  const router = useRouter();
-  const [checkingAuth, setCheckingAuth] = useState(true);
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setCheckingAuth(false);
-      if (!u) {
-        // Redirige vers la connexion si non authentifié
-        router.replace('/connexion?next=/colis/nouveau');
-      }
-    });
-    return unsub;
-  }, [router]);
-
-  if (checkingAuth) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#FFF8F2]">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#FFD4A8] border-t-[#FF6B00]" />
-      </div>
-    );
-  }
-
-  if (!user) return null; // redirection en cours
-
-  return (
-    <AjouterColis
-      onSuccess={() => router.push('/app?tab=colis')}
-      onCancel={() => router.back()}
-    />
-  );
+export default function Page() {
+  return <AjouterColisPage />;
 }

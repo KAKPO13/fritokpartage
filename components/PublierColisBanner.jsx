@@ -1,64 +1,173 @@
 'use client';
-
+import { useState } from 'react';
 import Link from 'next/link';
 
+// Design tokens — identiques à PublishBanner / AddVideoPage
+const D = {
+  orange:    "#FF6B00",
+  orangeHot: "#FF8C00",
+  zest:      "#FFB700",
+  text1:     "#2D1500",
+  text2:     "#8B5E3C",
+  card:      "#FFFFFF",
+  border:    "#FFDDB0",
+  orangeDim: "#FFEDD5",
+  bg:        "#FFF8EE",
+};
+
+/**
+ * PublierColisBanner — à insérer dans la page marketing Home, par exemple
+ * entre <PublishBanner /> et <LiveBanner />.
+ * Redirige vers /colis/nouveau (la route qui rend <AjouterColisPage />).
+ */
 export default function PublierColisBanner() {
+  const [hover, setHover] = useState(false);
+
   return (
-    <section className="relative overflow-hidden bg-fritok-text py-16 sm:py-20">
-      {/* halo décoratif */}
-      <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-fritok-orange/20 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-fritok-orangeLight/10 blur-3xl" />
-
-      <div className="relative mx-auto flex max-w-5xl flex-col items-center gap-8 px-6 text-center md:flex-row md:text-left">
-        <div className="flex-1">
-          <span className="inline-block rounded-full border border-fritok-orange/40 bg-fritok-orange/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-fritok-orangeLight">
-            🚚 Livraison de colis
-          </span>
-          <h2 className="mt-4 text-3xl font-extrabold leading-tight text-white sm:text-4xl">
-            Envoyez un colis,
-            <br className="hidden md:block" /> en quelques clics
-          </h2>
-          <p className="mt-3 max-w-md text-sm leading-relaxed text-white/70 md:text-base">
-            Décrivez votre colis, fixez vos frais de livraison, et il devient
-            immédiatement visible par tous les livreurs disponibles près de
-            chez vous.
-          </p>
-
-          <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row md:items-start">
-            <Link
-              href="/colis/nouveau"
-              className="inline-flex items-center gap-2 rounded-full bg-fritok-orange px-6 py-3 text-sm font-bold text-white shadow-lg shadow-fritok-orange/30 transition-transform hover:scale-[1.03]"
+    <section
+      style={{
+        background: D.bg,
+        padding: "40px 24px",
+        display: "flex",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 720,
+          width: "100%",
+          borderRadius: 28,
+          overflow: "hidden",
+          background: `linear-gradient(135deg, ${D.orange} 0%, #FF9500 55%, ${D.zest} 100%)`,
+          boxShadow: `0 16px 48px ${D.orange}40`,
+          padding: "36px 40px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 24,
+          flexWrap: "wrap",
+        }}
+      >
+        {/* Left: icon + text */}
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+          <div
+            style={{
+              width: 68,
+              height: 68,
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.25)",
+              border: "2px solid rgba(255,255,255,0.5)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 32,
+              flexShrink: 0,
+            }}
+          >
+            🚚
+          </div>
+          <div>
+            <div
+              style={{
+                color: "#fff",
+                fontSize: 22,
+                fontWeight: 900,
+                letterSpacing: -0.5,
+                lineHeight: 1.2,
+              }}
             >
-              📦 Publier un colis
-            </Link>
-            <span className="text-xs text-white/50">
-              Aucune commission cachée — vous fixez vos frais
-            </span>
+              Envoie ton colis en quelques clics
+            </div>
+            <div
+              style={{
+                color: "rgba(255,255,255,0.8)",
+                fontSize: 14,
+                marginTop: 6,
+                lineHeight: 1.4,
+              }}
+            >
+              Décris ton colis, fixe tes frais de livraison, et il devient visible par tous les livreurs disponibles.
+            </div>
+            {/* Step badges */}
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                marginTop: 14,
+                flexWrap: "wrap",
+              }}
+            >
+              {[
+                { n: "1", label: "Destinataire" },
+                { n: "2", label: "Articles" },
+                { n: "3", label: "Tarif" },
+              ].map(({ n, label }) => (
+                <span
+                  key={n}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 10px",
+                    borderRadius: 20,
+                    background: "rgba(255,255,255,0.2)",
+                    border: "1px solid rgba(255,255,255,0.4)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "#fff",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 16,
+                      height: 16,
+                      borderRadius: "50%",
+                      background: "rgba(255,255,255,0.3)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 9,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {n}
+                  </span>
+                  {label}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* visuel simple façon mockup */}
-        <div className="flex-1">
-          <div className="mx-auto w-full max-w-xs rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur">
-            <div className="mb-3 flex items-center justify-between text-xs text-white/50">
-              <span>Nouveau colis</span>
-              <span className="rounded-full bg-fritok-orange/20 px-2 py-0.5 text-fritok-orangeLight">
-                en attente
-              </span>
-            </div>
-            <div className="space-y-2">
-              <div className="h-3 w-3/4 rounded bg-white/10" />
-              <div className="h-3 w-1/2 rounded bg-white/10" />
-              <div className="h-3 w-2/3 rounded bg-white/10" />
-            </div>
-            <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3">
-              <span className="text-xs text-white/50">Total</span>
-              <span className="font-mono text-sm font-bold text-fritok-orangeLight">
-                2 300 FCFA
-              </span>
-            </div>
-          </div>
-        </div>
+        {/* CTA button */}
+        <Link href="/colis/nouveau">
+          <button
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+            style={{
+              padding: "15px 32px",
+              borderRadius: 18,
+              background: hover ? "#fff" : "rgba(255,255,255,0.92)",
+              color: D.orange,
+              fontSize: 15,
+              fontWeight: 900,
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              boxShadow: hover
+                ? "0 8px 28px rgba(0,0,0,0.18)"
+                : "0 4px 16px rgba(0,0,0,0.12)",
+              transform: hover ? "scale(1.03)" : "scale(1)",
+              transition: "all 0.18s",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            🚀 Publier un colis
+          </button>
+        </Link>
       </div>
     </section>
   );
