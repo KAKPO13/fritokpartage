@@ -1,5 +1,6 @@
 import CommandeDetailPage from '@/components/commandes/CommandeDetail';
 
-export default function Page({ params }) {
-  return <CommandeDetailPage commandeId={params.id} />;
+export default async function Page({ params }) {
+  const { id } = await params;
+  return <CommandeDetailPage commandeId={id} />;
 }
