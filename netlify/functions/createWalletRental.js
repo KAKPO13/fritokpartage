@@ -110,7 +110,7 @@ exports.handler = async (event) => {
     }
 
     // ── 4. Tarifs & taux de change ────────────────────────────────────────────
-    const tarifsSnap = await db.collection('config').doc('tarifs').get();
+    const tarifsSnap = await db.collection('config').doc('init').get();
     if (!tarifsSnap.exists) {
       console.error('[createWalletRental] config/tarifs manquant');
       return err(500, 'Configuration tarifaire indisponible', origin);
