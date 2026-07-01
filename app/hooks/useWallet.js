@@ -62,7 +62,7 @@ export async function verifyFlutterwaveRentalPayment({ paymentRef, transactionId
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  4. confirmRestitution
-//  Retourne { success: bool, cautionRefunded?: number }
+//  Retourne { success: bool, cautionRefunded?: number, devise?: string }
 // ─────────────────────────────────────────────────────────────────────────────
 export async function confirmRestitution({ rentalId }) {
   return post('confirmRestitution', { rentalId });
@@ -78,14 +78,20 @@ export async function createWalletRentalRecord({ rentalId, powerBankId, partnerI
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  6. createWalletRental
-//  Initie une location de powerbank avec paiement wallet
-//  Retourne { rentalId, payment_url?, status }
+//  Initie une location de powerbank avec paiement wallet.
+//  IMPORTANT : `devise` doit être transmise au serveur — c'est elle qui
+//  détermine quelle clé du wallet est débitée (wallet.XOF / .GHS / .NGN).
+//  Sans ce champ, le serveur retombe sur user.currency par défaut, ce qui
+//  cause un débit dans la mauvaise devise si l'utilisateur a choisi une
+//  devise différente de sa devise de profil.
+//  Retourne { rentalId, qrCode, devise, fraisDevise, cautionDevise, totalDevise, batteryLevel }
 // ─────────────────────────────────────────────────────────────────────────────
-export async function createWalletRental({ powerBankId, partnerId, amountXof, cautionXof }) {
+export async function createWalletRental({ powerBankId, devise, partnerId, amountXof, cautionXof }) {
   return post('createWalletRental', {
     powerBankId,
+    devise,
     partnerId,
-    amountXof : Number(amountXof),
-    cautionXof: Number(cautionXof),
+    amountXof : amountXof  != null ? Number(amountXof)  : undefined,
+    cautionXof: cautionXof != null ? Number(cautionXof) : undefined,
   });
 }
