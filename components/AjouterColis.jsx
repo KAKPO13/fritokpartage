@@ -64,7 +64,10 @@ async function uploadPhotoR2(file, userId, onProgress) {
     xhr.open("POST", `${WORKER_URL}?filePath=${encodeURIComponent(filePath)}&contentType=${encodeURIComponent(file.type)}`);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.setRequestHeader("Content-Type", file.type);
-    xhr.setRequestHeader("X-User-Id", userId);
+    // ⚠️ Pas de header X-User-Id : le Worker Cloudflare n'autorise pas ce
+    // header en pré-vol CORS (Access-Control-Allow-Headers), ce qui bloque
+    // la requête avant même son envoi. L'ownership est dérivé du token
+    // Firebase côté Worker, comme pour AddVideoPage.
     xhr.timeout = 5 * 60 * 1000;
 
     xhr.upload.onprogress = (e) => {
