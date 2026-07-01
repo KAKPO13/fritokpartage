@@ -47,8 +47,8 @@ async function secureCall(path, body) {
 }
 
 // ── Mapper doc video_playlist → Product ─────────────────────────────────────
-// ⚠️ Correctif : l'identifiant du vendeur est stocké dans product.userId
-// (et non product.userIdVend, qui n'existe pas dans le schéma réel des docs).
+// ✅ userId racine = source de vérité désormais. On garde un repli sur
+// product.userId uniquement pour les docs pas encore migrés (voir script backfill).
 function videoDocToProduct(docSnap) {
   const d  = docSnap.data ? docSnap.data() : docSnap;
   const id = docSnap.id ?? d.id ?? '';
@@ -61,7 +61,7 @@ function videoDocToProduct(docSnap) {
     imageUrl:    d.thumbnail  ?? d.imageUrl     ?? null,
     boutiqueId:  p.boutiqueId ?? d.boutiqueId   ?? '',
     productId:   p.productId  ?? d.productId    ?? id,
-    userIdVend:  p.userId     ?? d.userId       ?? null, // ✅ corrigé (était p.userIdVend)
+    userIdVend:  d.userId     ?? p.userId       ?? null, // racine en priorité, repli legacy
   };
 }
 
@@ -127,9 +127,11 @@ function GoLiveContent() {
   useEffect(() => {
     if (!userId) return;
     setLoadingProds(true);
-    // ✅ Correctif : le champ propriétaire est niché dans product.userId,
-    // pas à la racine du document (voir schéma réel dans video_playlist).
-    const q = query(collection(db, 'video_playlist'), where('product.userId', '==', userId));
+    // ✅ userId racine = source de vérité (conforme à la règle Firestore de create
+    // `request.resource.data.userId == request.auth.uid`). Les documents existants
+    // qui n'ont ce champ que dans product.userId doivent être migrés (voir script
+    // de backfill fourni séparément).
+    const q = query(collection(db, 'video_playlist'), where('userId', '==', userId));
     const unsub = onSnapshot(q,
       snap => { setAllProducts(snap.docs.map(videoDocToProduct)); setLoadingProds(false); },
       err  => { console.error('❌ video_playlist:', err); setLoadingProds(false); }
