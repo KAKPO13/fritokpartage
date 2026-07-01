@@ -10,7 +10,11 @@ const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 const { createTranstetEntry } = require('./_transtet');
-const { ESCROW_UID, SUPPORTED_CURRENCIES, MAX_ACTIVE_RENTALS } = require('./_constants');
+
+// ── Constantes inline (pas de dépendance sur _constants.js) ─────────────────
+const ESCROW_UID           = 'escrow_fritok';
+const SUPPORTED_CURRENCIES = ['XOF', 'GHS', 'NGN'];
+const MAX_ACTIVE_RENTALS   = 2;
 
 // ── CORS inline ──────────────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = new Set([
