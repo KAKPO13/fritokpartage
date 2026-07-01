@@ -500,6 +500,12 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
   const [qrCode,       setQrCode]      = useState('');
   const [pbData,       setPbData]      = useState(null);
   const [payMethod,    setPayMethod]   = useState('wallet');
+  // ── Devise de paiement ──────────────────────────────────────────────────
+  // Valeur initiale neutre ; ajustée juste en dessous par un effet qui
+  // choisit intelligemment la devise réellement approvisionnée dans le
+  // wallet, plutôt que de se fier aveuglément à profile.currency (qui peut
+  // pointer vers une devise à solde 0 alors que d'autres devises ont des
+  // fonds — cf. cas vendeur XOF:0 / NGN:2640).
   const [devise,       setDevise]      = useState(() => profile?.currency ?? 'XOF');
   const [rates,        setRates]       = useState(RATES_FALLBACK);
   const [ratesLoading, setRatesLoading]= useState(false);
@@ -509,6 +515,31 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
 
   const normWalletLocal  = Object.fromEntries(Object.entries(wallet).map(([k, v]) => [k, toNum(v)]));
   const availableDevises = Object.keys(normWalletLocal).filter(k => CUR_META[k]);
+
+  // ── Sélection intelligente de la devise par défaut ───────────────────────
+  // Si la devise préférée du profil a un solde nul (ou insuffisant pour le
+  // total à payer une fois converti), on bascule automatiquement vers la
+  // première devise du wallet qui a un solde positif. L'utilisateur garde
+  // la possibilité de changer manuellement via le sélecteur ci-dessous.
+  useEffect(() => {
+    const preferred     = profile?.currency ?? 'XOF';
+    const preferredSold = normWalletLocal[preferred] ?? 0;
+
+    if (preferredSold > 0) {
+      setDevise(preferred);
+      return;
+    }
+
+    const fallback = availableDevises.find(c => (normWalletLocal[c] ?? 0) > 0);
+    if (fallback) {
+      setDevise(fallback);
+    } else {
+      // Aucune devise n'a de solde positif : on garde la devise préférée
+      // pour que le message d'erreur affiché reste cohérent avec le profil.
+      setDevise(preferred);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.currency, wallet]);
 
   // Taux côté client — affichage uniquement, jamais envoyés comme montants à débiter
   useEffect(() => {
