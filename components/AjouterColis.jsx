@@ -1,8 +1,7 @@
 'use client';
 import { useState, useRef, useEffect } from "react";
-import { db, auth } from "@/lib/firebaseClient";
+import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
 // ─── Design tokens — identiques à AddVideoPage pour cohérence visuelle ──────
 const D = {
@@ -473,6 +472,7 @@ function AjouterColisContent() {
     setProgress(0);
 
     try {
+      // 1. Upload photo (stockage R2, pas Firestore — reste côté client)
       let photoUrl = "";
       if (photoFile) {
         photoUrl = await uploadPhotoR2(photoFile, user.uid, setProgress);
@@ -480,81 +480,35 @@ function AjouterColisContent() {
         setProgress(1);
       }
 
-      const vendeurSnap = await getDoc(doc(db, "users", user.uid));
-      const vd = vendeurSnap.exists() ? vendeurSnap.data() : {};
-      const loc = vd.location || {};
-
-      const commandeId = uuidv4().replace(/-/g, "").substring(0, 20);
-
-      const articlesMap = articles
-        .filter((a) => a.nom.trim())
-        .map((a) => ({
-          nom_frifri: a.nom.trim(),
-          prix_frifri: parseFloat(a.prix) || 0,
-          imageUrl: photoUrl,
-          boutiqueId: "",
-          ref_article: "",
-          userIdVend: user.uid,
-        }));
-
-      await setDoc(doc(db, "commandes", commandeId), {
-        commandeId,
-        clientId: user.uid,
-        userIdVend: user.uid,
-
-        telephoneClient: telDestinataire.trim(),
-        nomDestinataire: nomDestinataire.trim(),
-
-        villeDepart: villeDepart.trim(),
-        villeDestination: villeDestination.trim(),
-        adresseLivraison: adresseLivraison.trim(),
-        clientLat: 0,
-        clientLng: 0,
-        latLivraison: null,
-        lngLivraison: null,
-
-        vendeurLat: loc.lat ?? 0,
-        vendeurLng: loc.lng ?? 0,
-        vendeurAdresse: loc.address ?? vd.adresse ?? "",
-
-        photoColis: photoUrl,
-        articles: articlesMap,
-        refArticles: articlesMap.map(() => ""),
-        descriptionColis: descriptionColis.trim(),
-
-        fraisLivraison: frais,
-        totalXof: total,
-        totalDevise: total,
-        devise: "XOF",
-
-        modePaiement,
-        typeLivraison,
-
-        statut: "en_attente",
-        livreurId: null,
-        livreur: null,
-        codeVerification: null,
-
-        source: "manuel",
-        batchId: null,
-        transactionId: null,
-        qrCode: null,
-
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-
-        extraData: {
-          fraisLivraison: frais,
-          devise: "XOF",
-          clientLat: 0,
-          clientLng: 0,
-          telephoneClient: telDestinataire.trim(),
-          userIdVend: user.uid,
-          photoColis: photoUrl,
+      // 2. Création du colis — entièrement validée et écrite côté serveur
+      const idToken = await user.getIdToken();
+      const res = await fetch("/.netlify/functions/create-colis", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
         },
+        body: JSON.stringify({
+          nomDestinataire,
+          telDestinataire,
+          villeDepart,
+          villeDestination,
+          adresseLivraison,
+          fraisLivraison: frais,
+          descriptionColis,
+          modePaiement,
+          typeLivraison,
+          articles: articles.map((a) => ({ nom: a.nom, prix: a.prix })),
+          photoUrl,
+        }),
       });
 
-      setLastCommandeId(commandeId);
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Erreur serveur (${res.status})`);
+      }
+
+      setLastCommandeId(data.commandeId);
       setPage("success");
     } catch (e) {
       console.error("Colis publish error:", e);
