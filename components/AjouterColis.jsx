@@ -8,6 +8,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebaseClient'; // ⚠️ adapte le chemin si besoin
+import { colors } from '../lib/theme'; // miroir des tokens _C (Flutter)
 
 // ─────────────────────────────────────────────
 //  CONFIG R2 (identique à la version Flutter)
@@ -332,25 +333,25 @@ export default function AjouterColis({ onSuccess, onCancel }) {
   //  RENDER
   // ─────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#FFF8F2]">
+    <div className="min-h-screen bg-fritok-bg">
       {/* Header */}
-      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#FFD4A8] bg-white px-4 py-3">
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-fritok-border bg-white px-4 py-3">
         <button
           type="button"
           onClick={onCancel}
-          className="flex h-9 w-9 items-center justify-center rounded-full text-[#1A0A00] hover:bg-[#FFF0E0]"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-fritok-text hover:bg-fritok-cardAlt"
           aria-label="Retour"
         >
           ←
         </button>
-        <h1 className="text-[17px] font-extrabold text-[#1A0A00]">
+        <h1 className="text-[17px] font-extrabold text-fritok-text">
           Nouveau colis
         </h1>
         <button
           type="submit"
           form="ajouter-colis-form"
           disabled={busy}
-          className="rounded-[10px] bg-[#FF6B00] px-4 py-2 text-sm font-bold text-white disabled:bg-[#FF6B00]/40"
+          className="rounded-[10px] bg-fritok-orange px-4 py-2 text-sm font-bold text-white disabled:bg-fritok-orange/40"
         >
           {busy ? '…' : 'Publier'}
         </button>
@@ -362,16 +363,16 @@ export default function AjouterColis({ onSuccess, onCancel }) {
         className="mx-auto max-w-xl px-4 py-5"
       >
         {/* Bannière info */}
-        <div className="mb-5 flex gap-3 rounded-2xl border border-[#FF6B00]/30 bg-[#FF6B00]/10 p-3.5">
+        <div className="mb-5 flex gap-3 rounded-2xl border border-fritok-orange/30 bg-fritok-orange/10 p-3.5">
           <span className="text-lg">ℹ️</span>
-          <p className="text-[12.5px] leading-relaxed text-[#CC5500]">
+          <p className="text-[12.5px] leading-relaxed text-fritok-orangeDark">
             Ce colis sera immédiatement visible par tous les livreurs
             disponibles dans votre zone.
           </p>
         </div>
 
         {formError && (
-          <div className="mb-4 flex items-center gap-2 rounded-xl bg-[#C62828] px-4 py-3 text-sm font-medium text-white">
+          <div className="mb-4 flex items-center gap-2 rounded-xl bg-fritok-red px-4 py-3 text-sm font-medium text-white">
             ⚠️ {formError}
           </div>
         )}
@@ -393,7 +394,7 @@ export default function AjouterColis({ onSuccess, onCancel }) {
                   </span>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-white/30">
                     <div
-                      className="h-full bg-[#FF6B00] transition-all"
+                      className="h-full bg-fritok-orange transition-all"
                       style={{ width: `${uploadProgress * 100}%` }}
                     />
                   </div>
@@ -403,39 +404,39 @@ export default function AjouterColis({ onSuccess, onCancel }) {
                 <button
                   type="button"
                   onClick={removePhoto}
-                  className="absolute right-2.5 top-2.5 flex h-9 w-9 items-center justify-center rounded-full border border-[#FF6B00]/60 bg-black/55 text-[#FF6B00]"
+                  className="absolute right-2.5 top-2.5 flex h-9 w-9 items-center justify-center rounded-full border border-fritok-orange/60 bg-black/55 text-fritok-orange"
                 >
                   ✕
                 </button>
               )}
             </div>
           ) : (
-            <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#FFD4A8] bg-white shadow-sm">
+            <div className="overflow-hidden rounded-2xl border-[1.5px] border-fritok-border bg-white shadow-sm">
               <button
                 type="button"
                 onClick={() => galleryInputRef.current?.click()}
-                className="flex w-full items-center gap-3.5 px-4 py-4 text-left hover:bg-[#FFF0E0]"
+                className="flex w-full items-center gap-3.5 px-4 py-4 text-left hover:bg-fritok-cardAlt"
               >
                 <IconBubble>🖼️</IconBubble>
-                <span className="text-sm font-semibold text-[#1A0A00]">
+                <span className="text-sm font-semibold text-fritok-text">
                   Choisir depuis la galerie
                 </span>
-                <span className="ml-auto text-[#B07040]">›</span>
+                <span className="ml-auto text-fritok-textMuted">›</span>
               </button>
-              <div className="h-px bg-[#FFE0C0]" />
+              <div className="h-px bg-fritok-divider" />
               <button
                 type="button"
                 onClick={() => cameraInputRef.current?.click()}
-                className="flex w-full items-center gap-3.5 px-4 py-4 text-left hover:bg-[#FFF0E0]"
+                className="flex w-full items-center gap-3.5 px-4 py-4 text-left hover:bg-fritok-cardAlt"
               >
                 <IconBubble>📸</IconBubble>
-                <span className="text-sm font-semibold text-[#1A0A00]">
+                <span className="text-sm font-semibold text-fritok-text">
                   Prendre une photo
                 </span>
-                <span className="ml-auto text-[#B07040]">›</span>
+                <span className="ml-auto text-fritok-textMuted">›</span>
               </button>
-              <div className="flex items-center justify-center gap-1.5 border-t border-[#FFE0C0] bg-[#FFF0E0] py-2">
-                <span className="text-xs text-[#B07040]">
+              <div className="flex items-center justify-center gap-1.5 border-t border-fritok-divider bg-fritok-cardAlt py-2">
+                <span className="text-xs text-fritok-textMuted">
                   Optionnel — aide le livreur à identifier le colis
                 </span>
               </div>
@@ -489,7 +490,7 @@ export default function AjouterColis({ onSuccess, onCancel }) {
             error={errors.villeDepart}
             wrapperClassName="flex-1"
           />
-          <span className="pt-2 text-[#FF6B00]">→</span>
+          <span className="pt-2 text-fritok-orange">→</span>
           <Field
             label="Destination"
             icon="📍"
@@ -512,18 +513,18 @@ export default function AjouterColis({ onSuccess, onCancel }) {
 
         {/* Articles */}
         <SectionTitle icon="📦" title="Articles / Contenu" />
-        <p className="mb-3 text-xs text-[#B07040]">
+        <p className="mb-3 text-xs text-fritok-textMuted">
           Décrivez le contenu du colis pour le livreur.
         </p>
-        <div className="mb-2 overflow-hidden rounded-[14px] border-[1.5px] border-[#FFD4A8] bg-white">
+        <div className="mb-2 overflow-hidden rounded-[14px] border-[1.5px] border-fritok-border bg-white">
           {articles.map((a, i) => (
             <div
               key={a.id}
               className={`flex items-center gap-2.5 p-3 ${
-                i < articles.length - 1 ? 'border-b border-[#FFE0C0]' : ''
+                i < articles.length - 1 ? 'border-b border-fritok-divider' : ''
               }`}
             >
-              <div className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-[#FFF0E0] font-mono text-[11px] font-bold text-[#FF6B00]">
+              <div className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-fritok-cardAlt font-mono text-[11px] font-bold text-fritok-orange">
                 {i + 1}
               </div>
               <input
@@ -531,7 +532,7 @@ export default function AjouterColis({ onSuccess, onCancel }) {
                 placeholder="Nom de l'article"
                 value={a.nom}
                 onChange={(e) => updateArticle(a.id, 'nom', e.target.value)}
-                className="min-w-0 flex-[3] bg-transparent text-sm text-[#1A0A00] placeholder:text-[#B07040]/60 focus:outline-none"
+                className="min-w-0 flex-[3] bg-transparent text-sm text-fritok-text placeholder:text-fritok-textMuted/60 focus:outline-none"
               />
               <input
                 type="text"
@@ -545,13 +546,13 @@ export default function AjouterColis({ onSuccess, onCancel }) {
                     e.target.value.replace(/\D/g, '')
                   )
                 }
-                className="w-[90px] shrink-0 bg-transparent text-right font-mono text-sm font-semibold text-[#FF6B00] placeholder:text-[#B07040]/50 focus:outline-none"
+                className="w-[90px] shrink-0 bg-transparent text-right font-mono text-sm font-semibold text-fritok-orange placeholder:text-fritok-textMuted/50 focus:outline-none"
               />
               {articles.length > 1 && (
                 <button
                   type="button"
                   onClick={() => removeArticle(a.id)}
-                  className="shrink-0 text-[#C62828]"
+                  className="shrink-0 text-fritok-red"
                   aria-label="Retirer l'article"
                 >
                   ⊖
@@ -563,14 +564,14 @@ export default function AjouterColis({ onSuccess, onCancel }) {
             <button
               type="button"
               onClick={addArticle}
-              className="flex w-full items-center justify-center gap-1.5 border-t border-[#FFE0C0] bg-[#FFF0E0] py-3 text-sm font-semibold text-[#FF6B00]"
+              className="flex w-full items-center justify-center gap-1.5 border-t border-fritok-divider bg-fritok-cardAlt py-3 text-sm font-semibold text-fritok-orange"
             >
               ＋ Ajouter un article
             </button>
           )}
         </div>
         {errors.articles && (
-          <p className="mb-3 text-xs font-medium text-[#C62828]">
+          <p className="mb-3 text-xs font-medium text-fritok-red">
             {errors.articles}
           </p>
         )}
@@ -599,16 +600,16 @@ export default function AjouterColis({ onSuccess, onCancel }) {
           />
         </div>
 
-        <div className="mb-5 rounded-xl border border-[#FFD4A8] bg-[#FFF0E0] p-3.5">
+        <div className="mb-5 rounded-xl border border-fritok-border bg-fritok-cardAlt p-3.5">
           <SummaryLine label="Valeur articles" value={totalArticles} />
           <div className="my-1.5" />
           <SummaryLine label="Frais de livraison" value={frais} />
-          <div className="my-3 h-px bg-[#FFE0C0]" />
+          <div className="my-3 h-px bg-fritok-divider" />
           <SummaryLine
             label="Total commande"
             value={total}
             bold
-            color="#FF6B00"
+            color={colors.orange}
           />
         </div>
 
@@ -636,7 +637,7 @@ export default function AjouterColis({ onSuccess, onCancel }) {
         <button
           type="submit"
           disabled={busy}
-          className="flex h-14 w-full items-center justify-center gap-2.5 rounded-2xl bg-[#FF6B00] text-[17px] font-extrabold tracking-wide text-white shadow-lg shadow-[#FF6B00]/30 disabled:bg-[#FF6B00]/40"
+          className="flex h-14 w-full items-center justify-center gap-2.5 rounded-2xl bg-fritok-orange text-[17px] font-extrabold tracking-wide text-white shadow-lg shadow-fritok-orange/30 disabled:bg-fritok-orange/40"
         >
           {busy ? (
             <span>
@@ -654,26 +655,26 @@ export default function AjouterColis({ onSuccess, onCancel }) {
       {successId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-sm rounded-3xl bg-white p-7 text-center">
-            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-[#FF6B00] to-[#CC5500] text-3xl text-white shadow-lg shadow-[#FF6B00]/35">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-fritok-orange to-fritok-orangeDark text-3xl text-white shadow-lg shadow-fritok-orange/35">
               ✓
             </div>
-            <h2 className="text-xl font-extrabold text-[#1A0A00]">
+            <h2 className="text-xl font-extrabold text-fritok-text">
               Colis publié !
             </h2>
-            <p className="mt-2 text-[13px] leading-relaxed text-[#7A4A1E]">
+            <p className="mt-2 text-[13px] leading-relaxed text-fritok-textSub">
               Visible immédiatement par
               <br />
               tous les livreurs disponibles.
             </p>
-            <div className="mx-auto mt-3 inline-block rounded-lg border border-[#FFD4A8] bg-[#FFF0E0] px-3.5 py-2">
-              <span className="font-mono text-sm font-bold text-[#FF6B00]">
+            <div className="mx-auto mt-3 inline-block rounded-lg border border-fritok-border bg-fritok-cardAlt px-3.5 py-2">
+              <span className="font-mono text-sm font-bold text-fritok-orange">
                 #{successId.substring(0, 8).toUpperCase()}
               </span>
             </div>
             <button
               type="button"
               onClick={() => onSuccess?.(successId)}
-              className="mt-6 h-[50px] w-full rounded-[14px] bg-[#FF6B00] text-base font-extrabold text-white"
+              className="mt-6 h-[50px] w-full rounded-[14px] bg-fritok-orange text-base font-extrabold text-white"
             >
               Parfait !
             </button>
@@ -691,17 +692,17 @@ function SectionTitle({ icon, title }) {
   return (
     <div className="mb-3 flex items-center gap-1.5">
       <span className="text-sm">{icon}</span>
-      <span className="text-[13px] font-extrabold tracking-wide text-[#7A4A1E]">
+      <span className="text-[13px] font-extrabold tracking-wide text-fritok-textSub">
         {title}
       </span>
-      <div className="ml-2 h-px flex-1 bg-[#FFE0C0]" />
+      <div className="ml-2 h-px flex-1 bg-fritok-divider" />
     </div>
   );
 }
 
 function IconBubble({ children }) {
   return (
-    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#FF6B00]/10 text-base">
+    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-fritok-orange/10 text-base">
       {children}
     </span>
   );
@@ -719,13 +720,13 @@ function Field({
   wrapperClassName = '',
 }) {
   const baseClasses =
-    'w-full rounded-xl border-[1.5px] bg-[#FFFAF5] py-3.5 pl-10 pr-3 text-sm text-[#1A0A00] placeholder:text-[#B07040]/60 focus:outline-none focus:border-[#FF6B00] focus:border-2';
-  const borderClass = error ? 'border-[#C62828]' : 'border-[#FFD4A8]';
+    'w-full rounded-xl border-[1.5px] bg-fritok-inputFill py-3.5 pl-10 pr-3 text-sm text-fritok-text placeholder:text-fritok-textMuted/60 focus:outline-none focus:border-fritok-orange focus:border-2';
+  const borderClass = error ? 'border-fritok-red' : 'border-fritok-border';
 
   return (
     <div className={wrapperClassName}>
       <div className="relative">
-        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#FF6B00]">
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fritok-orange">
           {icon}
         </span>
         {multiline ? (
@@ -747,12 +748,12 @@ function Field({
         )}
       </div>
       {!placeholder && (
-        <label className="ml-1 mt-1 block text-[11px] text-[#B07040]">
+        <label className="ml-1 mt-1 block text-[11px] text-fritok-textMuted">
           {label}
         </label>
       )}
       {error && (
-        <p className="ml-1 mt-1 text-[11px] font-medium text-[#C62828]">
+        <p className="ml-1 mt-1 text-[11px] font-medium text-fritok-red">
           {error}
         </p>
       )}
@@ -760,11 +761,11 @@ function Field({
   );
 }
 
-function SummaryLine({ label, value, bold = false, color = '#1A0A00' }) {
+function SummaryLine({ label, value, bold = false, color = colors.text }) {
   return (
     <div className="flex items-center justify-between">
       <span
-        className={`text-[13px] text-[#7A4A1E] ${bold ? 'font-bold' : ''}`}
+        className={`text-[13px] text-fritok-textSub ${bold ? 'font-bold' : ''}`}
       >
         {label}
       </span>
@@ -784,10 +785,10 @@ function SummaryLine({ label, value, bold = false, color = '#1A0A00' }) {
 
 function Picker({ label, icon, options, selected, onChange }) {
   return (
-    <div className="rounded-[14px] border-[1.5px] border-[#FFD4A8] bg-white p-3.5">
+    <div className="rounded-[14px] border-[1.5px] border-fritok-border bg-white p-3.5">
       <div className="mb-2.5 flex items-center gap-1.5">
-        <span className="text-[#B07040]">{icon}</span>
-        <span className="text-xs font-semibold text-[#7A4A1E]">{label}</span>
+        <span className="text-fritok-textMuted">{icon}</span>
+        <span className="text-xs font-semibold text-fritok-textSub">{label}</span>
       </div>
       <div className="flex gap-2">
         {Object.entries(options).map(([key, val]) => {
@@ -799,8 +800,8 @@ function Picker({ label, icon, options, selected, onChange }) {
               onClick={() => onChange(key)}
               className={`flex-1 rounded-[10px] border-[1.5px] py-2.5 text-center text-xs font-bold transition-colors ${
                 isSelected
-                  ? 'border-[#FF6B00] bg-[#FF6B00] text-white'
-                  : 'border-[#FFD4A8] bg-[#FFF0E0] text-[#7A4A1E]'
+                  ? 'border-fritok-orange bg-fritok-orange text-white'
+                  : 'border-fritok-border bg-fritok-cardAlt text-fritok-textSub'
               }`}
             >
               {val}
