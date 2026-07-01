@@ -15,6 +15,7 @@ import AppBanner from '../components/AppBanner';
 import PublishBanner from '../components/PublishBanner';
 import PushManager from '../components/PushManager';
 import PublierColisBanner from '../components/PublierColisBanner';
+import CommandeBanner from '../components/commandes/CommandeBanner'; // ← 🆕 CTA "Mes commandes" → /mes-commandes
 
 
 
@@ -33,6 +34,7 @@ export default function Home() {
         <LiveGrid />
         <PublishBanner />
         <PublierColisBanner />   {/* 🆕 CTA "Publier un colis" → /colis/nouveau */}
+        <CommandeBanner />       {/* 🆕 CTA "Mes commandes" → /mes-commandes */}
         <LiveBanner />      {/* ← 🆕 CTA "Vendez en direct" → /live */}
         <DeliveryMap />
         <TrustBand />
