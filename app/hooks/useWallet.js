@@ -62,10 +62,13 @@ export async function verifyFlutterwaveRentalPayment({ paymentRef, transactionId
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  4. confirmRestitution
+//  `partnerCode` est le QR code du partenaire scanné par l'utilisateur sur
+//  place — le serveur vérifie qu'il correspond au partenaire attendu pour
+//  ce power bank avant d'effectuer le remboursement (mesure anti-fraude).
 //  Retourne { success: bool, cautionRefunded?: number, devise?: string }
 // ─────────────────────────────────────────────────────────────────────────────
-export async function confirmRestitution({ rentalId }) {
-  return post('confirmRestitution', { rentalId });
+export async function confirmRestitution({ rentalId, partnerCode }) {
+  return post('confirmRestitution', { rentalId, partnerCode });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

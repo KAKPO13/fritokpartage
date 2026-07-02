@@ -745,28 +745,64 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  ReturnTab — restitution déléguée au serveur via confirmRestitution
+//  ─────────────────────────────────────────────────────────────────────────
+//  Sécurité : la restitution ne peut plus être déclenchée par un simple clic.
+//  L'utilisateur doit scanner le QR code du PARTENAIRE physiquement présent
+//  (sticker en boutique), ce qui prouve qu'il se trouve bien sur place.
+//  Le code scanné est envoyé au serveur, qui vérifie qu'il correspond au
+//  currentPartnerId attendu sur le power bank AVANT de rembourser quoi que
+//  ce soit — la vérification côté client ci-dessous n'est qu'un confort
+//  d'UX (retour immédiat), jamais la source de vérité.
 // ─────────────────────────────────────────────────────────────────────────────
 import { confirmRestitution } from '../app/hooks/useWallet';
 
 function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
+  const [step,         setStep]         = useState('select'); // select → scan → done
   const [selected,     setSelected]     = useState(null);
+  const [partnerCode,  setPartnerCode]  = useState('');
+  const [partnerInfo,  setPartnerInfo]  = useState(null); // { name } une fois trouvé côté client
+  const [scanLoading,  setScanLoading]  = useState(false);
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState('');
   const [done,         setDone]         = useState(false);
   const [refund,       setRefund]       = useState(0);
   const [refundDevise, setRefundDevise] = useState('XOF');
 
+  const selectedRental = activeRentals.find(x => x.id === selected);
+
+  // ── Vérification côté client (confort UX uniquement) ─────────────────────
+  const lookupPartner = async (code) => {
+    const trimmed = code.trim();
+    if (!trimmed) { setError('Scanne ou saisis le code du partenaire.'); return; }
+    setScanLoading(true); setError('');
+    try {
+      const { getDocs: gd, collection: col, query: q, where: wh } = await import('firebase/firestore');
+      const snap = await gd(q(col(db, 'partners'), wh('qrCode', '==', trimmed)));
+      if (snap.empty) {
+        setError('Partenaire introuvable. Vérifie le code affiché en boutique.');
+        setScanLoading(false);
+        return;
+      }
+      const pData = snap.docs[0].data();
+      setPartnerInfo({ name: pData.name || pData.nomBoutique || 'Partenaire Fritok' });
+      setPartnerCode(trimmed);
+    } catch (e) {
+      setError('Erreur réseau : ' + e.message);
+    }
+    setScanLoading(false);
+  };
+
   const doReturn = async () => {
-    if (!selected) return;
+    if (!selectedRental || !partnerCode) return;
     setLoading(true); setError('');
     try {
-      // Délégation totale au serveur — même logique que le flow wallet :
-      // le serveur recrédite le wallet, met à jour l'Escrow, le rental et le power bank
-      // dans une transaction atomique.
-      const r      = activeRentals.find(x => x.id === selected);
-      const result = await confirmRestitution({ rentalId: r.id });
-      setRefund(result.cautionRefunded ?? r.cautionDevise ?? r.cautionXof ?? CAUTION_XOF);
-      setRefundDevise(r.devise ?? 'XOF');
+      // Délégation totale au serveur — le serveur revérifie indépendamment
+      // que partnerCode correspond bien au partenaire attendu pour ce power
+      // bank avant de recréditer le wallet, mettre à jour l'Escrow, le
+      // rental et le power bank, dans une transaction atomique.
+      const result = await confirmRestitution({ rentalId: selectedRental.id, partnerCode });
+      setRefund(result.cautionRefunded ?? selectedRental.cautionDevise ?? selectedRental.cautionXof ?? CAUTION_XOF);
+      setRefundDevise(result.devise ?? selectedRental.devise ?? 'XOF');
       setDone(true);
     } catch (e) {
       setError(e.message || 'Erreur lors de la restitution.');
@@ -791,7 +827,8 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
     </div>
   );
 
-  return (
+  // ── Étape 1 : sélection de la location ────────────────────────────────────
+  if (step === 'select') return (
     <div style={{ padding: 24 }}>
       <div style={{ fontSize: 20, fontWeight: 800, color: D.text1, marginBottom: 20 }}>↩️ Rendre un power bank</div>
       <div style={{ fontSize: 13, color: D.text2, fontWeight: 700, marginBottom: 10 }}>Sélectionne la location à terminer</div>
@@ -808,15 +845,124 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
       {selected && (
         <>
           <div style={{ margin: '12px 0', padding: 14, background: D.greenLight, borderRadius: 12, fontSize: 13, color: D.green, fontWeight: 500 }}>
-            💚 Ta caution de <strong>{fmt(activeRentals.find(r => r.id === selected)?.cautionXof ?? CAUTION_XOF)} FCFA</strong> sera remboursée immédiatement.
+            💚 Ta caution de <strong>{fmt(selectedRental?.cautionXof ?? CAUTION_XOF)} FCFA</strong> sera remboursée immédiatement.
+          </div>
+          <div style={{ margin: '0 0 14px', padding: 14, background: D.amberLight, borderRadius: 12, fontSize: 12, color: D.amber, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <span>🔒</span>
+            <div>Pour ta sécurité, tu dois scanner le QR code du partenaire chez qui tu rends le power bank.</div>
+          </div>
+          <button onClick={() => { setStep('scan'); setError(''); }} style={primaryBtn(false)}>
+            📷 Scanner le partenaire
+          </button>
+        </>
+      )}
+    </div>
+  );
+
+  // ── Étape 2 : scan du QR code partenaire ──────────────────────────────────
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ fontSize: 20, fontWeight: 800, color: D.text1, marginBottom: 8 }}>🔒 Confirmer sur place</div>
+      <div style={{ fontSize: 13, color: D.text2, marginBottom: 20 }}>
+        Scanne le QR code affiché chez le partenaire pour confirmer que tu es bien sur place.
+      </div>
+
+      {!partnerInfo && (
+        <PartnerScanStep
+          code={partnerCode}
+          setCode={setPartnerCode}
+          onLookup={() => lookupPartner(partnerCode)}
+          loading={scanLoading}
+          error={error}
+          setError={setError}
+        />
+      )}
+
+      {partnerInfo && (
+        <>
+          <div style={{ background: D.greenLight, borderRadius: 14, padding: 18, marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ fontSize: 28, marginBottom: 6 }}>✅</div>
+            <div style={{ fontSize: 11, color: D.green, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>PARTENAIRE CONFIRMÉ</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: D.text1 }}>{partnerInfo.name}</div>
+          </div>
+          <div style={{ margin: '0 0 16px', padding: 14, background: D.greenLight, borderRadius: 12, fontSize: 13, color: D.green, fontWeight: 500 }}>
+            💚 Ta caution de <strong>{fmt(selectedRental?.cautionXof ?? CAUTION_XOF)} FCFA</strong> sera remboursée immédiatement.
           </div>
           {error && <div style={{ fontSize: 12, color: D.red, marginBottom: 10, padding: '10px 14px', background: '#FEE2E2', borderRadius: 10 }}>{error}</div>}
           <button onClick={doReturn} disabled={loading} style={primaryBtn(loading)}>
             {loading ? <Spinner /> : 'Confirmer la restitution'}
           </button>
+          <button onClick={() => { setPartnerInfo(null); setPartnerCode(''); setError(''); }} style={ghostBtn}>Scanner un autre code</button>
         </>
       )}
+
+      <button onClick={() => { setStep('select'); setPartnerInfo(null); setPartnerCode(''); setError(''); }} style={ghostBtn}>← Retour</button>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PartnerScanStep — scan (ou saisie manuelle) du QR code partenaire
+// ─────────────────────────────────────────────────────────────────────────────
+function PartnerScanStep({ code, setCode, onLookup, loading, error, setError }) {
+  const [cameraOn, setCameraOn] = useState(false);
+  const [camError, setCamError] = useState('');
+  const scannerRef = useRef(null);
+
+  const startCamera = async () => {
+    setCamError('');
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      const scanner = new Html5Qrcode('fritok-partner-qr-reader');
+      scannerRef.current = scanner;
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 220, height: 220 } },
+        (decoded) => { const c = decoded.trim(); setCode(c); stopCamera(); setTimeout(() => onLookup(), 150); },
+        () => {},
+      );
+      setCameraOn(true);
+    } catch (e) {
+      setCamError(e.name === 'NotAllowedError'
+        ? 'Permission caméra refusée. Autorise-la dans les paramètres du navigateur.'
+        : 'Caméra indisponible. Utilise la saisie manuelle ci-dessous.');
+    }
+  };
+
+  const stopCamera = () => {
+    if (scannerRef.current) { scannerRef.current.stop().catch(() => {}); scannerRef.current = null; }
+    setCameraOn(false);
+  };
+
+  useEffect(() => () => stopCamera(), []);
+
+  return (
+    <>
+      <div style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 16, background: '#111', position: 'relative' }}>
+        <div id="fritok-partner-qr-reader" style={{ width: '100%', display: cameraOn ? 'block' : 'none', minHeight: 280 }} />
+        {!cameraOn && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 220, padding: 24, position: 'relative' }}>
+            {[['top','left'],['top','right'],['bottom','left'],['bottom','right']].map(([v, h]) => (
+              <div key={v+h} style={{ position: 'absolute', [v]: 18, [h]: 18, width: 30, height: 30, borderTop: v === 'top' ? `3px solid ${D.orange}` : 'none', borderBottom: v === 'bottom' ? `3px solid ${D.orange}` : 'none', borderLeft: h === 'left' ? `3px solid ${D.orange}` : 'none', borderRight: h === 'right' ? `3px solid ${D.orange}` : 'none' }} />
+            ))}
+            <div style={{ fontSize: 44, marginBottom: 10 }}>🏪</div>
+            <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: 600, textAlign: 'center' }}>Scanner le QR du partenaire</div>
+            <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>affiché en boutique</div>
+            <button onClick={startCamera} style={{ marginTop: 18, padding: '10px 28px', background: D.orange, color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>📸 Activer la caméra</button>
+          </div>
+        )}
+        {cameraOn && <button onClick={stopCamera} style={{ position: 'absolute', top: 10, right: 10, zIndex: 20, background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, cursor: 'pointer', fontWeight: 700 }}>✕ Stop</button>}
+      </div>
+      {camError && <div style={{ fontSize: 12, color: D.amber, background: D.amberLight, padding: '10px 14px', borderRadius: 10, marginBottom: 12 }}>⚠️ {camError}</div>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 14px' }}>
+        <div style={{ flex: 1, height: 1, background: D.border }} />
+        <div style={{ fontSize: 11, color: D.text3, fontWeight: 700, whiteSpace: 'nowrap' }}>OU SAISIR MANUELLEMENT</div>
+        <div style={{ flex: 1, height: 1, background: D.border }} />
+      </div>
+      <input placeholder="Code partenaire" value={code} onChange={e => { setCode(e.target.value); setError(''); }} onKeyDown={e => e.key === 'Enter' && onLookup()} style={{ ...inputStyle, fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }} />
+      {error && <div style={{ fontSize: 12, color: D.red, marginBottom: 10, padding: '10px 14px', background: '#FEE2E2', borderRadius: 10 }}>{error}</div>}
+      <button onClick={onLookup} disabled={loading} style={primaryBtn(loading)}>{loading ? <Spinner /> : '🔍 Vérifier'}</button>
+    </>
   );
 }
 

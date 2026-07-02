@@ -1,13 +1,16 @@
 // netlify/functions/confirmRestitution.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Confirme la restitution d'un power bank (paiement FLW ou Wallet) :
+//   • Vérifie que partnerCode (QR scanné en boutique) correspond au
+//     currentPartnerId attendu sur le power bank — mesure anti-fraude,
+//     rejette avec 403 sinon.
 //   • rental.status → "restitue" + endTime
 //   • powerBank.state → "disponible"
 //   • wallet.[devise] += cautionDevise  (dans la devise réelle de la location)
 //   • escrow.totalCaution.[devise] -= cautionDevise
 //   • TranstetMoney "restitution" → "completed"
 //
-// POST body : { rentalId: string }
+// POST body : { rentalId: string, partnerCode: string }
 // Auth      : Bearer <Firebase ID Token>
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -60,8 +63,9 @@ exports.handler = async (event) => {
     try { body = JSON.parse(event.body || '{}'); }
     catch { return err(400, 'Body invalide'); }
 
-    const { rentalId } = body;
-    if (!rentalId) return err(400, 'rentalId requis');
+    const { rentalId, partnerCode } = body;
+    if (!rentalId)    return err(400, 'rentalId requis');
+    if (!partnerCode) return err(400, 'Scan du QR code partenaire requis pour confirmer la restitution.');
 
     // 3. Récupérer la Rental
     const rentalSnap = await db.collection('rentals').doc(rentalId).get();
@@ -87,6 +91,52 @@ exports.handler = async (event) => {
     } else {
       const byId = await db.collection('powerBanks').doc(rental.qrCode).get();
       if (byId.exists) pbDocRef = byId.ref;
+    }
+    if (!pbDocRef) return err(404, 'Power bank introuvable');
+
+    const pbSnapPreCheck = await pbDocRef.get();
+    const pbDataPreCheck = pbSnapPreCheck.exists ? pbSnapPreCheck.data() : {};
+    const expectedPartnerId = pbDataPreCheck.currentPartnerId || null;
+
+    // 4bis. ── Vérification anti-fraude : partenaire scanné == partenaire attendu ──
+    //       Cette vérification est la SEULE source de vérité — jamais faire
+    //       confiance à un éventuel flag "partnerVerified" envoyé par le
+    //       client, qui pourrait être falsifié. On résout ici, côté serveur,
+    //       l'identité du partenaire à partir du code scanné.
+    if (!expectedPartnerId) {
+      console.error('[confirmRestitution] powerBank sans currentPartnerId :', rental.qrCode);
+      return err(500, 'Partenaire de rattachement introuvable pour ce power bank. Contacte le support.');
+    }
+
+    const partnerQSnap = await db.collection('partners')
+      .where('qrCode', '==', partnerCode)
+      .limit(1)
+      .get();
+
+    let scannedPartnerId = null;
+    if (!partnerQSnap.empty) {
+      const pDoc  = partnerQSnap.docs[0];
+      const pData = pDoc.data();
+      // Le "partnerId" logique peut être l'uid stocké sur le doc partenaire,
+      // ou l'id du document lui-même selon comment il a été créé.
+      scannedPartnerId = pData.uid || pDoc.id;
+    } else {
+      // Fallback : le code scanné est peut-être directement l'uid/id du partenaire.
+      const directPartnerSnap = await db.collection('users').doc(partnerCode).get();
+      if (directPartnerSnap.exists && directPartnerSnap.data().role === 'Vendeur') {
+        scannedPartnerId = partnerCode;
+      }
+    }
+
+    if (!scannedPartnerId) {
+      return err(404, 'Code partenaire invalide ou introuvable.');
+    }
+
+    if (scannedPartnerId !== expectedPartnerId) {
+      console.warn('[confirmRestitution] Tentative de restitution avec mauvais partenaire :', {
+        uid, rentalId, expectedPartnerId, scannedPartnerId,
+      });
+      return err(403, "Ce n'est pas le bon partenaire. Rends le power bank chez le partenaire indiqué pour cette location.");
     }
 
     // 5. Récupérer profil utilisateur
