@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import styles from './Navbar.module.css';
+import QrScanButton from "@/components/QrScanButton";
 
 export default function Navbar() {
   return (
@@ -17,9 +18,7 @@ export default function Navbar() {
         <li><Link href="/dropshipping">Dropshipping</Link></li>
       </ul>
 
-      <Link href="/register" className={styles.cta}>
-        Commencer gratuitement
-      </Link>
+      <QrScanButton className={styles.cta} />
     </nav>
   );
 }

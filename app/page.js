@@ -19,6 +19,7 @@ import CommandeBanner from '../components/commandes/CommandeBanner'; // ← 🆕
 
 
 
+
 export default function Home() {
   return (
     <>
