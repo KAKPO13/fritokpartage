@@ -1,9 +1,16 @@
-// pages/shop.js — v5
+// pages/shop.js — v6
 // ✅ Support ?videoId=XXX — scroll automatique sur la vidéo du produit
 // ✅ Bouton "Commander" vérifié Firebase Auth avant ouverture modal
 // ✅ Modal AuthRequired si non connecté
 // ✅ ScrollHint sur la 1ère slide
 // ✅ Meta Open Graph SSR
+// ✅ [FIX] Timeout strict (1.5s) sur les appels Firestore SSR — évite
+//    "This page couldn't load" lors du scan QR via l'app Appareil photo
+//    (la prévisualisation caméra iOS/Android a un délai de tolérance
+//    beaucoup plus court que la navigation manuelle dans Safari/Chrome)
+// ✅ [FIX] Cache-Control CDN (s-maxage=300) — après le 1er scan (cold start
+//    Netlify inclus), les scans suivants du même badge sont servis
+//    instantanément depuis l'Edge, sans re-solliciter Firestore
 // ─────────────────────────────────────────────────────────────
 import Head from "next/head";
 import { useEffect, useRef, useState } from "react";
@@ -30,10 +37,37 @@ function getFirebaseApp() {
 // ─────────────────────────────────────────────────────────────
 // SSR — meta Open Graph
 // ─────────────────────────────────────────────────────────────
-export async function getServerSideProps({ query: q }) {
+
+// Timeout strict sur les appels Firestore REST côté SSR.
+// Si Firestore ne répond pas à temps, on abandonne silencieusement
+// et on retombe sur les meta par défaut — la page répond toujours vite.
+async function fetchWithTimeout(url, ms = 1500) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), ms);
+  try {
+    const r = await fetch(url, { signal: controller.signal });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+export async function getServerSideProps({ query: q, res }) {
   const userId  = q.userId || q.sellerId || null;
   const videoId = q.videoId || null;
-  if (!userId) return { props: { userId: null, videoId: null, ogData: null } };
+
+  const defaultOg = {
+    title      : "Boutique FriTok",
+    description: "Découvrez des produits en vidéo",
+    image      : "https://fritok.net/og-default.jpg",
+  };
+
+  if (!userId) {
+    return { props: { userId: null, videoId: null, ogData: null } };
+  }
 
   let ogData = null;
   try {
@@ -41,48 +75,54 @@ export async function getServerSideProps({ query: q }) {
 
     // Si videoId fourni, on tente de récupérer les meta de cette vidéo précise
     if (videoId) {
-      const res  = await fetch(
+      const data = await fetchWithTimeout(
         `https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents/video_playlist/${videoId}`
       );
-      const data = await res.json();
-      if (data.fields) {
+      if (data?.fields) {
         const f = data.fields;
         const p = f.product?.mapValue?.fields ?? {};
         ogData = {
-          title      : p.name?.stringValue       ?? f.title?.stringValue ?? "Boutique FriTok",
-          description: p.description?.stringValue ?? "Découvrez ce produit en vidéo",
-          image      : p.thumbnail?.stringValue   ?? p.image?.stringValue ?? "https://fritok.net/og-default.jpg",
+          title      : p.name?.stringValue        ?? f.title?.stringValue ?? defaultOg.title,
+          description: p.description?.stringValue ?? defaultOg.description,
+          image      : p.thumbnail?.stringValue    ?? p.image?.stringValue ?? defaultOg.image,
         };
       }
     }
 
     // Fallback : première vidéo de la boutique
     if (!ogData) {
-      const res  = await fetch(
+      const data = await fetchWithTimeout(
         `https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents/video_playlist?pageSize=1`
       );
-      const data = await res.json();
-      if (data.documents?.length) {
+      if (data?.documents?.length) {
         const f = data.documents[0].fields ?? {};
         const p = f.product?.mapValue?.fields ?? {};
         ogData = {
-          title      : p.name?.stringValue       ?? f.title?.stringValue ?? "Boutique FriTok",
-          description: p.description?.stringValue ?? "Découvrez nos produits en vidéo",
-          image      : p.thumbnail?.stringValue   ?? p.image?.stringValue ?? "https://fritok.net/og-default.jpg",
+          title      : p.name?.stringValue        ?? f.title?.stringValue ?? defaultOg.title,
+          description: p.description?.stringValue ?? defaultOg.description,
+          image      : p.thumbnail?.stringValue    ?? p.image?.stringValue ?? defaultOg.image,
         };
       }
     }
-  } catch (e) { console.error("SSR:", e); }
+  } catch (e) {
+    console.error("SSR:", e);
+  }
+
+  // Cache CDN Netlify : évite de re-solliciter Firestore à chaque scan
+  // du même badge. 5 min de cache "frais" + revalidation en arrière-plan
+  // jusqu'à 24h (stale-while-revalidate) pour rester rapide en permanence.
+  if (res) {
+    res.setHeader(
+      "Cache-Control",
+      "public, s-maxage=300, stale-while-revalidate=86400"
+    );
+  }
 
   return {
     props: {
       userId,
       videoId,
-      ogData: ogData ?? {
-        title      : "Boutique FriTok",
-        description: "Découvrez des produits en vidéo",
-        image      : "https://fritok.net/og-default.jpg",
-      },
+      ogData: ogData ?? defaultOg,
     },
   };
 }
