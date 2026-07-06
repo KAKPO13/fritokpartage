@@ -5,14 +5,17 @@ import {
   collection, getDocs, orderBy, query,
   addDoc, serverTimestamp, doc,
   setDoc, deleteDoc, onSnapshot,
-  getCountFromServer,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
+import QRCode from 'qrcode';
 import { db, auth } from '../../lib/firebaseClient';
 import styles from './demo.module.css';
 
 /* ══════════════════════════════════════════════════════════
    CONSTANTES LIVRAISON
+   (gardées ici pour l'affichage instantané du récapitulatif —
+   le montant définitif est TOUJOURS recalculé et validé côté
+   serveur dans netlify/functions/create-colis.js avant écriture)
 ══════════════════════════════════════════════════════════ */
 const VILLES_CI = [
   'Abidjan','Bouaké','Daloa','Korhogo','Yamoussoukro','San-Pédro',
@@ -205,7 +208,7 @@ function CommentsModal({ videoId, authUser, onClose, onAuthRequired }) {
 
   const handleSend = async () => {
     if (!authUser) { onClose(); onAuthRequired(); return; }
-    const trimmed = text.trim();
+    const trimmed = text.trim().slice(0, 500); // borne alignée sur firestore.rules
     if (!trimmed) return;
     setSending(true);
     try {
@@ -307,6 +310,7 @@ function CommentsModal({ videoId, authUser, onClose, onAuthRequired }) {
                   onChange={e => setText(e.target.value)}
                   onKeyDown={handleKeyDown}
                   rows={1}
+                  maxLength={500}
                 />
                 <button
                   className={styles.commentSendBtn}
@@ -332,6 +336,21 @@ function CommentsModal({ videoId, authUser, onClose, onAuthRequired }) {
 
 /* ══════════════════════════════════════════════════════════
    MODAL : COMMANDE + LIVRAISON
+   ── CORRIGÉ ──
+   La commande n'est plus écrite directement dans Firestore
+   (firestore.rules interdit `allow create` sur /commandes — le
+   client n'a jamais eu la permission d'y écrire). Elle passe
+   maintenant par la Netlify Function `create-colis`, qui :
+     - revalide tout côté serveur
+     - recalcule fraisLivraison / totalXof (ne fait jamais confiance
+       au calcul client, qui reste ici uniquement pour l'affichage
+       instantané du récapitulatif avant confirmation)
+     - sépare téléphone / adresse précise / GPS dans une
+       sous-collection privée non lisible par tout le vivier de
+       livreurs (voir firestore.rules)
+   Le QR code est généré localement (lib `qrcode`) — il ne transite
+   plus par un service tiers (api.qrserver.com) avec les données du
+   client dans l'URL.
 ══════════════════════════════════════════════════════════ */
 function OrderModal({ product, sellerId, authUser, onClose }) {
   const [step,        setStep]        = useState('form');
@@ -345,10 +364,13 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
   const [submitting,  setSubmitting]  = useState(false);
   const [errors,      setErrors]      = useState({});
   const [commandeId,  setCommandeId]  = useState(null);
-  const [qrData,      setQrData]      = useState(null);
+  const [qrImgUrl,    setQrImgUrl]    = useState(null);
+  const [serverTotal, setServerTotal] = useState(null); // { fraisXof, totalXof } validés serveur
   const [toast,       setToast]       = useState(null);
 
   const prix     = Number(product?.price ?? 0);
+  // Estimation affichée avant confirmation — le montant qui compte réellement
+  // est celui renvoyé par create-colis après recalcul serveur.
   const fraisXof = villeClient ? getFrais('Abidjan', villeClient, typeLivr) : 0;
   const totalXof = prix + fraisXof;
 
@@ -379,60 +401,49 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
 
   const confirmer = async () => {
     if (!validate()) return;
+    if (!authUser) { showToast('Vous devez être connecté.'); return; }
     setSubmitting(true);
     try {
-      const codeVerification = String(Math.floor(100000 + Math.random() * 900000));
-      const articles = [{
-        boutiqueId  : sellerId,
-        imageUrl    : product?.image ?? product?.thumbnail ?? '',
-        nom_frifri  : product?.name ?? '',
-        prix_frifri : prix,
-        ref_article : product?.productId ?? product?.refArticle ?? '',
-        userIdVend  : sellerId,
-      }];
-      const refArticles = [product?.productId ?? product?.refArticle ?? ''];
-      const payload = {
-        clientId         : authUser?.uid ?? null,
-        userIdVend       : sellerId,
-        articles, refArticles,
-        adresse          : adresse.trim(),
-        villeDepart      : 'Abidjan',
-        villeDestination : villeClient,
-        typeLivraison    : typeLivr,
-        telephoneClient  : telephone.trim(),
-        clientLat        : gpsCoords?.lat ?? null,
-        clientLng        : gpsCoords?.lng ?? null,
-        latLivraison     : null,
-        lngLivraison     : null,
-        fraisLivraison   : fraisXof,
-        totalXof, totalDevise: totalXof,
-        devise           : 'XOF',
-        modePaiement     : modePaiem === 'immediat' ? 'enLigne' : 'aLaLivraison',
-        transactionId    : null,
-        livreurId        : null, livreur: null, batchId: null,
-        statut           : 'en_attente',
-        codeVerification,
-        source           : 'video_shop',
-        extraData: {
-          clientLat: gpsCoords?.lat ?? null, clientLng: gpsCoords?.lng ?? null,
-          devise: 'XOF', fraisLivraison: fraisXof, refArticles,
-          telephoneClient: telephone.trim(), userIdVend: sellerId,
-          villeDepart: 'Abidjan', villeDestination: villeClient,
+      const idToken = await authUser.getIdToken();
+
+      const res = await fetch('/.netlify/functions/create-colis', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
         },
-        createdAt        : serverTimestamp(),
-        updatedAt        : null,
-        collecteValideeAt: null,
-      };
-      const docRef = await addDoc(collection(db, 'commandes'), payload);
-      const cId    = docRef.id;
-      const qrPayload = JSON.stringify({
-        commandeId: cId, userIdVend: sellerId,
-        client: telephone.trim(), adresse: adresse.trim(),
-        ...(gpsCoords ? { lat: gpsCoords.lat.toFixed(6), lng: gpsCoords.lng.toFixed(6) } : {}),
-        total: fmt(totalXof), ts: Date.now(),
+        body: JSON.stringify({
+          sellerId,
+          product: {
+            productId: product?.productId ?? product?.refArticle ?? '',
+            name: product?.name ?? '',
+            price: prix,
+            image: product?.image ?? '',
+            thumbnail: product?.thumbnail ?? '',
+          },
+          adresse: adresse.trim(),
+          villeClient,
+          typeLivr,
+          modePaiem,
+          telephone: telephone.trim(),
+          gpsCoords,
+        }),
       });
-      setCommandeId(cId);
-      setQrData(qrPayload);
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Échec de la commande');
+
+      // QR généré localement — ne contient plus téléphone/adresse/GPS,
+      // uniquement l'identifiant de commande et le vendeur (pour le scan livreur).
+      const dataUrl = await QRCode.toDataURL(data.qrPayload, {
+        width: 220,
+        margin: 1,
+        color: { dark: '#000000', light: '#ffffff' },
+      });
+
+      setCommandeId(data.commandeId);
+      setServerTotal({ fraisXof: data.fraisXof, totalXof: data.totalXof });
+      setQrImgUrl(dataUrl);
       setStep('qr');
     } catch (e) {
       showToast('Erreur : ' + e.message);
@@ -515,7 +526,7 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
                 </div>
                 <div className={styles.fraisDivider}/>
                 <div className={`${styles.fraisRow} ${styles.fraisTotal}`}>
-                  <span>Total</span><span>{fmt(totalXof)}</span>
+                  <span>Total (estimé)</span><span>{fmt(totalXof)}</span>
                 </div>
               </div>
             )}
@@ -553,11 +564,7 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
           <div className={`${styles.modalBody} ${styles.qrStep}`}>
             <p className={styles.qrHint}>Le livreur scannera ce code pour récupérer votre commande</p>
             <div className={styles.qrWrap}>
-              <img
-                className={styles.qrImg}
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrData)}`}
-                alt="QR commande"
-              />
+              {qrImgUrl && <img className={styles.qrImg} src={qrImgUrl} alt="QR commande"/>}
             </div>
             <div className={styles.cidCard} onClick={() => {
               navigator.clipboard?.writeText(commandeId);
@@ -572,9 +579,9 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
             )}
             <div className={styles.fraisCard} style={{ width: '100%' }}>
               <div className={styles.fraisRow}><span>{product?.name}</span><span>{fmt(prix)}</span></div>
-              <div className={styles.fraisRow}><span>Livraison {villeClient}</span><span>{fmt(fraisXof)}</span></div>
+              <div className={styles.fraisRow}><span>Livraison {villeClient}</span><span>{fmt(serverTotal?.fraisXof ?? fraisXof)}</span></div>
               <div className={styles.fraisDivider}/>
-              <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{fmt(totalXof)}</span></div>
+              <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{fmt(serverTotal?.totalXof ?? totalXof)}</span></div>
               <div className={styles.fraisRow} style={{ opacity: 0.65, fontSize: '.75rem', marginTop: 6 }}>
                 <span>Paiement</span>
                 <span>{modePaiem === 'immediat' ? 'En ligne' : 'À la livraison'}</span>
