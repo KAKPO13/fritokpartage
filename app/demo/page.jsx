@@ -354,6 +354,9 @@ function CommentsModal({ videoId, authUser, onClose, onAuthRequired }) {
 ══════════════════════════════════════════════════════════ */
 function OrderModal({ product, sellerId, authUser, onClose }) {
   const [step,        setStep]        = useState('form');
+  const [nomDest,      setNomDest]     = useState(
+    authUser?.displayName || authUser?.email?.split('@')[0] || ''
+  );
   const [telephone,   setTelephone]   = useState(authUser?.phoneNumber ?? '');
   const [adresse,     setAdresse]     = useState('');
   const [villeClient, setVilleClient] = useState('');
@@ -391,6 +394,7 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
 
   const validate = () => {
     const e = {};
+    if (!nomDest.trim())                e.nomDest   = 'Nom obligatoire';
     const digits = telephone.replace(/\D/g, '');
     if (!digits || digits.length < 8) e.telephone = 'Numéro invalide (min 8 chiffres)';
     if (!adresse.trim())               e.adresse   = 'Adresse obligatoire';
@@ -413,19 +417,24 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
+          // sellerId != l'appelant → la fonction traite ceci comme une
+          // commande marketplace (userIdVend = sellerId, pas l'acheteur)
           sellerId,
-          product: {
-            productId: product?.productId ?? product?.refArticle ?? '',
-            name: product?.name ?? '',
-            price: prix,
-            image: product?.image ?? '',
-            thumbnail: product?.thumbnail ?? '',
-          },
-          adresse: adresse.trim(),
-          villeClient,
-          typeLivr,
-          modePaiem,
-          telephone: telephone.trim(),
+          nomDestinataire: nomDest.trim(),
+          telDestinataire: telephone.trim(),
+          villeDepart: 'Abidjan',
+          villeDestination: villeClient,
+          adresseLivraison: adresse.trim(),
+          descriptionColis: product?.name ?? '',
+          fraisLivraison: fraisXof,
+          modePaiement: modePaiem === 'immediat' ? 'enLigne' : 'aLaLivraison',
+          typeLivraison: typeLivr,
+          photoUrl: product?.image ?? product?.thumbnail ?? '',
+          articles: [{
+            nom: product?.name ?? '',
+            prix,
+            refArticle: product?.productId ?? product?.refArticle ?? '',
+          }],
           gpsCoords,
         }),
       });
@@ -498,6 +507,14 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
               <ToggleOpt label="À la livraison" sub="Cash"               selected={modePaiem === 'livraison'} onTap={() => setModePaiem('livraison')}/>
               <ToggleOpt label="En ligne"        sub="Paiement sécurisé" selected={modePaiem === 'immediat'}  onTap={() => setModePaiem('immediat')}/>
             </div>
+
+            <FieldLabel text="NOM DU DESTINATAIRE"/>
+            <input
+              className={`${styles.formInput}${errors.nomDest ? ' ' + styles.inputErr : ''}`}
+              type="text" placeholder="Nom complet"
+              value={nomDest} onChange={e => setNomDest(e.target.value)}
+            />
+            {errors.nomDest && <p className={styles.errMsg}>{errors.nomDest}</p>}
 
             <FieldLabel text="TÉLÉPHONE DE CONTACT"/>
             <input
