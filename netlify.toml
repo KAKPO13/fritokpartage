@@ -124,3 +124,7 @@
 
 [functions."check-rental-alerts"]
   schedule = "*/5 * * * *"
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["firebase-admin"]

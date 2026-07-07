@@ -21,16 +21,6 @@ export const handler = async (event) => {
   try {
     // 1. Vérification signature
     const signature = event.headers['verif-hash'];
-
-    // 🔧 DIAGNOSTIC TEMPORAIRE — à retirer une fois le problème résolu.
-    console.log('DIAGNOSTIC webhook signature:', {
-      signatureReceived: signature ? `${signature.slice(0, 4)}… (len ${signature.length})` : 'ABSENTE',
-      secretConfigured: process.env.FLUTTERWAVE_WEBHOOK_SECRET
-        ? `${process.env.FLUTTERWAVE_WEBHOOK_SECRET.slice(0, 4)}… (len ${process.env.FLUTTERWAVE_WEBHOOK_SECRET.length})`
-        : 'NON DÉFINI',
-      match: signature === process.env.FLUTTERWAVE_WEBHOOK_SECRET,
-    });
-
     if (!signature || signature !== process.env.FLUTTERWAVE_WEBHOOK_SECRET) {
       return { statusCode: 401, body: 'Invalid signature' };
     }
@@ -51,13 +41,6 @@ export const handler = async (event) => {
 
     const txRef = isLegacyFormat ? payload.txRef : payload.data?.tx_ref;
     const transactionId = isLegacyFormat ? payload.id : payload.data?.id;
-
-    // 🔧 DIAGNOSTIC TEMPORAIRE — à retirer une fois le problème résolu.
-    console.log('DIAGNOSTIC webhook payload shape:', {
-      isLegacyFormat,
-      txRef,
-      transactionId,
-    });
 
     if (!isLegacyFormat && payload.event !== 'charge.completed') {
       return { statusCode: 200, body: 'Event ignored' };
