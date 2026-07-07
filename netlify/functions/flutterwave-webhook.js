@@ -36,6 +36,14 @@ export const handler = async (event) => {
     }
 
     const payload = JSON.parse(event.body);
+
+    // 🔧 DIAGNOSTIC TEMPORAIRE — à retirer une fois le problème résolu.
+    console.log('DIAGNOSTIC webhook event:', {
+      eventType: payload.event,
+      txRef: payload.data?.tx_ref,
+      transactionId: payload.data?.id,
+    });
+
     if (payload.event !== 'charge.completed') {
       return { statusCode: 200, body: 'Event ignored' };
     }
