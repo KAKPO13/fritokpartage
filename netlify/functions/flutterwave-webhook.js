@@ -21,6 +21,20 @@ export const handler = async (event) => {
   try {
     // 1. Vérification signature
     const signature = event.headers['verif-hash'];
+
+    // 🔧 DIAGNOSTIC TEMPORAIRE — à retirer une fois le problème résolu.
+    // N'affiche jamais les secrets en clair : seulement leur longueur et
+    // les 4 premiers caractères, suffisant pour repérer un mismatch sans
+    // exposer la valeur dans les logs Netlify (qui ne sont pas un endroit
+    // sûr pour un secret complet).
+    console.log('DIAGNOSTIC webhook signature:', {
+      signatureReceived: signature ? `${signature.slice(0, 4)}… (len ${signature.length})` : 'ABSENTE',
+      secretConfigured: process.env.FLUTTERWAVE_WEBHOOK_SECRET
+        ? `${process.env.FLUTTERWAVE_WEBHOOK_SECRET.slice(0, 4)}… (len ${process.env.FLUTTERWAVE_WEBHOOK_SECRET.length})`
+        : 'NON DÉFINI',
+      match: signature === process.env.FLUTTERWAVE_WEBHOOK_SECRET,
+    });
+
     if (!signature || signature !== process.env.FLUTTERWAVE_WEBHOOK_SECRET) {
       return { statusCode: 401, body: 'Invalid signature' };
     }
