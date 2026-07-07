@@ -37,22 +37,32 @@ export const handler = async (event) => {
 
     const payload = JSON.parse(event.body);
 
+    // Flutterwave envoie 2 formats de payload selon le canal de paiement :
+    //   - "Moderne" (carte, etc.) : { event: 'charge.completed', data: {...} }
+    //   - "Legacy" (USSD, confirmé par test réel — probablement d'autres
+    //     canaux mobile money aussi) : le payload EST directement l'objet
+    //     transaction, avec un champ "txRef" (pas "tx_ref"), sans wrapper
+    //     "data", et une clé littéralement nommée "event.type" au lieu
+    //     d'un champ "event". Pas de "meta" non plus dans ce format — mais
+    //     l'appel /verify juste après interroge l'API directement et
+    //     renvoie bien le meta d'origine, donc ce n'est pas bloquant pour
+    //     la suite.
+    const isLegacyFormat = payload.data === undefined && payload.txRef !== undefined;
+
+    const txRef = isLegacyFormat ? payload.txRef : payload.data?.tx_ref;
+    const transactionId = isLegacyFormat ? payload.id : payload.data?.id;
+
     // 🔧 DIAGNOSTIC TEMPORAIRE — à retirer une fois le problème résolu.
-    // Les champs attendus étant undefined, on affiche la structure brute
-    // complète pour voir la vraie forme du payload envoyé par Flutterwave.
-    console.log('DIAGNOSTIC webhook raw payload:', JSON.stringify(payload));
-    console.log('DIAGNOSTIC webhook event:', {
-      eventType: payload.event,
-      txRef: payload.data?.tx_ref,
-      transactionId: payload.data?.id,
+    console.log('DIAGNOSTIC webhook payload shape:', {
+      isLegacyFormat,
+      txRef,
+      transactionId,
     });
 
-    if (payload.event !== 'charge.completed') {
+    if (!isLegacyFormat && payload.event !== 'charge.completed') {
       return { statusCode: 200, body: 'Event ignored' };
     }
 
-    const txRef = payload.data?.tx_ref;
-    const transactionId = payload.data?.id;
     if (!txRef || !transactionId) {
       return { statusCode: 400, body: 'Invalid payload' };
     }
