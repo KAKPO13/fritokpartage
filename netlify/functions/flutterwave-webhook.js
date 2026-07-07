@@ -38,6 +38,9 @@ export const handler = async (event) => {
     const payload = JSON.parse(event.body);
 
     // 🔧 DIAGNOSTIC TEMPORAIRE — à retirer une fois le problème résolu.
+    // Les champs attendus étant undefined, on affiche la structure brute
+    // complète pour voir la vraie forme du payload envoyé par Flutterwave.
+    console.log('DIAGNOSTIC webhook raw payload:', JSON.stringify(payload));
     console.log('DIAGNOSTIC webhook event:', {
       eventType: payload.event,
       txRef: payload.data?.tx_ref,
