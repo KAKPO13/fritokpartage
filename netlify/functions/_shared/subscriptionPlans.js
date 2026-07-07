@@ -6,7 +6,7 @@
 // create-subscription-payment.js vers ce module au lieu de sa propre
 // copie locale, pour éviter que les deux se désynchronisent.
 
-const PLANS = {
+export const PLANS = {
   essentiel: { label: 'Pack Essentiel FriTok', priceXof: 2500 },
   pro: { label: 'Pack Pro FriTok', priceXof: 5000 },
   elite: { label: 'Pack Elite FriTok', priceXof: 10000 },
@@ -14,9 +14,9 @@ const PLANS = {
 
 // Taux de conversion XOF → autres devises (mêmes fallback que
 // create-subscription-payment.js). ⚠️ À rafraîchir régulièrement.
-const RATES = { XOF: 1, GHS: 0.013, NGN: 4.75 };
+export const RATES = { XOF: 1, GHS: 0.013, NGN: 4.75 };
 
-function getPlanAmount(plan, currency) {
+export function getPlanAmount(plan, currency) {
   const planData = PLANS[plan];
   if (!planData) return null;
   const rate = RATES[currency];
@@ -25,5 +25,3 @@ function getPlanAmount(plan, currency) {
     ? planData.priceXof
     : Math.round(planData.priceXof * rate * 100) / 100;
 }
-
-module.exports = { PLANS, RATES, getPlanAmount };

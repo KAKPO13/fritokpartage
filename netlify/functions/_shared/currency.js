@@ -4,9 +4,9 @@
 // dans escrow_fritok. Réutilise les mêmes taux que subscriptionPlans.js
 // (RATES est XOF → devise ; on inverse pour devise → XOF).
 
-const { RATES } = require('./subscriptionPlans');
+import { RATES } from './subscriptionPlans.js';
 
-function convertToXOF(montant, devise) {
+export function convertToXOF(montant, devise) {
   if (devise === 'XOF') return montant;
   const rate = RATES[devise]; // XOF * rate = devise
   if (!rate) {
@@ -15,10 +15,8 @@ function convertToXOF(montant, devise) {
   return Math.round(montant / rate);
 }
 
-function getRateToXOF(devise) {
+export function getRateToXOF(devise) {
   if (devise === 'XOF') return 1;
   const rate = RATES[devise];
   return rate ? 1 / rate : null;
 }
-
-module.exports = { convertToXOF, getRateToXOF };
