@@ -11,7 +11,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/lib/firebaseClient';
@@ -24,7 +24,20 @@ const D = {
   green: '#1A9640', greenLight: '#E6F7EC', red: '#E53E00',
 };
 
+// ⚠️ useSearchParams() force Next.js à bailer out du rendu statique pour
+// ce composant. Sans Suspense autour, le build échoue avec :
+// "useSearchParams() should be wrapped in a suspense boundary" — d'où
+// l'échec observé sur Netlify. Le export default ci-dessous fournit
+// cette frontière ; toute la logique vit dans CallbackContent.
 export default function SubscribeCallbackPage() {
+  return (
+    <Suspense fallback={<Loader />}>
+      <CallbackContent />
+    </Suspense>
+  );
+}
+
+function CallbackContent() {
   const searchParams = useSearchParams();
   const status = searchParams.get('status');
   const tx_ref = searchParams.get('tx_ref');
