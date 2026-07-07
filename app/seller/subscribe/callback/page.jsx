@@ -1,12 +1,18 @@
-// pages/seller/subscribe/callback.jsx
+// app/seller/subscribe/callback/page.jsx
 // Flutterwave redirige ici après le paiement.
-// Vérifie le statut via l'API FLW, affiche succès ou échec.
 // URL : /seller/subscribe/callback?plan=pro&tx_ref=sub_xxx&status=successful
+//
+// ⚠️ App Router : ce fichier DOIT s'appeler page.jsx et vivre dans un
+// dossier "callback/" — un fichier "callback.jsx" au même niveau que
+// "subscribe/" n'est PAS une route reconnue par Next.js (silencieusement
+// ignoré, d'où le 404 précédent). Utilise next/navigation, pas
+// next/router (API Pages Router, incompatible ici : pas de router.query
+// ni router.isReady).
 
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/lib/firebaseClient';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -19,13 +25,18 @@ const D = {
 };
 
 export default function SubscribeCallbackPage() {
-  const router = useRouter();
-  const { status, tx_ref, plan } = router.query;
+  const searchParams = useSearchParams();
+  const status = searchParams.get('status');
+  const tx_ref = searchParams.get('tx_ref');
+  const plan = searchParams.get('plan');
+
   const [phase, setPhase] = useState('checking'); // checking | success | failed
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!router.isReady) return;
+    // Contrairement au Pages Router, useSearchParams() est disponible
+    // dès le premier rendu côté client — pas besoin d'attendre un
+    // équivalent de router.isReady.
 
     // FLW envoie status=successful ou status=failed dans l'URL
     if (status === 'successful' && tx_ref) {
@@ -40,7 +51,7 @@ export default function SubscribeCallbackPage() {
       // Statut inconnu ou page chargée directement
       setPhase('success'); // optimiste si tx_ref présent
     }
-  }, [router.isReady, status, tx_ref]);
+  }, [status, tx_ref]);
 
   // ── Rafraîchissement forcé du token après succès ────────────
   // Le webhook pose le custom claim subscriptionActive sur le compte
