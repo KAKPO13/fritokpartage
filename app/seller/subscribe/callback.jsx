@@ -6,8 +6,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter }           from 'next/router';
-import Link                    from 'next/link';
+import { useRouter } from 'next/router';
+import Link from 'next/link';
+import { auth } from '@/lib/firebaseClient';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const D = {
   bg: '#FFF8EE', surface: '#FFFFFF', border: '#FFDDB0',
@@ -17,10 +19,10 @@ const D = {
 };
 
 export default function SubscribeCallbackPage() {
-  const router                     = useRouter();
-  const { status, tx_ref, plan }   = router.query;
-  const [phase, setPhase]          = useState('checking'); // checking | success | failed
-  const [error, setError]          = useState('');
+  const router = useRouter();
+  const { status, tx_ref, plan } = router.query;
+  const [phase, setPhase] = useState('checking'); // checking | success | failed
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -29,7 +31,7 @@ export default function SubscribeCallbackPage() {
     if (status === 'successful' && tx_ref) {
       // Le webhook FLW a déjà traité le paiement de façon asynchrone.
       // On affiche simplement la confirmation ; le statut Firestore est mis
-      // à jour par flw-subscription-webhook.js (généralement en quelques secondes).
+      // à jour par flutterwave-webhook.js (généralement en quelques secondes).
       setPhase('success');
     } else if (status === 'cancelled' || status === 'failed') {
       setError(status === 'cancelled' ? 'Paiement annulé.' : 'Le paiement a échoué. Réessayez.');
@@ -40,12 +42,60 @@ export default function SubscribeCallbackPage() {
     }
   }, [router.isReady, status, tx_ref]);
 
+  // ── Rafraîchissement forcé du token après succès ────────────
+  // Le webhook pose le custom claim subscriptionActive sur le compte
+  // Firebase Auth du vendeur, mais le SDK client ne relit ce claim
+  // qu'au rafraîchissement du token — normalement automatique toutes
+  // les ~1h. Sans cet appel, un vendeur qui vient de payer et clique
+  // aussitôt sur "Lancer mon premier live" / "Publier une vidéo" se
+  // verrait refuser l'upload par le Worker Cloudflare (claim encore
+  // absent de son token en cours), alors que Firestore est déjà à jour.
+  //
+  // ⚠️ Le webhook peut mettre quelques secondes à traiter le paiement
+  // après la redirection Flutterwave — un getIdToken(true) lancé trop
+  // tôt peut donc encore renvoyer l'ancien claim. On retente quelques
+  // fois avec un court délai plutôt que de forcer une seule fois.
+  useEffect(() => {
+    if (phase !== 'success') return;
+
+    let cancelled = false;
+
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (!user || cancelled) return;
+
+      const maxAttempts = 5;
+      const delayMs = 1500;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (cancelled) return;
+        try {
+          const tokenResult = await user.getIdTokenResult(true);
+          if (tokenResult.claims?.subscriptionActive === true) {
+            return; // claim propagé, terminé
+          }
+        } catch (e) {
+          console.error('Rafraîchissement du token échoué:', e);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      // Après maxAttempts, on abandonne silencieusement : le claim finira
+      // par se propager au rafraîchissement automatique (~1h). L'UI ne
+      // bloque pas l'utilisateur pour autant, voir les liens ci-dessous.
+    });
+
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [phase]);
+
   if (phase === 'checking') return <Loader />;
 
   if (phase === 'failed') return (
     <Screen icon="❌" title="Paiement non abouti" sub={error || 'Une erreur est survenue.'} bg="#FEF2F2">
       <Link href="/seller/subscribe" style={btnStyle(D.orange)}>Réessayer</Link>
-      <Link href="/app"              style={btnStyle('transparent', D.text2, `1px solid ${D.border}`)}>Retour à l'accueil</Link>
+      <Link href="/app" style={btnStyle('transparent', D.text2, `1px solid ${D.border}`)}>Retour à l'accueil</Link>
     </Screen>
   );
 
@@ -57,12 +107,12 @@ export default function SubscribeCallbackPage() {
         background: D.surface, borderRadius: 14, border: `1px solid ${D.border}`,
         padding: '16px 20px', marginBottom: 20, textAlign: 'left',
       }}>
-        <Row label="Plan"            value={PLAN_LABELS[plan] ?? plan ?? '–'} />
-        <Row label="Statut"          value="✅ Actif" color={D.green} />
-        <Row label="Référence"       value={tx_ref ? tx_ref.slice(0, 22) + '…' : '–'} last />
+        <Row label="Plan" value={PLAN_LABELS[plan] ?? plan ?? '–'} />
+        <Row label="Statut" value="✅ Actif" color={D.green} />
+        <Row label="Référence" value={tx_ref ? tx_ref.slice(0, 22) + '…' : '–'} last />
       </div>
-      <Link href="/golive"  style={btnStyle(D.orange)}>🔴 Lancer mon premier live</Link>
-      <Link href="/seller"  style={btnStyle('transparent', D.text2, `1px solid ${D.border}`)}>Mon espace vendeur</Link>
+      <Link href="/golive" style={btnStyle(D.orange)}>🔴 Lancer mon premier live</Link>
+      <Link href="/seller" style={btnStyle('transparent', D.text2, `1px solid ${D.border}`)}>Mon espace vendeur</Link>
     </Screen>
   );
 }

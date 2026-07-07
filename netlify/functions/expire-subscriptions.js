@@ -1,90 +1,73 @@
-// netlify/functions/expire-subscriptions.js
-// Cron Netlify : s'exécute chaque jour à 02h00 UTC
-// Passe en 'expired' tous les abonnements dont currentPeriodEnd < now
-// ET les trials dont trialEndsAt < now
+// netlify/functions/expireSubscriptions.js
 //
-// Ajouter dans netlify.toml :
-// [[plugins]]
-//   package = "@netlify/plugin-functions-install-core"
+// Fonction planifiée (Netlify Scheduled Functions — cron). À exécuter
+// toutes les 15-30 min. Repasse subscription.status à 'expired' (et
+// retire le custom claim subscriptionActive) pour tout vendeur dont
+// subscription.currentPeriodEnd est dépassé — que ce soit un trial ou
+// un abonnement payant actif.
 //
-// [functions."expire-subscriptions"]
-//   schedule = "0 2 * * *"
+// Configuration (netlify.toml) :
+//   [functions."expireSubscriptions"]
+//     schedule = "*/15 * * * *"
 
-const { initializeApp, getApps, cert } = require('firebase-admin/app');
-const { getFirestore, Timestamp }       = require('firebase-admin/firestore');
+const { Timestamp, FieldValue } = require('firebase-admin/firestore');
+const { getAdminDb, getAdminAuth } = require('./_shared/firebaseAdmin');
 
-function getAdminApp() {
-  if (getApps().length) return getApps()[0];
-  return initializeApp({
-    credential: cert({
-      projectId:   process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey:  (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
-    }),
-  });
-}
+const BATCH_SIZE = 200;
 
-exports.handler = async (event) => {
-  // Sécurité basique si appelé manuellement
-  const secret = event.headers?.['x-cron-secret'] ?? '';
-  if (secret && secret !== process.env.CRON_SECRET) {
-    return { statusCode: 401, body: 'Unauthorized' };
-  }
-
-  const db  = getFirestore(getAdminApp());
+exports.handler = async () => {
+  const db = getAdminDb();
+  const adminAuth = getAdminAuth();
   const now = Timestamp.now();
-  let expiredCount = 0;
 
-  // ── 1. Trials expirés ─────────────────────────────────
-  const trialSnap = await db.collection('subscriptions')
-    .where('status', '==', 'trial')
-    .where('trialEndsAt', '<', now)
-    .limit(200)
+  // Nécessite un index composite (status IN [...] + currentPeriodEnd <
+  // now) — Firestore fournira le lien de création directement dans les
+  // logs si l'index manque au premier déploiement.
+  const expiredSnap = await db
+    .collection('users')
+    .where('subscription.status', 'in', ['trial', 'active'])
+    .where('subscription.currentPeriodEnd', '<', now)
+    .limit(BATCH_SIZE)
     .get();
 
-  const trialBatch = db.batch();
-  for (const docSnap of trialSnap.docs) {
-    const uid = docSnap.id;
-    trialBatch.update(db.collection('users').doc(uid), {
-      'subscription.status': 'expired',
-      updatedAt: now,
-    });
-    trialBatch.update(db.collection('subscriptions').doc(uid), {
-      status: 'expired', expiredAt: now, updatedAt: now,
-    });
-    expiredCount++;
-  }
-  if (trialBatch._ops?.length || trialSnap.docs.length > 0) {
-    await trialBatch.commit();
+  if (expiredSnap.empty) {
+    return { statusCode: 200, body: JSON.stringify({ processed: 0 }) };
   }
 
-  // ── 2. Abonnements actifs expirés ─────────────────────
-  const activeSnap = await db.collection('subscriptions')
-    .where('status', '==', 'active')
-    .where('currentPeriodEnd', '<', now)
-    .limit(200)
-    .get();
+  let processed = 0;
+  let failed = 0;
 
-  const activeBatch = db.batch();
-  for (const docSnap of activeSnap.docs) {
-    const uid = docSnap.id;
-    activeBatch.update(db.collection('users').doc(uid), {
-      'subscription.status': 'expired',
-      updatedAt: now,
-    });
-    activeBatch.update(db.collection('subscriptions').doc(uid), {
-      status: 'expired', expiredAt: now, updatedAt: now,
-    });
-    expiredCount++;
-  }
-  if (activeSnap.docs.length > 0) {
-    await activeBatch.commit();
+  for (const doc of expiredSnap.docs) {
+    const uid = doc.id;
+    try {
+      // 1. Firestore d'abord (source de vérité)
+      await doc.ref.update({
+        'subscription.status': 'expired',
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      await db.collection('subscriptions').doc(uid).set({
+        status: 'expired',
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      // 2. Custom claim — coupe l'accès Worker dès le prochain
+      // rafraîchissement de token du vendeur.
+      const userRecord = await adminAuth.getUser(uid);
+      await adminAuth.setCustomUserClaims(uid, {
+        ...(userRecord.customClaims || {}),
+        subscriptionActive: false,
+      });
+
+      processed++;
+    } catch (e) {
+      console.error('expireSubscriptions failed for', uid, e);
+      failed++;
+    }
   }
 
-  const msg = `✅ expire-subscriptions: ${expiredCount} abonnement(s) expirés`;
-  console.log(msg);
   return {
     statusCode: 200,
-    body: JSON.stringify({ ok: true, expired: expiredCount, ts: now.toDate().toISOString() }),
+    body: JSON.stringify({ processed, failed, total: expiredSnap.size }),
   };
 };
