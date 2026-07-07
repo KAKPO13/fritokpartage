@@ -43,11 +43,33 @@ export const handler = async (event) => {
     );
     const verifyData = await verifyRes.json();
 
+    // 🔧 DIAGNOSTIC TEMPORAIRE — à retirer une fois le problème résolu.
+    console.log('DIAGNOSTIC webhook verify:', {
+      txRef,
+      transactionId,
+      httpStatus: verifyRes.status,
+      verifyStatus: verifyData.status,
+      dataStatus: verifyData.data?.status,
+      dataAmount: verifyData.data?.amount,
+      dataCurrency: verifyData.data?.currency,
+      metaRaw: verifyData.data?.meta,
+      metaType: Array.isArray(verifyData.data?.meta) ? 'array' : typeof verifyData.data?.meta,
+    });
+
     if (verifyData.status !== 'success' || verifyData.data?.status !== 'successful') {
+      console.error('Vérification Flutterwave échouée:', JSON.stringify(verifyData));
       return { statusCode: 400, body: 'Payment not successful' };
     }
 
     const meta = verifyData.data?.meta || {};
+
+    // 🔧 DIAGNOSTIC TEMPORAIRE — confirme si on route vers la branche
+    // abonnement ou wallet topup, et pourquoi.
+    console.log('DIAGNOSTIC webhook routing:', {
+      metaUid: meta.uid,
+      metaPlan: meta.plan,
+      willRouteToSubscription: !!(meta.uid && meta.plan),
+    });
 
     // ─────────────────────────────────────────────────────────────
     // BRANCHE ABONNEMENT — identifiée par meta.uid + meta.plan,
