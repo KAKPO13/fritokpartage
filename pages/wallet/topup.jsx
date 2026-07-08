@@ -1,6 +1,8 @@
 // pages/wallet/topup.jsx
 // ─────────────────────────────────────────────────────────────────────────────
-// Page de recharge du wallet Fritok via Flutterwave.
+// Page de recharge du wallet Fritok, routée par devise :
+//   • XOF        → KkiaPay  (widget popup + verify serveur, pas de redirect)
+//   • GHS / NGN  → Flutterwave (redirect vers payment_url, comportement INCHANGÉ)
 // Accessible depuis ProfileTab → "Recharger mon wallet"
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -10,6 +12,7 @@ import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
 import { webcreateTopup } from '../../app/hooks/useWallet';
+import { openKkiapayPayment, verifyKkiapayTopup } from '../../app/hooks/useKkiapay';
 
 
 
@@ -41,6 +44,10 @@ const PRESETS = {
 
 const MIN = { XOF: 100, GHS: 1, NGN: 100 };
 
+// Devise → provider (miroir de netlify/functions/_shared/paymentProvider.js
+// — ne sert ici qu'à l'affichage, le routage réel est fait côté serveur)
+const PROVIDER_LABEL = { XOF: 'KkiaPay', GHS: 'Flutterwave', NGN: 'Flutterwave' };
+
 const fmt = (n, cur) =>
   new Intl.NumberFormat('fr-FR').format(Math.round(Number(n) || 0)) + ' ' + cur;
 
@@ -51,6 +58,7 @@ export default function TopupPage() {
   const [currency, setCurrency] = useState('XOF');
   const [amount,   setAmount]   = useState('');
   const [loading,  setLoading]  = useState(false);
+  const [loadingLabel, setLoadingLabel] = useState('Redirection…');
   const [error,    setError]    = useState('');
 
   // Auth guard
@@ -82,10 +90,55 @@ export default function TopupPage() {
       return;
     }
     setLoading(true);
+    setLoadingLabel('Initialisation…');
+
     try {
-      const { payment_url } = await webcreateTopup({ amount: amt, currency });
-      // Ouvre le checkout Flutterwave dans le même onglet (redirect_url ramène sur /wallet/confirm)
-      window.location.href = payment_url;
+      // webcreateTopup retourne maintenant l'objet complet renvoyé par la
+      // function (provider inclus), plus seulement { payment_url }.
+      const data = await webcreateTopup({ amount: amt, currency });
+
+      if (data.provider === 'kkiapay') {
+        setLoadingLabel('Ouverture du paiement…');
+        await openKkiapayPayment({
+          amount: data.amount,
+          publicKey: data.publicKey,
+          sandbox: data.sandbox,
+          reference: data.reference,
+          customer: data.customer,
+          onSuccess: async ({ transactionId }) => {
+            setLoadingLabel('Vérification du paiement…');
+            try {
+              const result = await verifyKkiapayTopup({ reference: data.reference, transactionId });
+              if (result.verified) {
+                router.push(`/wallet/confirm?ref=${data.reference}`);
+              } else {
+                setError(result.error || 'La vérification du paiement a échoué.');
+                setLoading(false);
+              }
+            } catch (e) {
+              setError(e.message || 'Erreur pendant la vérification du paiement.');
+              setLoading(false);
+            }
+          },
+          onFailed: (msg) => {
+            setError(msg || 'Paiement annulé ou échoué.');
+            setLoading(false);
+          },
+        });
+        // Le widget est une popup : on ne redirige pas ici, on attend les
+        // callbacks onSuccess/onFailed ci-dessus. `loading` reste `true`
+        // pendant que le popup est ouvert.
+        return;
+      }
+
+      if (data.provider === 'flutterwave') {
+        setLoadingLabel('Redirection…');
+        window.location.href = data.payment_url;
+        return;
+      }
+
+      throw new Error('Provider de paiement inconnu');
+
     } catch (e) {
       setError(e.message);
       setLoading(false);
@@ -158,14 +211,14 @@ export default function TopupPage() {
 
         <button onClick={handleTopup} disabled={loading || !amount} style={{ width: '100%', padding: '15px 0', background: loading || !amount ? D.text3 : D.orange, color: '#fff', border: 'none', borderRadius: 14, cursor: loading || !amount ? 'not-allowed' : 'pointer', fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontFamily: 'inherit' }}>
           {loading
-            ? <><Spinner /> Redirection…</>
+            ? <><Spinner /> {loadingLabel}</>
             : `💳 Recharger ${amount ? fmt(amount, currency) : ''}`
           }
         </button>
 
         {/* Info sécurité */}
         <div style={{ marginTop: 20, padding: 14, background: D.surface, borderRadius: 12, border: `1px solid ${D.border}`, fontSize: 12, color: D.text3, lineHeight: 1.6, textAlign: 'center' }}>
-          🔒 Paiement sécurisé via <strong style={{ color: D.text2 }}>Flutterwave</strong>.<br />
+          🔒 Paiement sécurisé via <strong style={{ color: D.text2 }}>{PROVIDER_LABEL[currency] ?? 'Flutterwave'}</strong>.<br />
           Ton solde est crédité immédiatement après confirmation.
         </div>
       </div>
