@@ -19,10 +19,19 @@
 //   transactionId      string   ID auto du document Firestore
 //   type               string   "rental" | "restitution" | "topup" | "transfer"
 //
-// Usage dans une Netlify Function :
-//   const { createTranstetEntry } = require('./_transtet');
+// Usage dans une Netlify Function (ESM) :
+//   import { createTranstetEntry } from './_transtet.js';
 //   await createTranstetEntry(db, { ... });
-/// ─────────────────────────────────────────────────────────────────────────────
+//
+// ⚠️ Converti en ESM (export au lieu de module.exports) : le package.json
+// du projet a "type": "module", donc un fichier .js utilisant
+// `module.exports = {...}` ne produit aucun export réellement
+// utilisable par un `import {...} from './_transtet.js'` — le nom
+// importé se retrouve `undefined` à l'exécution (même symptôme observé
+// sur _shared/currency.js et _shared/subscriptionPlans.js pour les
+// abonnements, et sur webcreateTopup.js lui-même — voir son propre
+// correctif).
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Formate une date JS en "YYYY-MM-DD"
@@ -48,7 +57,7 @@ function toDateString(d = new Date()) {
  * @param {string}  opts.destinataireTel   téléphone du destinataire
  * @param {string}  [opts.status]          défaut "completed"
  */
-async function createTranstetEntry(db, opts) {
+export async function createTranstetEntry(db, opts) {
   const {
     type, currency, montantEnvoye, frais = 0,
     expediteurId, expediteurEmail, expediteurPhoto = '',
@@ -56,22 +65,22 @@ async function createTranstetEntry(db, opts) {
     status = 'completed',
   } = opts;
 
-  const now       = Date.now();
-  const docRef    = db.collection('TransfetMoney').doc();
-  const txId      = docRef.id;
+  const now = Date.now();
+  const docRef = db.collection('TransfetMoney').doc();
+  const txId = docRef.id;
 
   await docRef.set({
-    transactionId       : txId,
+    transactionId: txId,
     type,
     currency,
-    date                : toDateString(new Date(now)),
-    timestamp           : now,
-    montantEnvoye       : Number(montantEnvoye),
-    frais               : Number(frais),
-    montantRecu         : Number(montantEnvoye) - Number(frais),
+    date: toDateString(new Date(now)),
+    timestamp: now,
+    montantEnvoye: Number(montantEnvoye),
+    frais: Number(frais),
+    montantRecu: Number(montantEnvoye) - Number(frais),
     expediteurId,
     expediteurEmail,
-    profilePictureUrl   : expediteurPhoto || '',
+    profilePictureUrl: expediteurPhoto || '',
     destinataireId,
     destinataireNom,
     destinataireTelephone: destinataireTel,
@@ -80,5 +89,3 @@ async function createTranstetEntry(db, opts) {
 
   return txId;
 }
-
-module.exports = { createTranstetEntry };
