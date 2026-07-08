@@ -38,13 +38,18 @@
     # ── Content Security Policy ───────────────────────────────────────────────
     # Adapte les domaines selon tes intégrations réelles
     # Mode "strict" : démarre en report-only pour valider, puis retire le préfixe
+    #
+    # 🆕 KkiaPay — 3 ajouts nécessaires pour que le widget de paiement
+    # fonctionne (script-src pour k.js, frame-src pour l'iframe de paiement
+    # hébergée sur widget.kkiapay.me, connect-src par précaution) :
     Content-Security-Policy = '''
       default-src 'self';
       script-src 'self' 'unsafe-inline' 'unsafe-eval'
         https://www.gstatic.com
         https://www.googleapis.com
         https://cdn.jsdelivr.net
-        https://unpkg.com;
+        https://unpkg.com
+        https://cdn.kkiapay.me;
       style-src 'self' 'unsafe-inline'
         https://fonts.googleapis.com;
       font-src 'self'
@@ -63,8 +68,9 @@
         https://api.flutterwave.com
         https://api.exchangerate-api.com
         https://api.africa-sms.com
+        https://api.kkiapay.me
         wss://*.firebaseio.com;
-      frame-src 'none';
+      frame-src https://widget.kkiapay.me;
       object-src 'none';
       base-uri 'self';
       form-action 'self';
