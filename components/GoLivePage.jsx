@@ -14,6 +14,9 @@
  *  - Le champ propriétaire d'un doc `video_playlist` est niché dans `product.userId`,
  *    pas à la racine du document. La query de sélection des produits et le mapper
  *    `videoDocToProduct` ont été corrigés en conséquence (voir `product.userId`).
+ *
+ * Ajout (juillet 2026) :
+ *  - Boutons caméra ON/OFF, micro ON/OFF et bascule caméra avant/arrière pendant le live.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -116,6 +119,12 @@ function GoLiveContent() {
   const [translationActive, setTranslationActive] = useState(false);
   const commentsEndRef = useRef(null);
   const liveTimerRef   = useRef(null);
+
+  // ── Caméra / micro ────────────────────────────────────────────────────────
+  const [cameraOn,        setCameraOn]        = useState(true);
+  const [micOn,            setMicOn]           = useState(true);
+  const [facingMode,       setFacingMode]      = useState('user'); // 'user' = avant, 'environment' = arrière
+  const [switchingCamera,  setSwitchingCamera] = useState(false);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -385,6 +394,9 @@ function GoLiveContent() {
       const toPublish = [audioTrack, videoTrack].filter(Boolean);
       if (toPublish.length) await client.publish(toPublish);
 
+      setCameraOn(true);
+      setMicOn(true);
+      setFacingMode('user');
       setIsEngineReady(true);
       if (isChinese) setTranslationActive(true);
 
@@ -459,6 +471,87 @@ function GoLiveContent() {
       catch (e) { console.warn('⚠️ engagement gift:', e); }
     }
   }, [channelId]);
+
+  // ── CAMÉRA / MICRO ────────────────────────────────────────────────────────
+  const toggleCamera = useCallback(async () => {
+    const videoTrack = localTrackRef.current?.video;
+    if (!videoTrack) return;
+    try {
+      const next = !cameraOn;
+      await videoTrack.setEnabled(next);
+      setCameraOn(next);
+    } catch (e) {
+      console.warn('⚠️ toggleCamera:', e);
+    }
+  }, [cameraOn]);
+
+  const toggleMic = useCallback(async () => {
+    const audioTrack = localTrackRef.current?.audio;
+    if (!audioTrack) return;
+    try {
+      const next = !micOn;
+      await audioTrack.setEnabled(next);
+      setMicOn(next);
+    } catch (e) {
+      console.warn('⚠️ toggleMic:', e);
+    }
+  }, [micOn]);
+
+  // ── SWITCH CAMERA (avant/arrière) ─────────────────────────────────────────
+  const switchCamera = useCallback(async () => {
+    const videoTrack = localTrackRef.current?.video;
+    if (!videoTrack || switchingCamera) return;
+
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile) {
+      alert('Le changement de caméra est disponible uniquement sur mobile.');
+      return;
+    }
+
+    setSwitchingCamera(true);
+    const nextFacingMode = facingMode === 'user' ? 'environment' : 'user';
+
+    try {
+      // Récupère la liste des caméras disponibles
+      const cameras = await window.AgoraRTC.getCameras();
+      if (!cameras || cameras.length < 2) {
+        alert('Une seule caméra détectée sur cet appareil.');
+        setSwitchingCamera(false);
+        return;
+      }
+
+      // Cherche le device correspondant au facingMode voulu (via le label)
+      const targetCamera = cameras.find(cam => {
+        const label = cam.label?.toLowerCase() ?? '';
+        return nextFacingMode === 'environment'
+          ? /back|rear|environment|arrière/.test(label)
+          : /front|user|avant|face/.test(label);
+      });
+
+      if (targetCamera) {
+        await videoTrack.setDevice(targetCamera.deviceId);
+      } else {
+        // Repli : bascule simplement vers la caméra suivante dans la liste
+        // (utile quand le navigateur ne fournit pas de labels exploitables,
+        // par ex. Safari iOS tant que la permission n'a pas été confirmée)
+        const currentLabel = videoTrack.getTrackLabel ? videoTrack.getTrackLabel() : null;
+        const otherCamera = cameras.find(cam => cam.label !== currentLabel) ?? cameras[1];
+        await videoTrack.setDevice(otherCamera.deviceId);
+      }
+
+      setFacingMode(nextFacingMode);
+
+      // Relance la lecture locale sur le nouveau flux
+      if (localVideoRef.current) {
+        setTimeout(() => videoTrack.play(localVideoRef.current), 100);
+      }
+    } catch (e) {
+      console.error('❌ switchCamera:', e);
+      alert(`Impossible de changer de caméra : ${e.message ?? e}`);
+    } finally {
+      setSwitchingCamera(false);
+    }
+  }, [facingMode, switchingCamera]);
 
   // ── ACCEPT CO-HOST ────────────────────────────────────────────────────────
   const acceptCoHost = async (coHost) => {
@@ -567,7 +660,7 @@ function GoLiveContent() {
 
   return (
     <div style={{ position: 'relative', width: '100%', maxWidth: 430, margin: '0 auto', height: '100vh', minHeight: '-webkit-fill-available', background: '#000', overflow: 'hidden', fontFamily: 'system-ui,sans-serif' }}>
-      <VideoLayout localVideoRef={localVideoRef} isEngineReady={isEngineReady} />
+      <VideoLayout localVideoRef={localVideoRef} isEngineReady={isEngineReady} cameraOn={cameraOn} />
       <CoHostThumbs remoteVideoRefs={remoteVideoRefs} activeCoHosts={activeCoHosts} onRemove={uid => setShowRemoveDialog(uid)} />
 
       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '55%', background: 'linear-gradient(to top,rgba(0,0,0,.88),transparent)', pointerEvents: 'none' }} />
@@ -599,6 +692,9 @@ function GoLiveContent() {
         <div style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(255,255,255,.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, marginBottom: 6 }}>🎙️</div>
         <ABtn icon={liked ? '❤️' : '🤍'} label={String(likeCount)} onClick={toggleLike} active={liked} />
         <ABtn icon="🎁" label={String(giftCount)} onClick={sendGift} />
+        <ABtn icon={cameraOn ? '📷' : '🚫'} onClick={toggleCamera} active={!cameraOn} />
+        <ABtn icon={switchingCamera ? '⏳' : '🔄'} onClick={switchCamera} />
+        <ABtn icon={micOn ? '🎤' : '🔇'} onClick={toggleMic} active={!micOn} />
         <ABtn icon={showComments ? '💬' : '💭'} onClick={() => setShowComments(v => !v)} active={showComments} />
         <ABtn icon="👥" onClick={() => setShowCoHostPanel(v => !v)} active={showCoHostPanel} />
         <ABtn icon="🔗" onClick={() => navigator.share?.({ title: 'FriTok Live', url: window.location.href })} />
@@ -688,7 +784,7 @@ export default function GoLivePage() {
   );
 }
 
-// ── Sous-composants (identiques à l'original) ─────────────────────────────────
+// ── Sous-composants (identiques à l'original, sauf VideoLayout) ──────────────
 function GoLiveProductSelector({ products, loading, isOpen, onClose, onStart }) {
   const [selected, setSelected] = useState(new Set());
   useEffect(() => { if (!isOpen) setSelected(new Set()); }, [isOpen]);
@@ -712,9 +808,19 @@ function GoLiveProductSelector({ products, loading, isOpen, onClose, onStart }) 
   );
 }
 
-function VideoLayout({ localVideoRef, isEngineReady }) {
+function VideoLayout({ localVideoRef, isEngineReady, cameraOn }) {
   if (!isEngineReady) return (<div style={{ position: 'absolute', inset: 0, background: '#0a0a1e', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style><div style={{ width: 38, height: 38, borderRadius: '50%', border: '3px solid #F97316', borderTopColor: 'transparent', animation: 'spin .8s linear infinite' }} /><p style={{ color: '#ffffff80', fontSize: 14 }}>Démarrage du live...</p></div>);
-  return <div ref={localVideoRef} style={{ position: 'absolute', inset: 0, background: '#111' }} />;
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: '#111' }}>
+      <div ref={localVideoRef} style={{ position: 'absolute', inset: 0 }} />
+      {!cameraOn && (
+        <div style={{ position: 'absolute', inset: 0, background: '#0a0a1e', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+          <span style={{ fontSize: 40 }}>🚫📷</span>
+          <p style={{ color: '#ffffff80', fontSize: 13 }}>Caméra coupée</p>
+        </div>
+      )}
+    </div>
+  );
 }
 function CoHostThumbs({ remoteVideoRefs, activeCoHosts, onRemove }) {
   if (activeCoHosts.length === 0) return null;
