@@ -8,23 +8,28 @@
 //    4. Vérification phoneVerified + kyc_status avant de continuer
 //    5. Rate limiting : max 2 locations actives simultanées par uid
 //    6. runTransaction Firestore pour verrouiller le power bank atomiquement
+//
+// ⚠️ Converti en ESM (export const handler au lieu de exports.handler) :
+// le package.json a "type": "module" — voir le correctif de
+// webcreateTopup.js pour le détail du bug que ça évite
+// (Runtime.HandlerNotFound).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const admin              = require('firebase-admin');
-const { randomBytes }    = require('crypto');
-const { createTranstetEntry } = require('./_transtet');
+import admin from 'firebase-admin';
+import { randomBytes } from 'crypto';
+import { createTranstetEntry } from './_transtet.js';
 
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId  : process.env.FIREBASE_PROJECT_ID,
+      projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey : (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+      privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
     }),
   });
 }
 
-const db   = admin.firestore();
+const db = admin.firestore();
 const auth = admin.auth();
 
 // ── Origines autorisées ───────────────────────────────────────────────────────
@@ -39,16 +44,16 @@ const ALLOWED_ORIGINS = new Set([
 function getCorsHeaders(origin) {
   const allowed = ALLOWED_ORIGINS.has(origin) ? origin : 'https://fritok.net';
   return {
-    'Access-Control-Allow-Origin' : allowed,
+    'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Credentials': 'true',
-    'Vary'                        : 'Origin',
-    'Content-Type'                : 'application/json',
+    'Vary': 'Origin',
+    'Content-Type': 'application/json',
   };
 }
 
-function ok(body, origin)       { return { statusCode: 200, headers: getCorsHeaders(origin), body: JSON.stringify(body) }; }
+function ok(body, origin) { return { statusCode: 200, headers: getCorsHeaders(origin), body: JSON.stringify(body) }; }
 function err(code, msg, origin) { return { statusCode: code, headers: getCorsHeaders(origin), body: JSON.stringify({ error: msg }) }; }
 
 // ── Référence de paiement cryptographiquement sûre ───────────────────────────
@@ -56,7 +61,7 @@ function payRef() {
   return 'PB-PAY-' + randomBytes(12).toString('hex').toUpperCase();
 }
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   const origin = event.headers['origin'] || event.headers['Origin'] || 'https://fritok.net';
 
   if (event.httpMethod === 'OPTIONS') {
@@ -75,7 +80,7 @@ exports.handler = async (event) => {
   try {
     // ── 1. Auth ───────────────────────────────────────────────────────────────
     const authHeader = event.headers['authorization'] || event.headers['Authorization'] || '';
-    const idToken    = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
     if (!idToken) return err(401, 'Token manquant', origin);
 
     let decoded;
@@ -116,7 +121,7 @@ exports.handler = async (event) => {
       return err(500, 'Configuration tarifaire indisponible', origin);
     }
     const tarifsData = tarifsSnap.data();
-    const FRAIS_XOF   = Number(tarifsData.fraisXof   ?? 300);
+    const FRAIS_XOF = Number(tarifsData.fraisXof ?? 300);
     const CAUTION_XOF = Number(tarifsData.cautionXof ?? 200);
 
     // ── 6. Taux de change depuis Firestore (jamais d'API externe ici) ─────────
@@ -132,9 +137,9 @@ exports.handler = async (event) => {
         return err(422, `Taux de change indisponible pour ${devise}`, origin);
       }
     }
-    const fraisDevise   = Math.round(FRAIS_XOF   * rateToDevise * 100) / 100;
+    const fraisDevise = Math.round(FRAIS_XOF * rateToDevise * 100) / 100;
     const cautionDevise = Math.round(CAUTION_XOF * rateToDevise * 100) / 100;
-    const totalDevise   = Math.round((FRAIS_XOF + CAUTION_XOF) * rateToDevise * 100) / 100;
+    const totalDevise = Math.round((FRAIS_XOF + CAUTION_XOF) * rateToDevise * 100) / 100;
 
     // ── 7. Rate limiting : max 2 locations actives simultanées par uid ────────
     const [activeRentals, pendingPayments] = await Promise.all([
@@ -179,14 +184,14 @@ exports.handler = async (event) => {
 
       // Verrouiller immédiatement — état intermédiaire pendant le flow de paiement
       t.update(pbSnap.ref, {
-        state      : 'en_attente_paiement',
-        lockedBy   : uid,
-        lockedAt   : admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt  : admin.firestore.FieldValue.serverTimestamp(),
+        state: 'en_attente_paiement',
+        lockedBy: uid,
+        lockedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
       pbDocRef = pbSnap.ref;
-      pbData   = data;
+      pbData = data;
     });
 
     // ── 9. Profil partenaire ──────────────────────────────────────────────────
@@ -196,46 +201,46 @@ exports.handler = async (event) => {
     if (effectivePartnerId) {
       const partSnap = await db.collection('users').doc(effectivePartnerId).get();
       if (partSnap.exists) {
-        const p    = partSnap.data();
+        const p = partSnap.data();
         partnerNom = p.nomBoutique || p.username || partnerNom;
         partnerTel = p.phone || '';
       }
     }
 
     // ── 10. Créer le lien Flutterwave ─────────────────────────────────────────
-    const ref     = payRef();
+    const ref = payRef();
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://fritok.net';
 
     const flwRes = await fetch('https://api.flutterwave.com/v3/payments', {
-      method : 'POST',
+      method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        tx_ref      : ref,
-        amount      : totalDevise,
-        currency    : devise,
+        tx_ref: ref,
+        amount: totalDevise,
+        currency: devise,
         redirect_url: `${baseUrl}/app/payment-confirm?ref=${ref}&pb=${encodeURIComponent(powerBankId)}`,
         customer: {
-          email      : user.email || decoded.email || '',
+          email: user.email || decoded.email || '',
           phonenumber: user.phone || '',
-          name       : user.username || uid,
+          name: user.username || uid,
         },
         customizations: {
-          title      : 'Location Power Bank Fritok',
+          title: 'Location Power Bank Fritok',
           description: `Location ${powerBankId}`,
-          logo       : `${baseUrl}/logo.png`,
+          logo: `${baseUrl}/logo.png`,
         },
         meta: {
-          userId        : uid,
+          userId: uid,
           powerBankId,
           powerBankDocId: pbDocRef.id,
           partnerStartId: effectivePartnerId || '',
-          amountXof     : FRAIS_XOF,
-          cautionXof    : CAUTION_XOF,
+          amountXof: FRAIS_XOF,
+          cautionXof: CAUTION_XOF,
           devise,
-          type          : 'rental',
+          type: 'rental',
         },
       }),
     });
@@ -244,9 +249,9 @@ exports.handler = async (event) => {
     if (flwData.status !== 'success' || !flwData.data?.link) {
       // Libérer le power bank si Flutterwave échoue
       await pbDocRef.update({
-        state    : 'disponible',
-        lockedBy : null,
-        lockedAt : null,
+        state: 'disponible',
+        lockedBy: null,
+        lockedAt: null,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       return err(502, flwData.message || 'Erreur Flutterwave', origin);
@@ -254,39 +259,39 @@ exports.handler = async (event) => {
 
     // ── 11. TransfetMoney — "rental" pending ──────────────────────────────────
     const txId = await createTranstetEntry(db, {
-      type           : 'rental',
-      currency       : devise,
-      montantEnvoye  : totalDevise,
-      frais          : 0,
-      expediteurId   : uid,
+      type: 'rental',
+      currency: devise,
+      montantEnvoye: totalDevise,
+      frais: 0,
+      expediteurId: uid,
       expediteurEmail: user.email || decoded.email || '',
       expediteurPhoto: user.photoUrl || '',
-      destinataireId : effectivePartnerId || 'fritok-system',
+      destinataireId: effectivePartnerId || 'fritok-system',
       destinataireNom: partnerNom,
       destinataireTel: partnerTel,
-      status         : 'pending',
+      status: 'pending',
     });
 
     // ── 12. pendingRentalPayments ─────────────────────────────────────────────
     await db.collection('pendingRentalPayments').doc(ref).set({
-      userId        : uid,
-      paymentRef    : ref,
-      transtetId    : txId,
+      userId: uid,
+      paymentRef: ref,
+      transtetId: txId,
       powerBankId,
       powerBankDocId: pbDocRef.id,
       partnerStartId: effectivePartnerId || null,
       // Montants calculés côté serveur — jamais depuis le client
-      amountXof     : FRAIS_XOF,
-      cautionXof    : CAUTION_XOF,
+      amountXof: FRAIS_XOF,
+      cautionXof: CAUTION_XOF,
       devise,
       fraisDevise,
       cautionDevise,
       totalDevise,
-      status        : 'pending',
-      createdAt     : admin.firestore.FieldValue.serverTimestamp(),
+      status: 'pending',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
       // TTL de sécurité : si le paiement n'est pas confirmé dans 30 min,
       // une Function cron libère le power bank (à implémenter dans expire-pending-payments)
-      expiresAt     : new Date(Date.now() + 30 * 60 * 1000),
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
     });
 
     return ok({ payment_url: flwData.data.link, payment_ref: ref }, origin);

@@ -13,17 +13,22 @@
  * ╚══════════════════════════════════════════════════════════════════╝
  *
  * Même variables d'env que start-live.js
+ *
+ * ⚠️ Converti en ESM (export const handler au lieu de exports.handler) :
+ * le package.json a "type": "module" — voir le correctif de
+ * webcreateTopup.js pour le détail du bug que ça évite
+ * (Runtime.HandlerNotFound).
  */
 
-const admin = require('firebase-admin');
-const { RtcTokenBuilder, RtcRole } = require('agora-token');
+import admin from 'firebase-admin';
+import { RtcTokenBuilder, RtcRole } from 'agora-token';
 
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId:   process.env.FIREBASE_PROJECT_ID,
+      projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey:  (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+      privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
     }),
   });
 }
@@ -49,7 +54,7 @@ function deriveAgoraUid(firebaseUid) {
 }
 
 function buildAgoraToken(channelName, uid) {
-  const expireSeconds      = 3600;
+  const expireSeconds = 3600;
   const privilegeExpiredTs = Math.floor(Date.now() / 1000) + expireSeconds;
   return RtcTokenBuilder.buildTokenWithUid(
     process.env.AGORA_APP_ID,
@@ -62,12 +67,12 @@ function buildAgoraToken(channelName, uid) {
 }
 
 // ── Handler ──────────────────────────────────────────────────────────────────
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 204,
       headers: {
-        'Access-Control-Allow-Origin':  process.env.ALLOWED_ORIGIN || '*',
+        'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
@@ -81,8 +86,8 @@ exports.handler = async (event) => {
 
   try {
     // 1. Authentification — l'appelant doit être le vendeur hôte
-    const decoded   = await verifyFirebaseToken(event.headers.authorization);
-    const callerId  = decoded.uid;
+    const decoded = await verifyFirebaseToken(event.headers.authorization);
+    const callerId = decoded.uid;
 
     // 2. Parsing
     let body;
@@ -109,7 +114,7 @@ exports.handler = async (event) => {
     }
 
     // 4. Vérifier la demande pending du co-host
-    const coHostRef  = db.collection('live_sessions').doc(channelId).collection('co_hosts').doc(coHostUid);
+    const coHostRef = db.collection('live_sessions').doc(channelId).collection('co_hosts').doc(coHostUid);
     const coHostSnap = await coHostRef.get();
     if (!coHostSnap.exists || coHostSnap.data().status !== 'pending') {
       return { statusCode: 409, body: JSON.stringify({ error: 'Aucune demande pending pour ce co-host' }) };
@@ -125,12 +130,12 @@ exports.handler = async (event) => {
     }
 
     // 6. Générer token Agora pour le co-host
-    const agoraUid   = deriveAgoraUid(coHostUid);
+    const agoraUid = deriveAgoraUid(coHostUid);
     const agoraToken = buildAgoraToken(channelId, agoraUid);
 
     // 7. Mettre à jour co_hosts/{uid} SANS inclure le token
     await coHostRef.update({
-      status:     'active',
+      status: 'active',
       agoraUid,             // uid numérique pour rejoindre le canal (pas secret)
       acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
       // ⚠️ token Agora ABSENT intentionnellement — transmis via notification privée
@@ -142,29 +147,29 @@ exports.handler = async (event) => {
       .collection('items').doc(`cohost_token_${channelId}`);
 
     await notifRef.set({
-      type:        'cohost_invite',
+      type: 'cohost_invite',
       channelId,
       agoraUid,
       agoraToken,           // ← uniquement ici, visible seulement par le co-host
-      agoraAppId:  process.env.AGORA_APP_ID,
-      sellerName:  session.sellerName ?? '',
-      issuedAt:    admin.firestore.FieldValue.serverTimestamp(),
-      expiresAt:   new Date(Date.now() + 3600 * 1000).toISOString(),
-      read:        false,
+      agoraAppId: process.env.AGORA_APP_ID,
+      sellerName: session.sellerName ?? '',
+      issuedAt: admin.firestore.FieldValue.serverTimestamp(),
+      expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+      read: false,
     });
 
     // 9. Réponse à l'hôte (pas de token ici — l'hôte n'en a pas besoin)
     return {
       statusCode: 200,
       headers: {
-        'Content-Type':                'application/json',
+        'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || '*',
       },
       body: JSON.stringify({
-        ok:        true,
+        ok: true,
         coHostUid,
         agoraUid,
-        message:   'Co-host accepté, token transmis via notification privée',
+        message: 'Co-host accepté, token transmis via notification privée',
       }),
     };
 
