@@ -10,7 +10,7 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import dynamic from 'next/dynamic';
-import { createWalletRental, createFlutterwaveRentalPayment } from '../app/hooks/useWallet';
+import { createWalletRental, createFlutterwaveRentalPayment, generateRestitutionCode } from '../app/hooks/useWallet';
 import useRentalAlerts  from '../app/hooks/useRentalAlerts';
 import RentalAlertBanner from '../components/app/RentalAlertBanner';
 
@@ -746,22 +746,24 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
 // ─────────────────────────────────────────────────────────────────────────────
 //  ReturnTab — restitution déléguée au serveur via confirmRestitution
 //  ─────────────────────────────────────────────────────────────────────────
-//  Sécurité : la restitution ne peut plus être déclenchée par un simple clic.
-//  L'utilisateur doit scanner le QR code du PARTENAIRE physiquement présent
-//  (sticker en boutique), ce qui prouve qu'il se trouve bien sur place.
-//  Le code scanné est envoyé au serveur, qui vérifie qu'il correspond au
-//  currentPartnerId attendu sur le power bank AVANT de rembourser quoi que
-//  ce soit — la vérification côté client ci-dessous n'est qu'un confort
-//  d'UX (retour immédiat), jamais la source de vérité.
+//  Sécurité : un QR partenaire statique affiché en boutique peut être
+//  photographié une fois et réutilisé indéfiniment, sans que le gérant en
+//  ait connaissance. À la place, le partenaire génère lui-même un CODE À
+//  6 CHIFFRES, valable 5 minutes et à usage unique, au moment précis de la
+//  restitution (voir section "Générer un code de restitution" dans
+//  ProfileTab côté Vendeur). Le client saisit ce code communiqué par le
+//  gérant. Le serveur vérifie l'existence, la fraîcheur, l'unicité d'usage
+//  et la correspondance avec le bon partenaire AVANT tout remboursement —
+//  et marque le code "used" de façon atomique dans la même transaction.
+//  Il n'y a ici aucune vérification côté client : le code est un secret
+//  éphémère, la seule source de vérité est le serveur.
 // ─────────────────────────────────────────────────────────────────────────────
 import { confirmRestitution } from '../app/hooks/useWallet';
 
 function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
-  const [step,         setStep]         = useState('select'); // select → scan → done
+  const [step,         setStep]         = useState('select'); // select → code → done
   const [selected,     setSelected]     = useState(null);
-  const [partnerCode,  setPartnerCode]  = useState('');
-  const [partnerInfo,  setPartnerInfo]  = useState(null); // { name } une fois trouvé côté client
-  const [scanLoading,  setScanLoading]  = useState(false);
+  const [code,         setCode]         = useState('');
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState('');
   const [done,         setDone]         = useState(false);
@@ -770,37 +772,17 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
 
   const selectedRental = activeRentals.find(x => x.id === selected);
 
-  // ── Vérification côté client (confort UX uniquement) ─────────────────────
-  const lookupPartner = async (code) => {
-    const trimmed = code.trim();
-    if (!trimmed) { setError('Scanne ou saisis le code du partenaire.'); return; }
-    setScanLoading(true); setError('');
-    try {
-      const { getDocs: gd, collection: col, query: q, where: wh } = await import('firebase/firestore');
-      const snap = await gd(q(col(db, 'partners'), wh('qrCode', '==', trimmed)));
-      if (snap.empty) {
-        setError('Partenaire introuvable. Vérifie le code affiché en boutique.');
-        setScanLoading(false);
-        return;
-      }
-      const pData = snap.docs[0].data();
-      setPartnerInfo({ name: pData.name || pData.nomBoutique || 'Partenaire Fritok' });
-      setPartnerCode(trimmed);
-    } catch (e) {
-      setError('Erreur réseau : ' + e.message);
-    }
-    setScanLoading(false);
-  };
-
   const doReturn = async () => {
-    if (!selectedRental || !partnerCode) return;
+    const trimmed = code.trim();
+    if (!trimmed) { setError('Saisis le code communiqué par le commerçant.'); return; }
+    if (!selectedRental) return;
     setLoading(true); setError('');
     try {
-      // Délégation totale au serveur — le serveur revérifie indépendamment
-      // que partnerCode correspond bien au partenaire attendu pour ce power
-      // bank avant de recréditer le wallet, mettre à jour l'Escrow, le
-      // rental et le power bank, dans une transaction atomique.
-      const result = await confirmRestitution({ rentalId: selectedRental.id, partnerCode });
+      // Délégation totale au serveur — c'est lui qui valide le code (existe,
+      // non expiré, non utilisé, bon partenaire) avant de recréditer le
+      // wallet, mettre à jour l'Escrow, le rental et le power bank, le tout
+      // dans une transaction atomique.
+      const result = await confirmRestitution({ rentalId: selectedRental.id, partnerCode: trimmed });
       setRefund(result.cautionRefunded ?? selectedRental.cautionDevise ?? selectedRental.cautionXof ?? CAUTION_XOF);
       setRefundDevise(result.devise ?? selectedRental.devise ?? 'XOF');
       setDone(true);
@@ -849,120 +831,46 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
           </div>
           <div style={{ margin: '0 0 14px', padding: 14, background: D.amberLight, borderRadius: 12, fontSize: 12, color: D.amber, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
             <span>🔒</span>
-            <div>Pour ta sécurité, tu dois scanner le QR code du partenaire chez qui tu rends le power bank.</div>
+            <div>Pour ta sécurité, demande au commerçant de générer un code de restitution et saisis-le à l'étape suivante.</div>
           </div>
-          <button onClick={() => { setStep('scan'); setError(''); }} style={primaryBtn(false)}>
-            📷 Scanner le partenaire
+          <button onClick={() => { setStep('code'); setError(''); }} style={primaryBtn(false)}>
+            🔑 Saisir le code du commerçant
           </button>
         </>
       )}
     </div>
   );
 
-  // ── Étape 2 : scan du QR code partenaire ──────────────────────────────────
+  // ── Étape 2 : saisie du code de restitution communiqué par le partenaire ──
   return (
     <div style={{ padding: 24 }}>
       <div style={{ fontSize: 20, fontWeight: 800, color: D.text1, marginBottom: 8 }}>🔒 Confirmer sur place</div>
-      <div style={{ fontSize: 13, color: D.text2, marginBottom: 20 }}>
-        Scanne le QR code affiché chez le partenaire pour confirmer que tu es bien sur place.
+      <div style={{ fontSize: 13, color: D.text2, marginBottom: 24 }}>
+        Demande au commerçant de générer un code depuis son profil Fritok, puis saisis-le ci-dessous. Ce code est valable 5 minutes.
       </div>
 
-      {!partnerInfo && (
-        <PartnerScanStep
-          code={partnerCode}
-          setCode={setPartnerCode}
-          onLookup={() => lookupPartner(partnerCode)}
-          loading={scanLoading}
-          error={error}
-          setError={setError}
-        />
-      )}
+      <input
+        placeholder="000000"
+        value={code}
+        onChange={e => { setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6)); setError(''); }}
+        onKeyDown={e => e.key === 'Enter' && doReturn()}
+        inputMode="numeric"
+        maxLength={6}
+        autoFocus
+        style={{ ...inputStyle, fontSize: 32, fontWeight: 800, letterSpacing: 10, textAlign: 'center', marginBottom: 16, padding: '18px 14px' }}
+      />
 
-      {partnerInfo && (
-        <>
-          <div style={{ background: D.greenLight, borderRadius: 14, padding: 18, marginBottom: 16, textAlign: 'center' }}>
-            <div style={{ fontSize: 28, marginBottom: 6 }}>✅</div>
-            <div style={{ fontSize: 11, color: D.green, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>PARTENAIRE CONFIRMÉ</div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: D.text1 }}>{partnerInfo.name}</div>
-          </div>
-          <div style={{ margin: '0 0 16px', padding: 14, background: D.greenLight, borderRadius: 12, fontSize: 13, color: D.green, fontWeight: 500 }}>
-            💚 Ta caution de <strong>{fmt(selectedRental?.cautionXof ?? CAUTION_XOF)} FCFA</strong> sera remboursée immédiatement.
-          </div>
-          {error && <div style={{ fontSize: 12, color: D.red, marginBottom: 10, padding: '10px 14px', background: '#FEE2E2', borderRadius: 10 }}>{error}</div>}
-          <button onClick={doReturn} disabled={loading} style={primaryBtn(loading)}>
-            {loading ? <Spinner /> : 'Confirmer la restitution'}
-          </button>
-          <button onClick={() => { setPartnerInfo(null); setPartnerCode(''); setError(''); }} style={ghostBtn}>Scanner un autre code</button>
-        </>
-      )}
+      <div style={{ margin: '0 0 16px', padding: 14, background: D.greenLight, borderRadius: 12, fontSize: 13, color: D.green, fontWeight: 500 }}>
+        💚 Ta caution de <strong>{fmt(selectedRental?.cautionXof ?? CAUTION_XOF)} FCFA</strong> sera remboursée immédiatement.
+      </div>
 
-      <button onClick={() => { setStep('select'); setPartnerInfo(null); setPartnerCode(''); setError(''); }} style={ghostBtn}>← Retour</button>
+      {error && <div style={{ fontSize: 12, color: D.red, marginBottom: 12, padding: '10px 14px', background: '#FEE2E2', borderRadius: 10 }}>{error}</div>}
+
+      <button onClick={doReturn} disabled={loading || code.length !== 6} style={primaryBtn(loading || code.length !== 6)}>
+        {loading ? <Spinner /> : 'Confirmer la restitution'}
+      </button>
+      <button onClick={() => { setStep('select'); setCode(''); setError(''); }} style={ghostBtn}>← Retour</button>
     </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  PartnerScanStep — scan (ou saisie manuelle) du QR code partenaire
-// ─────────────────────────────────────────────────────────────────────────────
-function PartnerScanStep({ code, setCode, onLookup, loading, error, setError }) {
-  const [cameraOn, setCameraOn] = useState(false);
-  const [camError, setCamError] = useState('');
-  const scannerRef = useRef(null);
-
-  const startCamera = async () => {
-    setCamError('');
-    try {
-      const { Html5Qrcode } = await import('html5-qrcode');
-      const scanner = new Html5Qrcode('fritok-partner-qr-reader');
-      scannerRef.current = scanner;
-      await scanner.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 220, height: 220 } },
-        (decoded) => { const c = decoded.trim(); setCode(c); stopCamera(); setTimeout(() => onLookup(), 150); },
-        () => {},
-      );
-      setCameraOn(true);
-    } catch (e) {
-      setCamError(e.name === 'NotAllowedError'
-        ? 'Permission caméra refusée. Autorise-la dans les paramètres du navigateur.'
-        : 'Caméra indisponible. Utilise la saisie manuelle ci-dessous.');
-    }
-  };
-
-  const stopCamera = () => {
-    if (scannerRef.current) { scannerRef.current.stop().catch(() => {}); scannerRef.current = null; }
-    setCameraOn(false);
-  };
-
-  useEffect(() => () => stopCamera(), []);
-
-  return (
-    <>
-      <div style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 16, background: '#111', position: 'relative' }}>
-        <div id="fritok-partner-qr-reader" style={{ width: '100%', display: cameraOn ? 'block' : 'none', minHeight: 280 }} />
-        {!cameraOn && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 220, padding: 24, position: 'relative' }}>
-            {[['top','left'],['top','right'],['bottom','left'],['bottom','right']].map(([v, h]) => (
-              <div key={v+h} style={{ position: 'absolute', [v]: 18, [h]: 18, width: 30, height: 30, borderTop: v === 'top' ? `3px solid ${D.orange}` : 'none', borderBottom: v === 'bottom' ? `3px solid ${D.orange}` : 'none', borderLeft: h === 'left' ? `3px solid ${D.orange}` : 'none', borderRight: h === 'right' ? `3px solid ${D.orange}` : 'none' }} />
-            ))}
-            <div style={{ fontSize: 44, marginBottom: 10 }}>🏪</div>
-            <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: 600, textAlign: 'center' }}>Scanner le QR du partenaire</div>
-            <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>affiché en boutique</div>
-            <button onClick={startCamera} style={{ marginTop: 18, padding: '10px 28px', background: D.orange, color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>📸 Activer la caméra</button>
-          </div>
-        )}
-        {cameraOn && <button onClick={stopCamera} style={{ position: 'absolute', top: 10, right: 10, zIndex: 20, background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, cursor: 'pointer', fontWeight: 700 }}>✕ Stop</button>}
-      </div>
-      {camError && <div style={{ fontSize: 12, color: D.amber, background: D.amberLight, padding: '10px 14px', borderRadius: 10, marginBottom: 12 }}>⚠️ {camError}</div>}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 14px' }}>
-        <div style={{ flex: 1, height: 1, background: D.border }} />
-        <div style={{ fontSize: 11, color: D.text3, fontWeight: 700, whiteSpace: 'nowrap' }}>OU SAISIR MANUELLEMENT</div>
-        <div style={{ flex: 1, height: 1, background: D.border }} />
-      </div>
-      <input placeholder="Code partenaire" value={code} onChange={e => { setCode(e.target.value); setError(''); }} onKeyDown={e => e.key === 'Enter' && onLookup()} style={{ ...inputStyle, fontWeight: 700, letterSpacing: 0.5, marginBottom: 12 }} />
-      {error && <div style={{ fontSize: 12, color: D.red, marginBottom: 10, padding: '10px 14px', background: '#FEE2E2', borderRadius: 10 }}>{error}</div>}
-      <button onClick={onLookup} disabled={loading} style={primaryBtn(loading)}>{loading ? <Spinner /> : '🔍 Vérifier'}</button>
-    </>
   );
 }
 
@@ -1065,6 +973,7 @@ function PaySuccess({ rental, onHome }) {
 //  ProfileTab
 // ─────────────────────────────────────────────────────────────────────────────
 function ProfileTab({ profile, user, onSignOut, onNav }) {
+  const [showCodeSheet, setShowCodeSheet] = useState(false);
   const kycLabel = {
     pending : { text: 'Vérification en attente', color: D.amber, bg: D.amberLight, icon: '⏳' },
     verified: { text: 'Compte vérifié',          color: D.green, bg: D.greenLight,  icon: '✅' },
@@ -1143,6 +1052,12 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
         {isVendeur && profile?.id_boutique && <InfoRow label="ID Boutique" value={profile.id_boutique} last />}
       </div>
 
+      {isVendeur && (
+        <button onClick={() => setShowCodeSheet(true)} style={{ width: '100%', padding: '14px 0', background: D.text1, color: '#fff', border: 'none', borderRadius: 14, cursor: 'pointer', fontSize: 15, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          🔑 Générer un code de restitution
+        </button>
+      )}
+
       <button onClick={() => { if (typeof window !== 'undefined') window.location.href = '/wallet/topup'; }} style={{ width: '100%', padding: '14px 0', background: D.orange, color: '#fff', border: 'none', borderRadius: 14, cursor: 'pointer', fontSize: 15, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
         💳 Recharger mon wallet
       </button>
@@ -1152,7 +1067,83 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
       <button onClick={onSignOut} style={{ width: '100%', padding: '14px 0', background: '#FEE2E2', color: D.red, border: 'none', borderRadius: 14, cursor: 'pointer', fontSize: 15, fontWeight: 700 }}>
         Se déconnecter
       </button>
+
+      {showCodeSheet && <RestitutionCodeSheet onClose={() => setShowCodeSheet(false)} />}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  RestitutionCodeSheet — génération d'un code de restitution à usage unique
+//  ─────────────────────────────────────────────────────────────────────────
+//  Réservé aux partenaires (role: 'Vendeur'). Le code est valable 5 minutes
+//  et ne peut servir qu'à une seule restitution — c'est cette fraîcheur et
+//  cet usage unique qui garantissent que le gérant est réellement présent
+//  et impliqué dans chaque restitution, contrairement à un QR statique.
+// ─────────────────────────────────────────────────────────────────────────────
+function RestitutionCodeSheet({ onClose }) {
+  const [code,       setCode]       = useState(null);
+  const [expiresAt,  setExpiresAt]  = useState(null);
+  const [remaining,  setRemaining]  = useState(0);
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState('');
+
+  const generate = async () => {
+    setLoading(true); setError('');
+    try {
+      const result = await generateRestitutionCode();
+      setCode(result.code);
+      setExpiresAt(result.expiresAt);
+    } catch (e) {
+      setError(e.message || 'Erreur lors de la génération du code.');
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { generate(); }, []);
+
+  useEffect(() => {
+    if (!expiresAt) return;
+    const tick = () => setRemaining(Math.max(0, Math.round((expiresAt - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+
+  const expired = expiresAt != null && remaining <= 0;
+  const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
+  const ss = String(remaining % 60).padStart(2, '0');
+
+  return (
+    <BottomSheet onClose={onClose} title="Code de restitution">
+      <div style={{ textAlign: 'center', padding: '8px 0 4px' }}>
+        <div style={{ fontSize: 12, color: D.text2, marginBottom: 20 }}>
+          Communique ce code au client pour qu'il confirme la restitution dans son app.
+        </div>
+
+        {loading && !code && <Spinner />}
+
+        {error && (
+          <div style={{ fontSize: 12, color: D.red, marginBottom: 16, padding: '10px 14px', background: '#FEE2E2', borderRadius: 10, textAlign: 'left' }}>{error}</div>
+        )}
+
+        {code && (
+          <>
+            <div style={{ fontSize: 42, fontWeight: 800, letterSpacing: 10, color: expired ? D.text3 : D.text1, marginBottom: 12, fontVariantNumeric: 'tabular-nums' }}>
+              {code}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: expired ? D.red : D.amber, marginBottom: 24 }}>
+              {expired ? 'Code expiré' : `Expire dans ${mm}:${ss}`}
+            </div>
+          </>
+        )}
+
+        <button onClick={generate} disabled={loading} style={primaryBtn(loading)}>
+          {loading ? <Spinner /> : (code ? '🔄 Générer un nouveau code' : 'Générer un code')}
+        </button>
+        <button onClick={onClose} style={ghostBtn}>Fermer</button>
+      </div>
+    </BottomSheet>
   );
 }
 

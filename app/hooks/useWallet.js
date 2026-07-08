@@ -62,13 +62,26 @@ export async function verifyFlutterwaveRentalPayment({ paymentRef, transactionId
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  4. confirmRestitution
-//  `partnerCode` est le QR code du partenaire scanné par l'utilisateur sur
-//  place — le serveur vérifie qu'il correspond au partenaire attendu pour
-//  ce power bank avant d'effectuer le remboursement (mesure anti-fraude).
+//  `partnerCode` est le code de restitution à 6 chiffres généré par le
+//  partenaire (voir generateRestitutionCode ci-dessous) — le serveur
+//  vérifie qu'il existe, n'est pas expiré, pas déjà utilisé, et correspond
+//  au partenaire attendu pour ce power bank avant d'effectuer le
+//  remboursement (mesure anti-fraude).
 //  Retourne { success: bool, cautionRefunded?: number, devise?: string }
 // ─────────────────────────────────────────────────────────────────────────────
 export async function confirmRestitution({ rentalId, partnerCode }) {
   return post('confirmRestitution', { rentalId, partnerCode });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  4bis. generateRestitutionCode
+//  Réservé aux comptes partenaires (role: 'Vendeur'). Génère un code à
+//  6 chiffres, valable 5 minutes, à usage unique, que le partenaire
+//  communique au client au moment de la restitution.
+//  Retourne { code: string, expiresAt: number (ms epoch) }
+// ─────────────────────────────────────────────────────────────────────────────
+export async function generateRestitutionCode() {
+  return post('generateRestitutionCode', {});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

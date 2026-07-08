@@ -1,20 +1,26 @@
 // netlify/functions/confirmRestitution.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Confirme la restitution d'un power bank (paiement FLW ou Wallet) :
-//   • Vérifie que partnerCode (QR scanné en boutique) correspond au
-//     currentPartnerId attendu sur le power bank — mesure anti-fraude,
-//     rejette avec 403 sinon.
+//   • Vérifie que partnerCode (code à 6 chiffres généré par le partenaire
+//     via generateRestitutionCode.js) existe, n'est pas expiré, n'a pas
+//     déjà été utilisé, et correspond au partenaire chez qui la location a
+//     réellement été effectuée (rental.partnerId, figé à la création de la
+//     location — voir createWalletRental.js) — mesure anti-fraude. Le code
+//     est marqué "used" de façon ATOMIQUE dans la même transaction que le
+//     remboursement, ce qui empêche toute réutilisation même en cas de
+//     requêtes concurrentes.
 //   • rental.status → "restitue" + endTime
 //   • powerBank.state → "disponible"
 //   • wallet.[devise] += cautionDevise  (dans la devise réelle de la location)
 //   • escrow.totalCaution.[devise] -= cautionDevise
 //   • TranstetMoney "restitution" → "completed"
 //
-// POST body : { rentalId: string, partnerCode: string }
+// POST body : { rentalId: string, partnerCode: string }  (code à 6 chiffres)
 // Auth      : Bearer <Firebase ID Token>
 // ─────────────────────────────────────────────────────────────────────────────
 
-const admin = require('firebase-admin');
+const admin  = require('firebase-admin');
+const crypto = require('crypto');
 const { createTranstetEntry } = require('./_transtet');
 
 if (!admin.apps.length) {
@@ -29,6 +35,26 @@ if (!admin.apps.length) {
 
 const db   = admin.firestore();
 const auth = admin.auth();
+
+// Même secret que generateRestitutionCode.js — nécessaire pour recalculer
+// et vérifier la signature du code au moment de la restitution.
+const SIGNING_SECRET = process.env.RESTITUTION_CODE_SECRET;
+
+function signCode({ partnerId, code, createdAtMs }) {
+  return crypto
+    .createHmac('sha256', SIGNING_SECRET)
+    .update(`${partnerId}:${code}:${createdAtMs}`)
+    .digest('hex');
+}
+
+// Comparaison en temps constant pour éviter les attaques par timing sur la
+// vérification de signature.
+function safeEqual(a, b) {
+  const bufA = Buffer.from(String(a || ''), 'utf8');
+  const bufB = Buffer.from(String(b || ''), 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 // ── Constantes inline (cohérent avec createWalletRental.js) ─────────────────
 const ESCROW_UID           = 'escrow_fritok';
@@ -65,7 +91,7 @@ exports.handler = async (event) => {
 
     const { rentalId, partnerCode } = body;
     if (!rentalId)    return err(400, 'rentalId requis');
-    if (!partnerCode) return err(400, 'Scan du QR code partenaire requis pour confirmer la restitution.');
+    if (!partnerCode) return err(400, 'Code de restitution requis pour confirmer.');
 
     // 3. Récupérer la Rental
     const rentalSnap = await db.collection('rentals').doc(rentalId).get();
@@ -94,49 +120,29 @@ exports.handler = async (event) => {
     }
     if (!pbDocRef) return err(404, 'Power bank introuvable');
 
-    const pbSnapPreCheck = await pbDocRef.get();
-    const pbDataPreCheck = pbSnapPreCheck.exists ? pbSnapPreCheck.data() : {};
-    const expectedPartnerId = pbDataPreCheck.currentPartnerId || null;
-
-    // 4bis. ── Vérification anti-fraude : partenaire scanné == partenaire attendu ──
-    //       Cette vérification est la SEULE source de vérité — jamais faire
-    //       confiance à un éventuel flag "partnerVerified" envoyé par le
-    //       client, qui pourrait être falsifié. On résout ici, côté serveur,
-    //       l'identité du partenaire à partir du code scanné.
+    // 4bis. Partenaire attendu pour cette restitution ────────────────────
+    //       On utilise en priorité rental.partnerId, qui est figé au
+    //       moment exact de la création de la location (cf.
+    //       createWalletRental.js : `partnerId: pbData.currentPartnerId`)
+    //       et représente donc fidèlement "chez quel partenaire ce power
+    //       bank a été loué". C'est la bonne source de vérité — contrairement
+    //       à powerBanks.currentPartnerId, qui est un champ mutable pouvant
+    //       en théorie changer entre la location et la restitution (ex. si
+    //       un admin réaffecte le power bank à un autre point de dépôt).
+    //       On ne retombe sur currentPartnerId qu'en dernier recours, pour
+    //       les locations anciennes créées avant l'ajout de ce champ.
+    let expectedPartnerId = rental.partnerId || null;
     if (!expectedPartnerId) {
-      console.error('[confirmRestitution] powerBank sans currentPartnerId :', rental.qrCode);
-      return err(500, 'Partenaire de rattachement introuvable pour ce power bank. Contacte le support.');
-    }
-
-    const partnerQSnap = await db.collection('partners')
-      .where('qrCode', '==', partnerCode)
-      .limit(1)
-      .get();
-
-    let scannedPartnerId = null;
-    if (!partnerQSnap.empty) {
-      const pDoc  = partnerQSnap.docs[0];
-      const pData = pDoc.data();
-      // Le "partnerId" logique peut être l'uid stocké sur le doc partenaire,
-      // ou l'id du document lui-même selon comment il a été créé.
-      scannedPartnerId = pData.uid || pDoc.id;
-    } else {
-      // Fallback : le code scanné est peut-être directement l'uid/id du partenaire.
-      const directPartnerSnap = await db.collection('users').doc(partnerCode).get();
-      if (directPartnerSnap.exists && directPartnerSnap.data().role === 'Vendeur') {
-        scannedPartnerId = partnerCode;
+      const pbSnapPreCheck = await pbDocRef.get();
+      expectedPartnerId = pbSnapPreCheck.exists ? (pbSnapPreCheck.data().currentPartnerId || null) : null;
+      if (expectedPartnerId) {
+        console.warn('[confirmRestitution] rental.partnerId absent, fallback sur powerBanks.currentPartnerId :', { rentalId });
       }
     }
 
-    if (!scannedPartnerId) {
-      return err(404, 'Code partenaire invalide ou introuvable.');
-    }
-
-    if (scannedPartnerId !== expectedPartnerId) {
-      console.warn('[confirmRestitution] Tentative de restitution avec mauvais partenaire :', {
-        uid, rentalId, expectedPartnerId, scannedPartnerId,
-      });
-      return err(403, "Ce n'est pas le bon partenaire. Rends le power bank chez le partenaire indiqué pour cette location.");
+    if (!expectedPartnerId) {
+      console.error('[confirmRestitution] Aucun partenaire de rattachement trouvable pour cette location :', rentalId);
+      return err(500, 'Partenaire de rattachement introuvable pour ce power bank. Contacte le support.');
     }
 
     // 5. Récupérer profil utilisateur
@@ -144,11 +150,80 @@ exports.handler = async (event) => {
     const user     = userSnap.exists ? userSnap.data() : {};
 
     // 6. Transaction Firestore atomique
+    //    ── Vérification anti-fraude du code de restitution ────────────────
+    //    Le code (généré par le partenaire, cf. generateRestitutionCode.js)
+    //    est lu, validé (existe / pas expiré / pas déjà utilisé / bon
+    //    partenaire) et marqué "used" dans CETTE MÊME transaction. C'est ce
+    //    qui garantit qu'un code ne peut jamais servir deux fois, même en
+    //    cas de deux requêtes de restitution simultanées avec le même code.
+    //    Un simple check-avant-écriture non transactionnel serait
+    //    vulnérable à une "course" entre deux requêtes concurrentes.
+    const codeRef = db.collection('restitutionCodes').doc(partnerCode);
+
     await db.runTransaction(async (t) => {
-      const escrowRef = db.collection('users').doc(ESCROW_UID);
+      const codeSnap = await t.get(codeRef);
+      if (!codeSnap.exists) {
+        throw Object.assign(new Error('Code invalide. Demande au commerçant de générer un nouveau code.'), { code: 404 });
+      }
+      const codeData = codeSnap.data();
+
+      if (codeData.used === true) {
+        throw Object.assign(new Error('Ce code a déjà été utilisé. Demande un nouveau code au commerçant.'), { code: 410 });
+      }
+
+      const expiresAtMs = codeData.expiresAt?.toMillis ? codeData.expiresAt.toMillis() : 0;
+      if (expiresAtMs < Date.now()) {
+        throw Object.assign(new Error('Ce code a expiré. Demande un nouveau code au commerçant.'), { code: 410 });
+      }
+
+      const scannedPartnerId = codeData.partnerId || null;
+      if (!scannedPartnerId) {
+        throw Object.assign(new Error('Code de restitution invalide (partenaire manquant).'), { code: 500 });
+      }
+
+      // ── Vérification de signature ────────────────────────────────────
+      // Recalcule la signature attendue à partir des données lues et la
+      // compare à celle stockée. Toute incohérence indique que ce document
+      // n'a pas été créé par generateRestitutionCode.js (falsification,
+      // écriture directe non autorisée, bug de migration, etc.) — dans ce
+      // cas on rejette plutôt que de faire confiance au champ partnerId.
+      if (!SIGNING_SECRET) {
+        console.error('[confirmRestitution] RESTITUTION_CODE_SECRET manquant dans les variables d\'environnement');
+        throw Object.assign(new Error('Configuration serveur incomplète. Contacte le support.'), { code: 500 });
+      }
+      const expectedSignature = signCode({
+        partnerId  : scannedPartnerId,
+        code       : partnerCode,
+        createdAtMs: codeData.createdAtMs,
+      });
+      if (!safeEqual(expectedSignature, codeData.signature)) {
+        console.error('[confirmRestitution] Signature invalide sur restitutionCodes/%s — document potentiellement falsifié.', partnerCode, {
+          uid, rentalId, scannedPartnerId,
+        });
+        throw Object.assign(new Error('Code de restitution invalide. Contacte le support.'), { code: 403 });
+      }
+
+      if (scannedPartnerId !== expectedPartnerId) {
+        console.warn('[confirmRestitution] Tentative de restitution avec mauvais partenaire :', {
+          uid, rentalId, expectedPartnerId, scannedPartnerId,
+        });
+        throw Object.assign(new Error("Ce n'est pas le bon partenaire. Rends le power bank chez le partenaire indiqué pour cette location."), { code: 403 });
+      }
+
+      // ── À partir d'ici, le code est valide : on consomme le code et on
+      //    effectue le remboursement dans la même transaction atomique. ──
+      const escrowRef  = db.collection('users').doc(ESCROW_UID);
       const escrowSnap = await t.get(escrowRef);
       const escrowData = escrowSnap.exists ? escrowSnap.data() : {};
       const oldTotalCaution = typeof escrowData.totalCaution === 'object' ? escrowData.totalCaution : {};
+
+      // Marquer le code comme utilisé — usage unique garanti.
+      t.update(codeRef, {
+        used         : true,
+        usedAt       : admin.firestore.FieldValue.serverTimestamp(),
+        usedByUid    : uid,
+        usedByRental : rentalId,
+      });
 
       // Clôturer la Rental
       t.update(db.collection('rentals').doc(rentalId), {
@@ -175,13 +250,11 @@ exports.handler = async (event) => {
       }, { merge: true });
 
       // Libérer le power bank
-      if (pbDocRef) {
-        t.update(pbDocRef, {
-          state        : 'disponible',
-          currentUserId: '',
-          updatedAt    : admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
+      t.update(pbDocRef, {
+        state        : 'disponible',
+        currentUserId: '',
+        updatedAt    : admin.firestore.FieldValue.serverTimestamp(),
+      });
     });
 
     // 7. Chercher la TranstetMoney "restitution" pending liée à cette location
@@ -217,6 +290,9 @@ exports.handler = async (event) => {
     return ok({ success: true, cautionRefunded: cautionDevise, devise });
 
   } catch (e) {
+    if (e.code === 404) return err(404, e.message);
+    if (e.code === 410) return err(410, e.message);
+    if (e.code === 403) return err(403, e.message);
     console.error('confirmRestitution fatal:', e);
     return err(500, e.message || 'Erreur interne');
   }
