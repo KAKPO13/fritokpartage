@@ -229,6 +229,8 @@ function coHostBtnStyle(color, noClick = false) {
 /* ══════════════════════════════════════════════════════════
    BOUTON CO-HOST — demande temps réel
    Cycle : idle → pending → joining → live | declined | removed
+   Ajout (juillet 2026) : contrôles caméra ON/OFF, micro ON/OFF
+   et bascule caméra avant/arrière une fois status === 'live'.
 ══════════════════════════════════════════════════════════ */
 function CoHostButton({ session, authUser }) {
   const [status,   setStatus]   = useState('idle');
@@ -240,6 +242,12 @@ function CoHostButton({ session, authUser }) {
   const tracksRef      = useRef({ audio: null, video: null });
   const localDivRef    = useRef(null);
   const isMountedRef   = useRef(true);
+
+  // ── Caméra / micro du co-host ────────────────────────────
+  const [cameraOn,       setCameraOn]       = useState(true);
+  const [micOn,          setMicOn]          = useState(true);
+  const [facingMode,     setFacingMode]     = useState('user'); // 'user' = avant, 'environment' = arrière
+  const [switchingCamera,setSwitchingCamera]= useState(false);
 
   const AGORA_APP_ID_V = '5bbfd51877e2435f87afef0f89cebda3';
 
@@ -345,6 +353,9 @@ function CoHostButton({ session, authUser }) {
         }, 150);
       }
 
+      setCameraOn(true);
+      setMicOn(true);
+      setFacingMode('user');
       setStatus('live');
       console.log('✅ Co-host sur scène, canal:', channelId);
     } catch (err) {
@@ -430,16 +441,117 @@ function CoHostButton({ session, authUser }) {
     }
   };
 
+  // ── 4. Caméra / micro (pendant live) ─────────────────────
+  const toggleCoHostCamera = async () => {
+    const videoTrack = tracksRef.current?.video;
+    if (!videoTrack) return;
+    try {
+      const next = !cameraOn;
+      await videoTrack.setEnabled(next);
+      if (isMountedRef.current) setCameraOn(next);
+    } catch (e) {
+      console.warn('⚠️ toggleCoHostCamera:', e);
+    }
+  };
+
+  const toggleCoHostMic = async () => {
+    const audioTrack = tracksRef.current?.audio;
+    if (!audioTrack) return;
+    try {
+      const next = !micOn;
+      await audioTrack.setEnabled(next);
+      if (isMountedRef.current) setMicOn(next);
+    } catch (e) {
+      console.warn('⚠️ toggleCoHostMic:', e);
+    }
+  };
+
+  // ── 5. Bascule caméra avant/arrière (pendant live) ───────
+  const switchCoHostCamera = async () => {
+    const videoTrack = tracksRef.current?.video;
+    if (!videoTrack || switchingCamera) return;
+
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile) {
+      setErrorMsg('Changement de caméra disponible uniquement sur mobile.');
+      return;
+    }
+
+    setSwitchingCamera(true);
+    const nextFacingMode = facingMode === 'user' ? 'environment' : 'user';
+
+    try {
+      const cameras = await window.AgoraRTC.getCameras();
+      if (!cameras || cameras.length < 2) {
+        setErrorMsg('Une seule caméra détectée.');
+        setSwitchingCamera(false);
+        return;
+      }
+
+      const targetCamera = cameras.find(cam => {
+        const label = cam.label?.toLowerCase() ?? '';
+        return nextFacingMode === 'environment'
+          ? /back|rear|environment|arrière/.test(label)
+          : /front|user|avant|face/.test(label);
+      });
+
+      if (targetCamera) {
+        await videoTrack.setDevice(targetCamera.deviceId);
+      } else {
+        // Repli si les labels ne sont pas exploitables (ex. Safari iOS
+        // avant confirmation de la permission caméra)
+        const currentLabel = videoTrack.getTrackLabel ? videoTrack.getTrackLabel() : null;
+        const otherCamera = cameras.find(cam => cam.label !== currentLabel) ?? cameras[1];
+        await videoTrack.setDevice(otherCamera.deviceId);
+      }
+
+      if (isMountedRef.current) setFacingMode(nextFacingMode);
+
+      if (localDivRef.current) {
+        setTimeout(() => {
+          if (isMountedRef.current) videoTrack.play(localDivRef.current);
+        }, 100);
+      }
+    } catch (e) {
+      console.error('❌ switchCoHostCamera:', e);
+      if (isMountedRef.current) setErrorMsg('Changement de caméra impossible.');
+    } finally {
+      if (isMountedRef.current) setSwitchingCamera(false);
+    }
+  };
+
   // ── Rendu ─────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
 
       {status === 'live' && (
-        <div ref={localDivRef} style={{
-          width: 56, height: 80, borderRadius: 8, overflow: 'hidden',
-          background: '#111', border: '2px solid #22C55E',
-          marginBottom: 4, flexShrink: 0,
-        }} />
+        <div style={{ position: 'relative', width: 56, height: 80, marginBottom: 4, flexShrink: 0 }}>
+          <div ref={localDivRef} style={{
+            width: 56, height: 80, borderRadius: 8, overflow: 'hidden',
+            background: '#111', border: '2px solid #22C55E',
+          }} />
+          {!cameraOn && (
+            <div style={{
+              position: 'absolute', inset: 0, borderRadius: 8,
+              background: 'rgba(0,0,0,.75)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', fontSize: 18,
+            }}>🚫📷</div>
+          )}
+        </div>
+      )}
+
+      {status === 'live' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <button onClick={toggleCoHostCamera} style={coHostBtnStyle(cameraOn ? '#fff' : '#EF4444')}>
+            <span style={{ fontSize: 16 }}>{cameraOn ? '📷' : '🚫'}</span>
+          </button>
+          <button onClick={switchCoHostCamera} style={coHostBtnStyle('#fff')}>
+            <span style={{ fontSize: 16 }}>{switchingCamera ? '⏳' : '🔄'}</span>
+          </button>
+          <button onClick={toggleCoHostMic} style={coHostBtnStyle(micOn ? '#fff' : '#EF4444')}>
+            <span style={{ fontSize: 16 }}>{micOn ? '🎤' : '🔇'}</span>
+          </button>
+        </div>
       )}
 
       {status === 'idle' && (
