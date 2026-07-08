@@ -1,18 +1,22 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   collection, query, orderBy,
-  onSnapshot, doc, updateDoc, increment,
+  onSnapshot, doc, updateDoc,
   addDoc, setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
+import QRCode from 'qrcode';
 import { db, auth } from '../../lib/firebaseClient';
 import { useAgoraPlayer } from '../../lib/useAgoraPlayer';
 import styles from './live.module.css';
 
 /* ══════════════════════════════════════════════════════════
    CONSTANTES LIVRAISON
+   (affichage instantané uniquement — le montant définitif est
+   TOUJOURS recalculé et validé côté serveur dans
+   netlify/functions/create-colis.js avant écriture)
 ══════════════════════════════════════════════════════════ */
 const VILLES_CI = [
   'Abidjan','Bouaké','Daloa','Korhogo','Yamoussoukro','San-Pédro',
@@ -160,6 +164,54 @@ function ChatBubble({ msg }) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   HOOK : LIKES persistés Firestore pour un live
+   Sous-collection : live_sessions/{id}/likes/{userId}
+   (remplace l'ancien updateDoc(..., { likeCount: increment(...) })
+   qui était systématiquement rejeté : firestore.rules interdit
+   toute écriture cliente sur le document live_sessions parent —
+   à raison, sinon n'importe qui pourrait gonfler artificiellement
+   le compteur. Même pattern que useLike() dans /demo.)
+══════════════════════════════════════════════════════════ */
+function useLiveLike(sessionId, initialCount, authUser) {
+  const [liked, setLiked] = useState(false);
+  const [count, setCount] = useState(initialCount ?? 0);
+
+  useEffect(() => {
+    if (!sessionId || !authUser?.uid) return;
+    const likeRef = doc(db, 'live_sessions', sessionId, 'likes', authUser.uid);
+    const unsub = onSnapshot(likeRef, snap => setLiked(snap.exists()), () => {});
+    return unsub;
+  }, [sessionId, authUser?.uid]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const unsub = onSnapshot(
+      collection(db, 'live_sessions', sessionId, 'likes'),
+      snap => setCount(snap.size),
+      () => {}
+    );
+    return unsub;
+  }, [sessionId]);
+
+  const toggle = useCallback(async () => {
+    if (!authUser?.uid || !sessionId) return;
+    const likeRef = doc(db, 'live_sessions', sessionId, 'likes', authUser.uid);
+    if (liked) {
+      setLiked(false);
+      setCount(c => Math.max(0, c - 1));
+      await deleteDoc(likeRef).catch(() => { setLiked(true); setCount(c => c + 1); });
+    } else {
+      setLiked(true);
+      setCount(c => c + 1);
+      await setDoc(likeRef, { userId: authUser.uid, createdAt: serverTimestamp() })
+        .catch(() => { setLiked(false); setCount(c => Math.max(0, c - 1)); });
+    }
+  }, [liked, sessionId, authUser?.uid]);
+
+  return { liked, count, toggle };
+}
+
+/* ══════════════════════════════════════════════════════════
    HELPER STYLE CO-HOST
    Déclaré avant CoHostButton pour éviter tout ReferenceError
 ══════════════════════════════════════════════════════════ */
@@ -179,7 +231,6 @@ function coHostBtnStyle(color, noClick = false) {
    Cycle : idle → pending → joining → live | declined | removed
 ══════════════════════════════════════════════════════════ */
 function CoHostButton({ session, authUser }) {
-  // FIX: état unifié "status" (l'original avait un doublon "coHostStatus" orphelin)
   const [status,   setStatus]   = useState('idle');
   // 'idle' | 'pending' | 'joining' | 'live' | 'declined' | 'removed'
   const [errorMsg, setErrorMsg] = useState(null);
@@ -188,12 +239,10 @@ function CoHostButton({ session, authUser }) {
   const agoraClientRef = useRef(null);
   const tracksRef      = useRef({ audio: null, video: null });
   const localDivRef    = useRef(null);
-  // FIX: flag pour éviter les mises à jour d'état après démontage (race condition)
   const isMountedRef   = useRef(true);
 
   const AGORA_APP_ID_V = '5bbfd51877e2435f87afef0f89cebda3';
 
-  // Cleanup au démontage
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -203,11 +252,16 @@ function CoHostButton({ session, authUser }) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-reset après refus/retrait
+  // Auto-reset après refus/retrait : on supprime aussi le document
+  // Firestore (autorisé par les rules pour les statuts terminaux
+  // pending/declined/removed/left — voir firestore.rules) afin qu'un
+  // nouveau clic sur "Sur scène" puisse recréer un doc frais au lieu de
+  // heurter un doc existant dans un état terminal.
   useEffect(() => {
     if (status === 'declined' || status === 'removed') {
       _releaseCoHostAgora();
       const t = setTimeout(() => {
+        deleteDoc(doc(db, 'live_sessions', session.channelId, 'co_hosts', authUser.uid)).catch(() => {});
         if (isMountedRef.current) setStatus('idle');
       }, 3000);
       return () => clearTimeout(t);
@@ -217,7 +271,6 @@ function CoHostButton({ session, authUser }) {
   // Guards
   if (!session.isLive || session.coHostEnabled === false) return null;
   if (!authUser) return null;
-  // FIX: normalisation sellerId — on accepte les deux champs Firestore
   const sellerId = session.sellerId ?? session.userId ?? '';
   if (authUser.uid === sellerId) return null;
 
@@ -227,7 +280,6 @@ function CoHostButton({ session, authUser }) {
     || authUser.email?.split('@')[0]
     || 'Viewer';
 
-  // ── Libérer Agora proprement ─────────────────────────────
   async function _releaseCoHostAgora() {
     try {
       const { audio, video } = tracksRef.current;
@@ -241,7 +293,6 @@ function CoHostButton({ session, authUser }) {
     } catch (_) {}
   }
 
-  // ── Charger SDK Agora si absent ──────────────────────────
   async function _loadSdk() {
     if (window.AgoraRTC) return;
     await new Promise((resolve, reject) => {
@@ -255,7 +306,6 @@ function CoHostButton({ session, authUser }) {
     });
   }
 
-  // ── Rejoindre le canal Agora en broadcaster ──────────────
   async function _joinAsCoHost(token, agoraUid) {
     if (!isMountedRef.current) return;
     setStatus('joining');
@@ -270,7 +320,6 @@ function CoHostButton({ session, authUser }) {
       await client.setClientRole('host');
       await client.join(AGORA_APP_ID_V, channelId, token, agoraUid);
 
-      // Tracks avec fallback
       let audioTrack = null, videoTrack = null;
       try {
         [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks({}, {});
@@ -283,13 +332,11 @@ function CoHostButton({ session, authUser }) {
       const toPublish = [audioTrack, videoTrack].filter(Boolean);
       if (toPublish.length) await client.publish(toPublish);
 
-      // FIX: vérifier isMounted avant toute mise à jour d'état post-await
       if (!isMountedRef.current) {
         await _releaseCoHostAgora();
         return;
       }
 
-      // Afficher la préview locale
       if (videoTrack) {
         setTimeout(() => {
           if (localDivRef.current && isMountedRef.current) {
@@ -311,23 +358,25 @@ function CoHostButton({ session, authUser }) {
   }
 
   // ── 1. Demande pending ───────────────────────────────────
+  // FIX : le document envoyé ne contient plus que les 4 champs autorisés
+  // par firestore.rules (status, displayName, avatarUrl, requestedAt).
+  // `uid`, `agoraUid` et `token` étaient rejetés par la règle (hasOnly) —
+  // chaque demande échouait avant cette correction. `agoraUid`/`token`
+  // sont ajoutés plus tard par le serveur (Admin SDK, hors règles)
+  // quand le vendeur accepte.
   const requestCoHost = async () => {
     if (status !== 'idle') return;
     setErrorMsg(null);
     try {
       await setDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
-        uid,
         displayName,
         avatarUrl:   authUser.photoURL ?? null,
-        agoraUid:    0,
         status:      'pending',
         requestedAt: serverTimestamp(),
-        token:       null,
       });
       if (!isMountedRef.current) return;
       setStatus('pending');
 
-      // Écouter la réponse du vendeur
       unsubDocRef.current = onSnapshot(
         doc(db, 'live_sessions', channelId, 'co_hosts', uid),
         async (snap) => {
@@ -356,20 +405,25 @@ function CoHostButton({ session, authUser }) {
   };
 
   // ── 2. Annuler avant acceptation ─────────────────────────
+  // firestore.rules autorise le delete pour le statut 'pending' — la
+  // demande est proprement retirée, pas juste masquée côté client.
   const cancelRequest = async () => {
-    try { await deleteDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid)); }
-    catch (_) {}
     unsubDocRef.current?.();
+    await deleteDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid)).catch(() => {});
     if (isMountedRef.current) setStatus('idle');
   };
 
   // ── 3. Quitter la scène (pendant live) ───────────────────
-  // FIX: try/finally garantit que Agora est toujours libéré même si Firestore échoue
+  // Écrit status:'left' (seule transition autorisée par les rules pour
+  // une update initiée par le co-host lui-même), puis supprime le doc
+  // (delete autorisé pour 'left') pour qu'une future demande reparte
+  // d'un état propre.
   const leaveStage = async () => {
     try {
       await updateDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
-        status: 'removed', leftAt: serverTimestamp(),
+        status: 'left', leftAt: serverTimestamp(),
       });
+      await deleteDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid)).catch(() => {});
     } finally {
       await _releaseCoHostAgora();
       if (isMountedRef.current) setStatus('idle');
@@ -380,7 +434,6 @@ function CoHostButton({ session, authUser }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
 
-      {/* Préview caméra locale quand on est sur scène */}
       {status === 'live' && (
         <div ref={localDivRef} style={{
           width: 56, height: 80, borderRadius: 8, overflow: 'hidden',
@@ -457,9 +510,22 @@ function AuthRequiredModal({ onClose }) {
 
 /* ══════════════════════════════════════════════════════════
    MODAL COMMANDE
+   ── CORRIGÉ ──
+   Alignée sur la version déjà corrigée de /demo/page.js : la commande
+   passe désormais par netlify/functions/create-colis (seule fonction
+   réelle en prod), avec le format de payload qu'elle attend
+   (nomDestinataire / telDestinataire / villeDestination /
+   adresseLivraison / articles[] / photoUrl), et un sellerId distinct
+   du client pour que le vendeur (pas l'acheteur) soit crédité comme
+   userIdVend. Le QR est généré localement (lib `qrcode`) — il ne
+   transite plus par api.qrserver.com avec les données du client dans
+   l'URL.
 ══════════════════════════════════════════════════════════ */
 function OrderModal({ product, sellerId, authUser, onClose }) {
   const [step,        setStep]        = useState('form');
+  const [nomDest,     setNomDest]     = useState(
+    authUser?.displayName || authUser?.email?.split('@')[0] || ''
+  );
   const [telephone,   setTelephone]   = useState(authUser?.phoneNumber ?? '');
   const [adresse,     setAdresse]     = useState('');
   const [villeClient, setVilleClient] = useState('');
@@ -470,7 +536,8 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
   const [submitting,  setSubmitting]  = useState(false);
   const [errors,      setErrors]      = useState({});
   const [commandeId,  setCommandeId]  = useState(null);
-  const [qrData,      setQrData]      = useState(null);
+  const [qrImgUrl,    setQrImgUrl]    = useState(null);
+  const [serverTotal, setServerTotal] = useState(null);
   const [toast,       setToast]       = useState(null);
 
   const prix     = Number(product?.price ?? 0);
@@ -490,6 +557,7 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
 
   const validate = () => {
     const e = {};
+    if (!nomDest.trim())               e.nomDest   = 'Nom obligatoire';
     const digits = telephone.replace(/\D/g, '');
     if (!digits || digits.length < 8) e.telephone = 'Numéro invalide (min 8 chiffres)';
     if (!adresse.trim())              e.adresse   = 'Adresse obligatoire';
@@ -500,47 +568,53 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
 
   const confirmer = async () => {
     if (!validate()) return;
+    if (!authUser) { showToast('Vous devez être connecté.'); return; }
     setSubmitting(true);
     try {
-      const codeVerification = String(Math.floor(100000 + Math.random() * 900000));
-      const articles = [{
-        boutiqueId  : sellerId,
-        imageUrl    : product?.image ?? product?.thumbnail ?? '',
-        nom_frifri  : product?.name ?? '',
-        prix_frifri : prix,
-        ref_article : product?.productId ?? product?.refArticle ?? '',
-        userIdVend  : sellerId,
-      }];
-      const refArticles = [product?.productId ?? product?.refArticle ?? ''];
-      const payload = {
-        clientId: authUser?.uid ?? null, userIdVend: sellerId,
-        articles, refArticles,
-        adresse: adresse.trim(), villeDepart: 'Abidjan',
-        villeDestination: villeClient, typeLivraison: typeLivr,
-        telephoneClient: telephone.trim(),
-        clientLat: gpsCoords?.lat ?? null, clientLng: gpsCoords?.lng ?? null,
-        latLivraison: null, lngLivraison: null,
-        fraisLivraison: fraisXof, totalXof, totalDevise: totalXof, devise: 'XOF',
-        modePaiement: modePaiem === 'immediat' ? 'enLigne' : 'aLaLivraison',
-        transactionId: null, livreurId: null, livreur: null, batchId: null,
-        statut: 'en_attente', codeVerification, source: 'live_shop',
-        extraData: {
-          clientLat: gpsCoords?.lat ?? null, clientLng: gpsCoords?.lng ?? null,
-          devise: 'XOF', fraisLivraison: fraisXof, refArticles,
-          telephoneClient: telephone.trim(), userIdVend: sellerId,
-          villeDepart: 'Abidjan', villeDestination: villeClient,
+      const idToken = await authUser.getIdToken();
+
+      const res = await fetch('/.netlify/functions/create-colis', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
         },
-        createdAt: serverTimestamp(), updatedAt: null, collecteValideeAt: null,
-      };
-      const docRef = await addDoc(collection(db, 'commandes'), payload);
-      const cId = docRef.id;
-      const qrPayload = JSON.stringify({
-        commandeId: cId, userIdVend: sellerId, client: telephone.trim(),
-        adresse: adresse.trim(),
-        ...(gpsCoords ? { lat: gpsCoords.lat.toFixed(6), lng: gpsCoords.lng.toFixed(6) } : {}),
-        total: fmt(totalXof), ts: Date.now(),
+        body: JSON.stringify({
+          // sellerId != l'appelant → commande marketplace : la fonction
+          // crédite userIdVend = sellerId, pas l'acheteur.
+          sellerId,
+          nomDestinataire: nomDest.trim(),
+          telDestinataire: telephone.trim(),
+          villeDepart: 'Abidjan',
+          villeDestination: villeClient,
+          adresseLivraison: adresse.trim(),
+          descriptionColis: product?.name ?? '',
+          fraisLivraison: fraisXof,
+          modePaiement: modePaiem === 'immediat' ? 'enLigne' : 'aLaLivraison',
+          typeLivraison: typeLivr,
+          photoUrl: product?.image ?? product?.thumbnail ?? '',
+          articles: [{
+            nom: product?.name ?? '',
+            prix,
+            refArticle: product?.productId ?? product?.refArticle ?? '',
+          }],
+          gpsCoords,
+        }),
       });
-      setCommandeId(cId); setQrData(qrPayload); setStep('qr');
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Échec de la commande');
+
+      const dataUrl = await QRCode.toDataURL(data.qrPayload, {
+        width: 220,
+        margin: 1,
+        color: { dark: '#000000', light: '#ffffff' },
+      });
+
+      setCommandeId(data.commandeId);
+      setServerTotal({ fraisXof: data.fraisXof, totalXof: data.totalXof });
+      setQrImgUrl(dataUrl);
+      setStep('qr');
     } catch (e) { showToast('Erreur : ' + e.message); }
     finally { setSubmitting(false); }
   };
@@ -580,6 +654,11 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
               <ToggleOpt label="À la livraison" sub="Cash"               selected={modePaiem === 'livraison'} onTap={() => setModePaiem('livraison')}/>
               <ToggleOpt label="En ligne"        sub="Paiement sécurisé" selected={modePaiem === 'immediat'}  onTap={() => setModePaiem('immediat')}/>
             </div>
+            <FieldLabel text="NOM DU DESTINATAIRE"/>
+            <input className={`${styles.formInput}${errors.nomDest ? ' ' + styles.inputErr : ''}`}
+              type="text" placeholder="Nom complet"
+              value={nomDest} onChange={e => setNomDest(e.target.value)}/>
+            {errors.nomDest && <p className={styles.errMsg}>{errors.nomDest}</p>}
             <FieldLabel text="TÉLÉPHONE DE CONTACT"/>
             <input className={`${styles.formInput}${errors.telephone ? ' ' + styles.inputErr : ''}`}
               type="tel" placeholder="07 XX XX XX XX"
@@ -597,7 +676,7 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
                 <div className={styles.fraisRow}><span>Articles</span><span>{fmt(prix)}</span></div>
                 <div className={styles.fraisRow}><span>Livraison{typeLivr === 'groupee' ? ' (-20%)' : ''}</span><span>{fmt(fraisXof)}</span></div>
                 <div className={styles.fraisDivider}/>
-                <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{fmt(totalXof)}</span></div>
+                <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total (estimé)</span><span>{fmt(totalXof)}</span></div>
               </div>
             )}
             <FieldLabel text="ADRESSE DE LIVRAISON"/>
@@ -620,9 +699,7 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
           <div className={`${styles.modalBody} ${styles.qrStep}`}>
             <p className={styles.qrHint}>Le livreur scannera ce code pour récupérer votre commande</p>
             <div className={styles.qrWrap}>
-              <img className={styles.qrImg}
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrData)}`}
-                alt="QR commande"/>
+              {qrImgUrl && <img className={styles.qrImg} src={qrImgUrl} alt="QR commande"/>}
             </div>
             <div className={styles.cidCard} onClick={() => { navigator.clipboard?.writeText(commandeId); showToast('ID copié !'); }}>
               <span className={styles.cidLabel}>Commande #</span>
@@ -632,9 +709,9 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
             {gpsCoords && <p className={styles.gpsTag}>{gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}</p>}
             <div className={styles.fraisCard} style={{ width: '100%' }}>
               <div className={styles.fraisRow}><span>{product?.name}</span><span>{fmt(prix)}</span></div>
-              <div className={styles.fraisRow}><span>Livraison {villeClient}</span><span>{fmt(fraisXof)}</span></div>
+              <div className={styles.fraisRow}><span>Livraison {villeClient}</span><span>{fmt(serverTotal?.fraisXof ?? fraisXof)}</span></div>
               <div className={styles.fraisDivider}/>
-              <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{fmt(totalXof)}</span></div>
+              <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{fmt(serverTotal?.totalXof ?? totalXof)}</span></div>
               <div className={styles.fraisRow} style={{ opacity: 0.65, fontSize: '.75rem', marginTop: 6 }}>
                 <span>Paiement</span><span>{modePaiem === 'immediat' ? 'En ligne' : 'À la livraison'}</span>
               </div>
@@ -663,8 +740,10 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
   const { videoContainerRef, remoteUsers, status, error: agoraError } =
     useAgoraPlayer(session.channelId, session.isLive);
 
-  const [liked,         setLiked]         = useState(false);
-  const [likeCount,     setLikeCount]     = useState(session.likeCount ?? 0);
+  // Likes persistés (sous-collection), plus updateDoc/increment direct
+  const { liked, count: likeCount, toggle: toggleLike } =
+    useLiveLike(session.id, session.likeCount ?? 0, authUser);
+
   const [activeProduct, setActiveProduct] = useState(session.products?.[0] ?? null);
   const [messages,      setMessages]      = useState([]);
   const [inputMsg,      setInputMsg]      = useState('');
@@ -673,7 +752,6 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
   const chatRef  = useRef(null);
   const msgIdRef = useRef(10);
 
-  // Chat demo
   useEffect(() => {
     setMessages(DEMO_CHAT.slice(0, 2));
     const timers = DEMO_CHAT.slice(2).map((m, i) =>
@@ -691,14 +769,10 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
     if (!authUser) { setAuthPrompt(true); } else { setOrderProduct(product); }
   };
 
-  const handleLike = async () => {
-    setLiked(v => !v);
-    setLikeCount(c => liked ? c - 1 : c + 1);
-    try {
-      await updateDoc(doc(db, 'live_sessions', session.id), {
-        likeCount: increment(liked ? -1 : 1),
-      });
-    } catch (_) {}
+  const handleLike = () => {
+    if (!authReady) return;
+    if (!authUser) { setAuthPrompt(true); return; }
+    toggleLike();
   };
 
   const sendMessage = () => {
@@ -721,16 +795,13 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
     'idle':           '...',
   }[status] ?? '...';
 
-  // FIX: normalisation sellerId pour OrderModal (cohérent avec CoHostButton)
   const sellerId = session.sellerId ?? session.userId ?? '';
 
   return (
     <div className={styles.playerPage}>
 
-      {/* Agora video */}
       <div ref={videoContainerRef} className={styles.agoraVideo}/>
 
-      {/* Fallback */}
       {!hasVideo && (
         <div className={styles.playerBg}>
           <div className={styles.offlineCover}>
@@ -744,7 +815,6 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
       <div className={styles.playerGradTop}/>
       <div className={styles.playerGradBottom}/>
 
-      {/* Header */}
       <div className={styles.playerHeader}>
         <div className={styles.playerHost}>
           <div className={styles.playerAvatar}>{initial}</div>
@@ -762,7 +832,6 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
         </div>
       </div>
 
-      {/* Actions droite */}
       <div className={styles.playerActions}>
         <button className={styles.playerActionBtn} onClick={handleLike}>
           <IconHeart filled={liked}/>
@@ -776,11 +845,9 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
           <IconShare/>
         </button>
 
-        {/* Bouton co-host */}
         <CoHostButton session={session} authUser={authUser} />
       </div>
 
-      {/* Chat */}
       <div className={styles.chatArea} ref={chatRef}>
         {messages.map(m => <ChatBubble key={m.id} msg={m}/>)}
       </div>
@@ -793,7 +860,6 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
         <button className={styles.chatSend} onClick={sendMessage}>↑</button>
       </div>
 
-      {/* Carousel produits */}
       {products.length > 0 && (
         <div className={styles.productCarousel}>
           <div className={styles.carouselLabel}>Produits ({products.length})</div>
