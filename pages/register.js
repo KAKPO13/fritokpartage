@@ -14,9 +14,6 @@ import {
 import {
   getFirestore, doc, setDoc, serverTimestamp,
 } from "firebase/firestore";
-import {
-  getStorage, ref, uploadBytes, getDownloadURL,
-} from "firebase/storage";
 
 const firebaseConfig = {
   apiKey           : process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -29,6 +26,37 @@ const firebaseConfig = {
 
 function getFirebaseApp() {
   return getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+}
+
+// ── Cloudflare R2 (Worker) ────────────────────────────────────
+const WORKER_URL = "https://divine-haze-26a2.fritok013.workers.dev";
+
+// Les photos de profil sont stockées dans le même bucket "shop-images",
+// sous le préfixe "profil-images/" pour rester organisées séparément.
+async function uploadAvatarToR2(file, uid, idToken) {
+  const ext      = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const filePath = `profil-images/${uid}.${ext}`;
+
+  const params = new URLSearchParams({
+    filePath,
+    contentType: file.type || "image/jpeg",
+  });
+
+  const res = await fetch(`${WORKER_URL}?${params.toString()}`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${idToken}`,
+      "Content-Type": file.type || "image/jpeg",
+    },
+    body: file,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Échec upload R2 (status ${res.status})`);
+  }
+
+  const data = await res.json();
+  return data.url;
 }
 
 const COUNTRY_CODES = [
@@ -127,10 +155,9 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const app     = getFirebaseApp();
-      const auth    = getAuth(app);
-      const db      = getFirestore(app);
-      const storage = getStorage(app);
+      const app  = getFirebaseApp();
+      const auth = getAuth(app);
+      const db   = getFirestore(app);
 
       // 1. Créer le compte Firebase Auth
       const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
@@ -139,14 +166,16 @@ export default function RegisterPage() {
       // 2. Envoyer l'email de vérification
       try { await sendEmailVerification(user); } catch {}
 
-      // 3. Upload photo de profil (optionnel)
+      // 3. Upload photo de profil (optionnel) → Cloudflare R2
+      //    (bucket "shop-images", dossier "profil-images/")
       let photoUrl = null;
       if (avatarFile) {
         try {
-          const storageRef = ref(storage, `profile_pictures/${user.uid}.jpg`);
-          const snap = await uploadBytes(storageRef, avatarFile);
-          photoUrl   = await getDownloadURL(snap.ref);
-        } catch {}
+          const idToken = await user.getIdToken();
+          photoUrl = await uploadAvatarToR2(avatarFile, user.uid, idToken);
+        } catch (err) {
+          console.error("Upload avatar R2 échoué:", err);
+        }
       }
 
       // 4. Créer le profil Firestore (même structure que l'app Flutter)
