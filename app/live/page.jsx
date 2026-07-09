@@ -6,7 +6,7 @@ import {
   onSnapshot, doc, updateDoc,
   addDoc, setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, updateProfile } from 'firebase/auth';
 import QRCode from 'qrcode';
 import { db, auth } from '../../lib/firebaseClient';
 import { useAgoraPlayer } from '../../lib/useAgoraPlayer';
@@ -249,7 +249,15 @@ function CoHostButton({ session, authUser }) {
   const [facingMode,     setFacingMode]     = useState('user'); // 'user' = avant, 'environment' = arrière
   const [switchingCamera,setSwitchingCamera]= useState(false);
 
-  const AGORA_APP_ID_V = '5bbfd51877e2435f87afef0f89cebda3';
+  // ⚠️ CRITIQUE : doit être EXACTEMENT le même App ID que côté vendeur
+  // (GoLive.jsx → process.env.NEXT_PUBLIC_AGORA_APP_ID). Le token Agora
+  // généré par le serveur est signé pour un App ID précis : si host et
+  // co-host utilisent deux App ID différents, la jointure Agora du
+  // co-host échoue silencieusement juste après l'acceptation — c'est
+  // exactement le symptôme "la connexion ne passe plus après acceptation".
+  // La valeur codée en dur précédente ('5bbfd51877e2435f87afef0f89cebda3')
+  // a été remplacée par la même variable d'environnement que le vendeur.
+  const AGORA_APP_ID_V = process.env.NEXT_PUBLIC_AGORA_APP_ID;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -316,6 +324,14 @@ function CoHostButton({ session, authUser }) {
 
   async function _joinAsCoHost(token, agoraUid) {
     if (!isMountedRef.current) return;
+    if (!AGORA_APP_ID_V) {
+      console.error('❌ NEXT_PUBLIC_AGORA_APP_ID manquant côté client (co-host) — vérifier .env.local / variables Netlify.');
+      if (isMountedRef.current) {
+        setStatus('idle');
+        setErrorMsg('Config Agora manquante côté client.');
+      }
+      return;
+    }
     setStatus('joining');
     try {
       await _loadSdk();
@@ -907,22 +923,29 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
 
     // ⚠️ Les règles Firestore exigent une égalité STRICTE :
     //   request.resource.data.sender == request.auth.token.name
-    // Le claim `name` du ID token n'est pas forcément identique à
-    // authUser.displayName au même instant (token pas encore rafraîchi
-    // après un changement récent de displayName), et il peut être
-    // totalement absent si le compte n'a jamais eu de displayName. Un
-    // fallback du style `displayName ?? email ?? 'Spectateur'` ne
-    // matchera jamais ce claim et fait échouer l'écriture en silence
-    // (permission-denied avalé par le catch). On lit donc le claim exact.
+    // Le claim `name` du ID token peut être absent si le compte n'a
+    // jamais eu de displayName. Bloquer silencieusement ici rendait le
+    // bouton "Envoyer" apparemment inerte (aucun retour visible). On
+    // répare maintenant automatiquement : si le claim manque, on définit
+    // un displayName par défaut puis on force le rafraîchissement du
+    // token pour récupérer le nouveau claim, avant de réessayer.
     let senderName;
     try {
-      const idTokenResult = await authUser.getIdTokenResult();
+      let idTokenResult = await authUser.getIdTokenResult();
       senderName = idTokenResult.claims.name;
+      if (!senderName) {
+        const fallbackName = authUser.displayName
+          || authUser.email?.split('@')[0]
+          || `Spectateur_${authUser.uid.slice(0, 6)}`;
+        await updateProfile(authUser, { displayName: fallbackName });
+        idTokenResult = await authUser.getIdTokenResult(true); // forceRefresh
+        senderName = idTokenResult.claims.name;
+      }
     } catch (e) {
-      console.warn('⚠️ getIdTokenResult:', e);
+      console.warn('⚠️ getIdTokenResult/updateProfile:', e);
     }
     if (!senderName) {
-      console.warn('⚠️ sendMessage: aucun displayName sur le compte — les règles Firestore exigent sender == token.name, le commentaire ne peut pas être envoyé tant que le profil n\'a pas de nom.');
+      alert("Impossible d'envoyer le commentaire : profil incomplet. Réessayez dans quelques secondes.");
       return;
     }
 

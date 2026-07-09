@@ -26,7 +26,7 @@ import {
   collection, doc, query, where,
   onSnapshot, setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
-import { onAuthStateChanged, getIdToken } from 'firebase/auth';
+import { onAuthStateChanged, getIdToken, updateProfile } from 'firebase/auth';
 import SubscriptionGuard from '../components/SubscriptionGuard';
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -619,18 +619,27 @@ function GoLiveContent() {
 
     // ⚠️ Les règles Firestore exigent une égalité STRICTE :
     //   request.resource.data.sender == request.auth.token.name
-    // Un fallback ('Vendeur') divergent du claim token.name fait échouer
-    // l'écriture en silence (permission-denied avalé par le catch) dès
-    // que le displayName Auth est absent ou pas encore propagé au token.
+    // Bloquer silencieusement ici rendait le bouton "Envoyer" apparemment
+    // inerte (aucun retour visible). On répare maintenant automatiquement :
+    // si le claim manque, on définit un displayName par défaut puis on
+    // force le rafraîchissement du token pour récupérer le nouveau claim.
     let senderName;
     try {
-      const idTokenResult = await user.getIdTokenResult();
+      let idTokenResult = await user.getIdTokenResult();
       senderName = idTokenResult.claims.name;
+      if (!senderName) {
+        const fallbackName = user.displayName
+          || user.email?.split('@')[0]
+          || `Vendeur_${user.uid.slice(0, 6)}`;
+        await updateProfile(user, { displayName: fallbackName });
+        idTokenResult = await user.getIdTokenResult(true); // forceRefresh
+        senderName = idTokenResult.claims.name;
+      }
     } catch (e) {
-      console.warn('⚠️ getIdTokenResult:', e);
+      console.warn('⚠️ getIdTokenResult/updateProfile:', e);
     }
     if (!senderName) {
-      console.warn('⚠️ sendComment: aucun displayName sur le compte — les règles Firestore exigent sender == token.name, le commentaire ne peut pas être envoyé tant que le profil n\'a pas de nom.');
+      alert("Impossible d'envoyer le commentaire : profil incomplet. Réessayez dans quelques secondes.");
       return;
     }
 
@@ -648,7 +657,10 @@ function GoLiveContent() {
         channelId,
         lang: isChinese ? 'zh' : 'fr',
       });
-    } catch (e) { console.warn('⚠️ sendComment:', e.code ?? e.message ?? e); }
+    } catch (e) {
+      console.warn('⚠️ sendComment:', e.code ?? e.message ?? e);
+      alert("Le commentaire n'a pas pu être envoyé (" + (e.code ?? 'erreur réseau') + ").");
+    }
   };
 
   const fmtTime = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
