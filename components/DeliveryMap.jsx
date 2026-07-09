@@ -1,9 +1,17 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebaseClient';
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
+import { db, auth } from '../lib/firebaseClient';
 
+/* ⚠️ Garder strictement synchronisé avec la clause
+   `resource.data.statut in [...]` des règles Firestore sur
+   /commandes/{commandeId}, et avec ACTIVE_STATUTS dans
+   app/delivery/page.js. Une requête where('statut','in',[...])
+   plus large que cette liste serait entièrement refusée par
+   Firestore (pas juste tronquée). */
+const ACTIVE_STATUTS = ['en_attente', 'en_route', 'en_traitement'];
 
 /* ══════════════════════════════════════════════════════════
    CONFIG STATUTS
@@ -462,21 +470,45 @@ export default function DeliveryMap({ height = 480 }) {
   const [loading,   setLoading]   = useState(true);
   const [selected,  setSelected]  = useState(null);
 
-  /* Écoute temps réel Firestore */
+  /* Écoute temps réel Firestore — gatée derrière l'auth, avec le
+     filtre statut requis par les règles Firestore (cf. commentaire
+     sur ACTIVE_STATUTS en haut du fichier). Sans le where(), Firestore
+     ne peut pas prouver que tous les documents renvoyés respectent la
+     règle et rejette la requête entière avec permission-denied. */
   useEffect(() => {
-    const q = query(
-      collection(db, 'commandes'),
-      orderBy('createdAt', 'desc')
-    );
-    const unsub = onSnapshot(
-      q,
-      snap => {
-        setCommandes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    let unsubSnap = null;
+
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      // Si un listener précédent existait (ex: reconnexion), on le ferme d'abord
+      unsubSnap?.();
+      unsubSnap = null;
+
+      if (!user) {
+        setCommandes([]);
         setLoading(false);
-      },
-      err => { console.error('Firestore DeliveryMap:', err); setLoading(false); }
-    );
-    return () => unsub();
+        return;
+      }
+
+      const q = query(
+        collection(db, 'commandes'),
+        where('statut', 'in', ACTIVE_STATUTS),
+        orderBy('createdAt', 'desc')
+      );
+
+      unsubSnap = onSnapshot(
+        q,
+        snap => {
+          setCommandes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+          setLoading(false);
+        },
+        err => { console.error('Firestore DeliveryMap:', err); setLoading(false); }
+      );
+    });
+
+    return () => {
+      unsubSnap?.();
+      unsubAuth();
+    };
   }, []);
 
   /* Init carte */
