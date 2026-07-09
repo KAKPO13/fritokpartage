@@ -24,7 +24,7 @@ import { useRouter } from 'next/navigation';
 import { db, auth } from '../lib/firebaseClient';
 import {
   collection, doc, query, where,
-  onSnapshot, setDoc, deleteDoc,
+  onSnapshot, setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { onAuthStateChanged, getIdToken } from 'firebase/auth';
 import SubscriptionGuard from '../components/SubscriptionGuard';
@@ -174,7 +174,7 @@ function GoLiveContent() {
     // Enregistrer la présence du vendeur comme viewer/host
     if (uid) {
       setDoc(doc(db, 'live_sessions', channelId, 'viewers', uid), {
-        joinedAt:    { serverTimestamp: true },
+        joinedAt:    serverTimestamp(),
         role:        'host',
         displayName: auth.currentUser?.displayName ?? '',
         avatarUrl:   auth.currentUser?.photoURL    ?? null,
@@ -615,23 +615,40 @@ function GoLiveContent() {
     if (!commentText.trim()) return;
     const text = commentText.trim().slice(0, 300); // limite client (serveur valide aussi)
     const user  = auth.currentUser;
-    addComment(user?.displayName ?? 'Moi', text, isChinese ? 'zh' : 'fr');
-    setCommentText('');
-    if (channelId && user) {
-      try {
-        const ref = doc(collection(db, 'live_comments'));
-        // ✅ userId + sender alignés sur les nouvelles règles Firestore
-        await setDoc(ref, {
-          commentId:  ref.id,
-          userId:     user.uid,                    // requis par les règles
-          sender:     user.displayName ?? 'Vendeur', // doit == request.auth.token.name
-          text,
-          timestamp:  { serverTimestamp: true },
-          channelId,
-          lang: isChinese ? 'zh' : 'fr',
-        });
-      } catch (e) { console.warn('⚠️ sendComment:', e); }
+    if (!channelId || !user) return;
+
+    // ⚠️ Les règles Firestore exigent une égalité STRICTE :
+    //   request.resource.data.sender == request.auth.token.name
+    // Un fallback ('Vendeur') divergent du claim token.name fait échouer
+    // l'écriture en silence (permission-denied avalé par le catch) dès
+    // que le displayName Auth est absent ou pas encore propagé au token.
+    let senderName;
+    try {
+      const idTokenResult = await user.getIdTokenResult();
+      senderName = idTokenResult.claims.name;
+    } catch (e) {
+      console.warn('⚠️ getIdTokenResult:', e);
     }
+    if (!senderName) {
+      console.warn('⚠️ sendComment: aucun displayName sur le compte — les règles Firestore exigent sender == token.name, le commentaire ne peut pas être envoyé tant que le profil n\'a pas de nom.');
+      return;
+    }
+
+    addComment(senderName, text, isChinese ? 'zh' : 'fr');
+    setCommentText('');
+    try {
+      const ref = doc(collection(db, 'live_comments'));
+      // ✅ userId + sender alignés sur les nouvelles règles Firestore
+      await setDoc(ref, {
+        commentId:  ref.id,
+        userId:     user.uid,       // requis par les règles
+        sender:     senderName,     // == request.auth.token.name (obligatoire)
+        text,
+        timestamp:  serverTimestamp(), // ✅ vrai timestamp serveur (l'objet littéral précédent cassait le tri côté spectateur)
+        channelId,
+        lang: isChinese ? 'zh' : 'fr',
+      });
+    } catch (e) { console.warn('⚠️ sendComment:', e.code ?? e.message ?? e); }
   };
 
   const fmtTime = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;

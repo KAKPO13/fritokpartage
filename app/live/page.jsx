@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  collection, query, orderBy,
+  collection, query, orderBy, where,
   onSnapshot, doc, updateDoc,
   addDoc, setDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
@@ -840,14 +840,6 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
 /* ══════════════════════════════════════════════════════════
    PLAYER LIVE PLEIN ÉCRAN
 ══════════════════════════════════════════════════════════ */
-const DEMO_CHAT = [
-  { id: 1, user: '@marie_ci', text: "C'est magnifique !" },
-  { id: 2, user: '@kofi',     text: 'Disponible en rouge ?' },
-  { id: 3, user: '@aminata',  text: 'Le prix svp' },
-  { id: 4, user: '@alex_abj', text: "J'adore ce produit !" },
-  { id: 5, user: '@cisse',    text: 'Livraison a Yopougon ?' },
-];
-
 function LivePlayer({ session, authUser, authReady, onClose }) {
   const { videoContainerRef, remoteUsers, status, error: agoraError } =
     useAgoraPlayer(session.channelId, session.isLive);
@@ -862,15 +854,35 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
   const [orderProduct,  setOrderProduct]  = useState(null);
   const [authPrompt,    setAuthPrompt]    = useState(false);
   const chatRef  = useRef(null);
-  const msgIdRef = useRef(10);
 
+  // ── Commentaires Firestore partagés avec le vendeur ──────────────────────
+  // Même collection `live_comments` (filtrée par channelId) que celle
+  // utilisée côté vendeur dans GoLive.jsx. Avant cette correction, le chat
+  // du spectateur vivait uniquement en local state (DEMO_CHAT simulé) et
+  // n'était jamais lu ni écrit dans Firestore : les commentaires du
+  // vendeur et ceux des spectateurs ne se rencontraient jamais.
   useEffect(() => {
-    setMessages(DEMO_CHAT.slice(0, 2));
-    const timers = DEMO_CHAT.slice(2).map((m, i) =>
-      setTimeout(() => setMessages(p => [...p.slice(-9), m]), (i + 1) * 3800)
+    if (!session.channelId) return;
+    const unsub = onSnapshot(
+      query(collection(db, 'live_comments'), where('channelId', '==', session.channelId)),
+      snap => {
+        const docs = snap.docs.map(d => {
+          const data = d.data();
+          return {
+            id:   d.id,
+            user: data.sender ?? '?',
+            text: data.text   ?? '',
+            lang: data.lang   ?? 'fr',
+            ts:   data.timestamp?.toMillis?.() ?? 0,
+          };
+        });
+        docs.sort((a, b) => a.ts - b.ts);
+        setMessages(docs);
+      },
+      err => console.warn('⚠️ live_comments listener:', err)
     );
-    return () => timers.forEach(clearTimeout);
-  }, []);
+    return unsub;
+  }, [session.channelId]);
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' });
@@ -887,11 +899,50 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
     toggleLike();
   };
 
-  const sendMessage = () => {
-    const text = inputMsg.trim();
-    if (!text) return;
-    setMessages(p => [...p.slice(-9), { id: msgIdRef.current++, user: '@vous', text }]);
+  const sendMessage = async () => {
+    const text = inputMsg.trim().slice(0, 300); // même limite client que côté vendeur
+    if (!text || !session.channelId) return;
+    if (!authReady) return;
+    if (!authUser) { setAuthPrompt(true); return; }
+
+    // ⚠️ Les règles Firestore exigent une égalité STRICTE :
+    //   request.resource.data.sender == request.auth.token.name
+    // Le claim `name` du ID token n'est pas forcément identique à
+    // authUser.displayName au même instant (token pas encore rafraîchi
+    // après un changement récent de displayName), et il peut être
+    // totalement absent si le compte n'a jamais eu de displayName. Un
+    // fallback du style `displayName ?? email ?? 'Spectateur'` ne
+    // matchera jamais ce claim et fait échouer l'écriture en silence
+    // (permission-denied avalé par le catch). On lit donc le claim exact.
+    let senderName;
+    try {
+      const idTokenResult = await authUser.getIdTokenResult();
+      senderName = idTokenResult.claims.name;
+    } catch (e) {
+      console.warn('⚠️ getIdTokenResult:', e);
+    }
+    if (!senderName) {
+      console.warn('⚠️ sendMessage: aucun displayName sur le compte — les règles Firestore exigent sender == token.name, le commentaire ne peut pas être envoyé tant que le profil n\'a pas de nom.');
+      return;
+    }
+
     setInputMsg('');
+    try {
+      const ref = doc(collection(db, 'live_comments'));
+      // ✅ Mêmes champs que GoLive.jsx (userId + sender requis par les
+      // règles Firestore) pour que le message apparaisse aussi côté vendeur.
+      await setDoc(ref, {
+        commentId: ref.id,
+        userId:    authUser.uid,
+        sender:    senderName,
+        text,
+        timestamp: serverTimestamp(),
+        channelId: session.channelId,
+        lang: 'fr',
+      });
+    } catch (e) {
+      console.warn('⚠️ sendMessage (spectateur):', e.code ?? e.message ?? e);
+    }
   };
 
   const initial  = (session.sellerName || 'V')[0].toUpperCase();
