@@ -324,6 +324,10 @@ function CommandeCard({ docId, data, onClick }) {
   const devise = data.devise || 'XOF';
   const totalDevise = data.totalDevise ?? totalXof;
   const adresse = data.adresseLivraison || '—';
+  const villeDestination = data.villeDestination || '';
+  const adresseComplete = villeDestination && adresse !== '—'
+    ? `${villeDestination} – ${adresse}`
+    : (villeDestination || adresse);
   const batchId = data.batchId || null;
   const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : null;
 
@@ -388,7 +392,7 @@ function CommandeCard({ docId, data, onClick }) {
           marginTop: 5, color: D.text1, fontSize: 13, fontWeight: 700,
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}>
-          {adresse}
+          {adresseComplete}
         </div>
 
         <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>

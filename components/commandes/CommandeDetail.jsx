@@ -132,6 +132,10 @@ export default function CommandeDetailPage({ commandeId }) {
   // /commandes/{id}/private/contact écrit adresseLivraison, telephoneClient,
   // clientLat, clientLng. Le document public ne contient plus ces champs.
   const adresse = privateData?.adresseLivraison ?? commande.adresseLivraison ?? '—';
+  const villeDestination = commande.villeDestination || '';
+  const adresseComplete = villeDestination && adresse !== '—'
+    ? `${villeDestination} – ${adresse}`
+    : (villeDestination || adresse);
   const telephoneClient = privateData?.telephoneClient ?? null;
   const gps =
     privateData?.clientLat != null && privateData?.clientLng != null
@@ -232,7 +236,7 @@ export default function CommandeDetailPage({ commandeId }) {
 
         {/* Infos livraison */}
         <div style={{ background: D.card, borderRadius: 18, border: `1.5px solid ${D.border}`, padding: 18, display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <InfoRow icon="📍" label="Adresse" value={adresse} />
+          <InfoRow icon="📍" label="Adresse" value={adresseComplete} />
           <Divider />
           <InfoRow icon={typeLiv === 'groupee' ? '👥' : '👤'} label="Type" value={typeLiv === 'groupee' ? 'Livraison groupée' : 'Livraison solo'} />
           <Divider />
