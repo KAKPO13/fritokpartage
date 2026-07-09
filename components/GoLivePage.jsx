@@ -34,6 +34,44 @@ const AGORA_APP_ID   = process.env.NEXT_PUBLIC_AGORA_APP_ID; // depuis .env.loca
 const MAX_COHOSTS    = 3;
 const API_BASE       = process.env.NEXT_PUBLIC_API_BASE ?? ''; // ex: https://fritok1.netlify.app
 
+// ── Profils vidéo/audio adaptés 4G Afrique ──────────────────────────────────
+// Choisis pour prioriser la CONTINUITÉ du flux (pas de gel d'image) plutôt
+// que la résolution maximale : sur une 4G africaine typique (souvent
+// 1-3 Mbps instables, latence/jigue variables, terminaux d'entrée de
+// gamme), un flux qui gèle ou décroche casse la confiance acheteur bien
+// plus qu'une image légèrement moins nette. bitrateMin est volontairement
+// bas (pas 0) pour laisser Agora dégrader progressivement sans jamais
+// couper le flux plutôt que de figer en dessous d'un plancher trop haut.
+const VIDEO_PROFILE_NORMAL = {
+  mobile: {
+    width: { ideal: 480 }, height: { ideal: 360 },
+    frameRate: { ideal: 20, max: 24 },
+    bitrateMin: 150, bitrateMax: 600,
+  },
+  desktop: {
+    width: { ideal: 960 }, height: { ideal: 540 },
+    frameRate: { ideal: 24, max: 30 },
+    bitrateMin: 300, bitrateMax: 1200,
+  },
+};
+// Mode économie : activable manuellement par le vendeur (bouton), ou
+// automatiquement si le réseau est détecté mauvais plusieurs mesures
+// Agora de suite (voir listener 'network-quality' dans startLive).
+const VIDEO_PROFILE_ECONOMY = {
+  width: { ideal: 320 }, height: { ideal: 240 },
+  frameRate: { ideal: 12, max: 15 },
+  bitrateMin: 80, bitrateMax: 280,
+};
+// Paramètres du flux "low" Agora (dual-stream) — celui que les
+// spectateurs en réseau très faible reçoivent automatiquement à la
+// place du flux principal (nécessite un fallback équivalent côté lecteur,
+// voir note dans useAgoraPlayer.js).
+const LOW_STREAM_PARAMS = { width: 160, height: 120, framerate: 15, bitrate: 100 };
+// Live shopping = voix uniquement, pas de musique : 'speech_standard'
+// (~18 kbps) au lieu de 'music_standard' (~64 kbps par défaut) — environ
+// 3,5x moins de bande passante audio pour une clarté vocale équivalente.
+const AUDIO_PROFILE = 'speech_standard';
+
 // ── Appel API sécurisé ───────────────────────────────────────────────────────
 async function secureCall(path, body) {
   const user = auth.currentUser;
@@ -125,6 +163,14 @@ function GoLiveContent() {
   const [micOn,            setMicOn]           = useState(true);
   const [facingMode,       setFacingMode]      = useState('user'); // 'user' = avant, 'environment' = arrière
   const [switchingCamera,  setSwitchingCamera] = useState(false);
+
+  // ── Qualité réseau / mode économie de données (adapté 4G) ──────────────────
+  const [networkQuality, setNetworkQuality] = useState(0); // 0=inconnu,1=excellent...6=très mauvais (échelle Agora)
+  const [economyMode,    setEconomyMode]    = useState(false);
+  const economyLockedRef  = useRef(false); // true si le vendeur a choisi manuellement (on n'auto-annule plus)
+  const poorNetworkCountRef = useRef(0);
+  const goodNetworkCountRef = useRef(0);
+  const isMobileRef = useRef(false);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -335,8 +381,40 @@ function GoLiveContent() {
 
       const AgoraRTC = window.AgoraRTC;
       AgoraRTC.setLogLevel(3);
-      const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+      // H.264 plutôt que VP8 : décodage matériel supporté par la quasi-
+      // totalité des Android d'entrée de gamme courants en Afrique, ce qui
+      // réduit la charge CPU/batterie côté spectateur et limite les
+      // saccades sur les terminaux les plus modestes. VP8 reste plus
+      // universel côté navigateurs desktop anciens si jamais ce choix pose
+      // un souci de compatibilité constaté en prod.
+      const client = AgoraRTC.createClient({ mode: 'live', codec: 'h264' });
       agoraClientRef.current = client;
+
+      // Suivi qualité réseau : bascule automatique en mode économie après
+      // 3 mesures consécutives mauvaises (évite de réagir à un pic isolé),
+      // et retour automatique en mode normal après 3 mesures bonnes — sauf
+      // si le vendeur a lui-même forcé le mode via le bouton (economyLockedRef).
+      client.on('network-quality', (stats) => {
+        const q = stats?.uplinkNetworkQuality ?? 0;
+        setNetworkQuality(q);
+        if (q >= 4) {
+          poorNetworkCountRef.current += 1;
+          goodNetworkCountRef.current = 0;
+          if (!economyLockedRef.current && poorNetworkCountRef.current >= 3) {
+            _applyVideoProfile(true, 'auto');
+          }
+        } else if (q > 0 && q <= 2) {
+          goodNetworkCountRef.current += 1;
+          poorNetworkCountRef.current = 0;
+          if (!economyLockedRef.current && goodNetworkCountRef.current >= 3) {
+            _applyVideoProfile(false, 'auto');
+          }
+        }
+      });
+
+      client.on('exception', (evt) => {
+        console.warn('⚠️ Agora exception:', evt.code, evt.msg, evt.uid);
+      });
 
       client.on('user-published', async (remoteUser, mediaType) => {
         await client.subscribe(remoteUser, mediaType);
@@ -373,14 +451,34 @@ function GoLiveContent() {
       await client.setClientRole('host');
       await client.join(AGORA_APP_ID, cId, token, 0);
 
+      // Dual-stream : Agora publie en parallèle un flux "low" léger
+      // (LOW_STREAM_PARAMS) que les spectateurs en réseau très faible
+      // reçoivent automatiquement à la place du flux principal — évite
+      // qu'un seul spectateur en mauvaise 4G ne dégrade l'expérience de
+      // tous les autres. Nécessite un fallback équivalent côté lecteur
+      // (setStreamFallbackOption / setRemoteVideoStreamType), à vérifier
+      // dans useAgoraPlayer.js si ce fichier n'a pas encore ce réglage.
+      try {
+        client.setLowStreamParameter(LOW_STREAM_PARAMS);
+        await client.enableDualStream();
+      } catch (e) {
+        console.warn('⚠️ enableDualStream indisponible sur ce navigateur:', e);
+      }
+
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      isMobileRef.current = isMobile;
       let audioTrack = null, videoTrack = null;
       try {
         [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-          { encoderConfig: 'music_standard' },
-          isMobile
-            ? { encoderConfig: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { max: 24 }, bitrateMax: 800 } }
-            : { encoderConfig: { width: 1280, height: 720, frameRate: 30, bitrateMax: 2000 } }
+          { encoderConfig: AUDIO_PROFILE },
+          {
+            encoderConfig: isMobile ? VIDEO_PROFILE_NORMAL.mobile : VIDEO_PROFILE_NORMAL.desktop,
+            // 'motion' privilégie la fluidité (pas de gel) au détriment
+            // d'un peu de netteté sur les mouvements rapides — plus adapté
+            // qu'un mode 'detail' quand la bande passante est le facteur
+            // limitant, ce qui est le cas visé ici (4G africaine).
+            optimizationMode: 'motion',
+          }
         );
       } catch (e1) {
         try { [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks({}, {}); }
@@ -397,6 +495,10 @@ function GoLiveContent() {
       setCameraOn(true);
       setMicOn(true);
       setFacingMode('user');
+      setEconomyMode(false);
+      economyLockedRef.current = false;
+      poorNetworkCountRef.current = 0;
+      goodNetworkCountRef.current = 0;
       setIsEngineReady(true);
       if (isChinese) setTranslationActive(true);
 
@@ -437,6 +539,11 @@ function GoLiveContent() {
     pendingQueueRef.current = [];
     setIsEngineReady(false);
     setAgoraToken(null);
+    setNetworkQuality(0);
+    setEconomyMode(false);
+    economyLockedRef.current = false;
+    poorNetworkCountRef.current = 0;
+    goodNetworkCountRef.current = 0;
   }, [channelId]);
 
   async function _releaseAgora() {
@@ -451,6 +558,41 @@ function GoLiveContent() {
       }
     } catch (e) { console.warn('Cleanup Agora:', e); }
   }
+
+  // ── ADAPTATION RÉSEAU (4G Afrique) ─────────────────────────────────────────
+  // Bascule la track vidéo locale entre le profil normal (mobile/desktop)
+  // et le profil économie, à chaud, sans recréer la track ni republier —
+  // setEncoderConfiguration() suffit et ne coupe pas le flux pour les
+  // spectateurs déjà connectés.
+  async function _applyVideoProfile(useEconomy, origin = 'manual') {
+    const videoTrack = localTrackRef.current?.video;
+    if (!videoTrack) return;
+    try {
+      const profile = useEconomy
+        ? VIDEO_PROFILE_ECONOMY
+        : (isMobileRef.current ? VIDEO_PROFILE_NORMAL.mobile : VIDEO_PROFILE_NORMAL.desktop);
+      await videoTrack.setEncoderConfiguration(profile);
+      setEconomyMode(useEconomy);
+      if (origin === 'manual') economyLockedRef.current = useEconomy;
+      poorNetworkCountRef.current = 0;
+      goodNetworkCountRef.current = 0;
+      addComment(
+        'FriTok',
+        useEconomy
+          ? (origin === 'auto' ? '📶 Réseau faible détecté — qualité vidéo réduite automatiquement' : '🐢 Mode économie de données activé')
+          : (origin === 'auto' ? '📶 Réseau rétabli — qualité vidéo restaurée' : '⚡ Mode économie de données désactivé'),
+        'fr'
+      );
+    } catch (e) {
+      console.warn('⚠️ _applyVideoProfile:', e);
+    }
+  }
+
+  // Bouton manuel — verrouille le choix pour que l'auto-ajustement ne le
+  // reprenne pas tant que le vendeur ne clique pas à nouveau.
+  const toggleEconomyMode = useCallback(() => {
+    _applyVideoProfile(!economyMode, 'manual');
+  }, [economyMode]);
 
   // ── ENGAGEMENT ────────────────────────────────────────────────────────────
   // ✅ Plus de chiffres envoyés depuis le client — incréments atomiques serveur
@@ -709,6 +851,16 @@ function GoLiveContent() {
 
       <div style={{ position: 'absolute', top: 56, left: 12, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         <Pill bg="rgba(0,0,0,.65)">👁️ {viewerCount}</Pill>
+        {networkQuality > 0 && (
+          <Pill bg={networkQuality <= 2 ? 'rgba(34,197,94,.75)' : networkQuality <= 3 ? 'rgba(249,115,22,.75)' : 'rgba(239,68,68,.75)'}>
+            {networkQuality <= 2 ? '🟢' : networkQuality <= 3 ? '🟠' : '🔴'} Réseau
+          </Pill>
+        )}
+        <button onClick={toggleEconomyMode} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
+          <Pill bg={economyMode ? 'rgba(249,115,22,.85)' : 'rgba(0,0,0,.5)'}>
+            {economyMode ? '🐢 Économie' : '⚡ Qualité normale'}
+          </Pill>
+        </button>
         {activeCoHosts.length > 0 && (
           <button onClick={() => setShowCoHostPanel(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
             <Pill bg="rgba(124,58,237,.75)">👥 {activeCoHosts.length} sur scène</Pill>

@@ -36,6 +36,19 @@ function getFrais(villeVendeur, villeClient, typeLivr) {
 }
 const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' XOF';
 
+// ── Profil vidéo/audio co-host adapté 4G Afrique ────────────────────────────
+// Le co-host s'affiche en petite vignette (88×124px côté vendeur) : pas
+// besoin de haute résolution, et le co-host est presque toujours sur
+// données mobiles personnelles (donc le poste le plus contraint en bande
+// passante des deux côtés de l'appel) — profil délibérément plus bas que
+// celui du vendeur principal.
+const COHOST_VIDEO_PROFILE = {
+  width: { ideal: 320 }, height: { ideal: 240 },
+  frameRate: { ideal: 15, max: 18 },
+  bitrateMin: 80, bitrateMax: 350,
+};
+const COHOST_AUDIO_PROFILE = 'speech_standard'; // ~18kbps, voix uniquement
+
 /* ══════════════════════════════════════════════════════════
    ICÔNES
 ══════════════════════════════════════════════════════════ */
@@ -72,6 +85,14 @@ function IconClose() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
       <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+  );
+}
+function IconFlag() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+      <line x1="4" y1="22" x2="4" y2="15"/>
     </svg>
   );
 }
@@ -338,7 +359,7 @@ function CoHostButton({ session, authUser }) {
       const AgoraRTC = window.AgoraRTC;
       AgoraRTC.setLogLevel(3);
 
-      const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+      const client = AgoraRTC.createClient({ mode: 'live', codec: 'h264' }); // aligné sur le codec du vendeur (GoLive.jsx)
       agoraClientRef.current = client;
 
       await client.setClientRole('host');
@@ -346,10 +367,16 @@ function CoHostButton({ session, authUser }) {
 
       let audioTrack = null, videoTrack = null;
       try {
-        [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks({}, {});
+        [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
+          { encoderConfig: COHOST_AUDIO_PROFILE },
+          { encoderConfig: COHOST_VIDEO_PROFILE, optimizationMode: 'motion' }
+        );
       } catch {
-        try { audioTrack = await AgoraRTC.createMicrophoneAudioTrack(); }
-        catch (e2) { throw new Error('Micro inaccessible : ' + e2.message); }
+        try { [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks({}, {}); }
+        catch (e1) {
+          try { audioTrack = await AgoraRTC.createMicrophoneAudioTrack(); }
+          catch (e2) { throw new Error('Micro inaccessible : ' + e2.message); }
+        }
       }
       tracksRef.current = { audio: audioTrack, video: videoTrack };
 
@@ -854,6 +881,137 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   BOTTOM SHEET — SIGNALER LE LIVE
+   Écrit dans /live_reports (nouvelle collection). Nécessite d'ajouter
+   aux firestore.rules :
+
+     match /live_reports/{reportId} {
+       allow read: if false; // modération uniquement (Admin SDK / console)
+       allow create: if isAuth()
+         && request.resource.data.reporterId == request.auth.uid
+         && request.resource.data.keys().hasOnly([
+              'channelId','sellerId','reporterId','reason','details','createdAt','status'
+            ])
+         && request.resource.data.status == 'pending'
+         && request.resource.data.reason is string
+         && request.resource.data.details is string
+         && request.resource.data.details.size() <= 500;
+       allow update, delete: if false;
+     }
+
+   Sans cette règle, l'écriture ci-dessous échouera (permission-denied).
+══════════════════════════════════════════════════════════ */
+const REPORT_REASONS = [
+  { key: 'sexuel',     label: 'Contenu sexuel ou nudité' },
+  { key: 'arnaque',    label: 'Arnaque ou fraude' },
+  { key: 'contrefait', label: 'Produit contrefait ou illégal' },
+  { key: 'haine',      label: 'Propos haineux ou harcèlement' },
+  { key: 'violence',   label: 'Violence ou contenu choquant' },
+  { key: 'spam',       label: 'Spam ou publicité trompeuse' },
+  { key: 'autre',      label: 'Autre raison' },
+];
+
+function ReportSheet({ session, authUser, onClose }) {
+  const [reason,     setReason]     = useState(null);
+  const [details,    setDetails]    = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [done,       setDone]       = useState(false);
+  const [errMsg,     setErrMsg]     = useState(null);
+
+  const submit = async () => {
+    if (!reason) { setErrMsg('Choisissez un motif.'); return; }
+    if (!authUser || !session.channelId) return;
+    setSubmitting(true);
+    setErrMsg(null);
+    try {
+      await addDoc(collection(db, 'live_reports'), {
+        channelId:  session.channelId,
+        sellerId:   session.sellerId ?? session.userId ?? '',
+        reporterId: authUser.uid,
+        reason,
+        details:    details.trim().slice(0, 500),
+        createdAt:  serverTimestamp(),
+        status:     'pending',
+      });
+      setDone(true);
+      setTimeout(onClose, 2200);
+    } catch (e) {
+      console.warn('⚠️ report submit:', e.code ?? e.message ?? e);
+      setErrMsg("Échec de l'envoi. Réessayez.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modalSheet}>
+        <div className={styles.modalHandle}/>
+        {done ? (
+          <div style={{ textAlign: 'center', padding: '28px 16px' }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+            <p style={{ color: '#fff', fontWeight: 800, fontSize: 16, margin: '0 0 6px' }}>Signalement envoyé</p>
+            <p style={{ color: '#ffffff80', fontSize: 13, margin: 0 }}>Merci, notre équipe va l'examiner rapidement.</p>
+          </div>
+        ) : (
+          <>
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.modalTitle}>Signaler ce live</p>
+                <p className={styles.modalSub}>Aidez-nous à garder FriTok sûr</p>
+              </div>
+              <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
+            </div>
+            <div style={{ padding: '4px 20px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {REPORT_REASONS.map(r => (
+                <button key={r.key} onClick={() => setReason(r.key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '12px 14px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+                    background: reason === r.key ? 'rgba(239,68,68,.12)' : 'rgba(255,255,255,.04)',
+                    border: `1px solid ${reason === r.key ? 'rgba(239,68,68,.5)' : 'rgba(255,255,255,.1)'}`,
+                    color: '#fff', fontSize: 14,
+                  }}>
+                  <span>{r.label}</span>
+                  <span style={{
+                    width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                    border: `2px solid ${reason === r.key ? '#EF4444' : 'rgba(255,255,255,.3)'}`,
+                    background: reason === r.key ? '#EF4444' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {reason === r.key && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }}/>}
+                  </span>
+                </button>
+              ))}
+              <textarea
+                placeholder="Détails supplémentaires (optionnel)"
+                value={details} onChange={e => setDetails(e.target.value)}
+                rows={3} maxLength={500}
+                style={{
+                  marginTop: 4, padding: '10px 12px', borderRadius: 10, resize: 'vertical',
+                  background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)',
+                  color: '#fff', fontSize: 13, fontFamily: 'inherit',
+                }}
+              />
+              {errMsg && <p style={{ color: '#FCA5A5', fontSize: 12, margin: '2px 0 0' }}>{errMsg}</p>}
+              <button onClick={submit} disabled={!reason || submitting}
+                style={{
+                  marginTop: 6, padding: '13px 0', borderRadius: 12, border: 'none',
+                  background: (!reason || submitting) ? 'rgba(239,68,68,.35)' : '#EF4444',
+                  color: '#fff', fontWeight: 700, fontSize: 15,
+                  cursor: (!reason || submitting) ? 'not-allowed' : 'pointer',
+                }}>
+                {submitting ? 'Envoi...' : 'Envoyer le signalement'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
    PLAYER LIVE PLEIN ÉCRAN
 ══════════════════════════════════════════════════════════ */
 function LivePlayer({ session, authUser, authReady, onClose }) {
@@ -869,6 +1027,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
   const [inputMsg,      setInputMsg]      = useState('');
   const [orderProduct,  setOrderProduct]  = useState(null);
   const [authPrompt,    setAuthPrompt]    = useState(false);
+  const [showReportSheet, setShowReportSheet] = useState(false);
   const chatRef  = useRef(null);
 
   // ── Commentaires Firestore partagés avec le vendeur ──────────────────────
@@ -913,6 +1072,12 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
     if (!authReady) return;
     if (!authUser) { setAuthPrompt(true); return; }
     toggleLike();
+  };
+
+  const handleReport = () => {
+    if (!authReady) return;
+    if (!authUser) { setAuthPrompt(true); return; }
+    setShowReportSheet(true);
   };
 
   const sendMessage = async () => {
@@ -1014,6 +1179,9 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
           {session.isLive
             ? <span className={styles.liveIndicator}>LIVE</span>
             : <span className={styles.replayLabel}>TERMINÉ</span>}
+          <button className={styles.closeBtn} onClick={handleReport} aria-label="Signaler ce live" title="Signaler ce live">
+            <IconFlag/>
+          </button>
           <button className={styles.closeBtn} onClick={onClose}><IconClose/></button>
         </div>
       </div>
@@ -1070,6 +1238,13 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
       )}
 
       {authPrompt && <AuthRequiredModal onClose={() => setAuthPrompt(false)}/>}
+      {showReportSheet && (
+        <ReportSheet
+          session={session}
+          authUser={authUser}
+          onClose={() => setShowReportSheet(false)}
+        />
+      )}
       {orderProduct && (
         <OrderModal
           product={orderProduct}

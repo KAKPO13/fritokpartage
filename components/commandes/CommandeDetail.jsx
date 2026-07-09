@@ -69,6 +69,13 @@ function Toast({ msg, isError, onClose }) {
 export default function CommandeDetailPage({ commandeId }) {
   const router = useRouter();
   const [commande, setCommande] = useState(null);
+  // Données privées (adresse précise, téléphone, GPS) — sous-collection
+  // /commandes/{commandeId}/private/contact, séparée du document public
+  // depuis l'audit de sécurité (voir firestore.rules). Peut être null si
+  // l'utilisateur n'a pas encore le droit d'y accéder (ex: livreur pas
+  // encore assigné à la commande) — ce n'est PAS une erreur à afficher,
+  // juste une absence légitime de données à ce stade.
+  const [privateData, setPrivateData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [qrOpen, setQrOpen] = useState(false);
   const [toast, setToast] = useState(null);
@@ -83,6 +90,19 @@ export default function CommandeDetailPage({ commandeId }) {
         console.error('❌ CommandeDetailPage:', e);
       } finally {
         setIsLoading(false);
+      }
+
+      // Lecture séparée du sous-document privé — dans son propre try/catch
+      // pour ne jamais bloquer l'affichage du reste de la commande si
+      // l'accès est refusé (règle Firestore : client, vendeur, ou livreur
+      // assigné uniquement).
+      try {
+        const privSnap = await getDoc(doc(db, 'commandes', commandeId, 'private', 'contact'));
+        if (privSnap.exists()) setPrivateData(privSnap.data());
+      } catch (e) {
+        // Accès refusé ou pas encore autorisé : comportement normal,
+        // pas une erreur à remonter à l'utilisateur.
+        console.warn('ℹ️ Détails privés non accessibles pour le moment:', e.message);
       }
     })();
   }, [commandeId]);
@@ -108,7 +128,16 @@ export default function CommandeDetailPage({ commandeId }) {
   }
 
   const statut = commande.statut || 'en_attente';
-  const adresse = commande.adresseLivraison || '—';
+  // Confirmé par netlify/functions/create-colis.js : le sous-document
+  // /commandes/{id}/private/contact écrit adresseLivraison, telephoneClient,
+  // clientLat, clientLng. Le document public ne contient plus ces champs.
+  const adresse = privateData?.adresseLivraison ?? commande.adresseLivraison ?? '—';
+  const telephoneClient = privateData?.telephoneClient ?? null;
+  const gps =
+    privateData?.clientLat != null && privateData?.clientLng != null
+      ? { lat: privateData.clientLat, lng: privateData.clientLng }
+      : null;
+
   const totalXof = commande.totalXof || 0;
   const devise = commande.devise || 'XOF';
   const totalDevise = commande.totalDevise ?? totalXof;
@@ -210,6 +239,18 @@ export default function CommandeDetailPage({ commandeId }) {
           <InfoRow icon={modePaie === 'immediat' ? '💳' : '🤝'} label="Paiement" value={modePaie === 'immediat' ? 'Payé en ligne' : 'À la livraison'} />
           <Divider />
           <InfoRow icon="🧾" label="Total" value={montantLabel} valueColor={D.orange} mono />
+          {telephoneClient && (
+            <>
+              <Divider />
+              <InfoRow icon="📞" label="Téléphone client" value={telephoneClient} mono />
+            </>
+          )}
+          {gps && (
+            <>
+              <Divider />
+              <InfoRow icon="🧭" label="GPS" value={`${Number(gps.lat).toFixed(5)}, ${Number(gps.lng).toFixed(5)}`} mono />
+            </>
+          )}
           {batchId && (
             <>
               <Divider />

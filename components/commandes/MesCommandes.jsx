@@ -14,6 +14,8 @@ import {
   limit,
   startAfter,
   getDocs,
+  doc,
+  getDoc,
 } from 'firebase/firestore';
 
 // ⚠️ Adaptez ce chemin à votre projet (voir memory: config Firebase client)
@@ -40,6 +42,34 @@ const D = {
 const fmt = new Intl.NumberFormat('fr-FR');
 const SYMBOLS = { NGN: '₦', GHS: 'GH₵', USD: '$' };
 const symbolFor = (devise) => SYMBOLS[devise] || 'FCFA';
+
+// ─── Enrichit une page de commandes avec l'adresse privée ───────────────────
+// Le document public /commandes/{id} ne contient plus adresseLivraison
+// depuis la séparation des données sensibles (voir firestore.rules et
+// netlify/functions/create-colis.js). Chaque commande de la page nécessite
+// donc une lecture supplémentaire de /commandes/{id}/private/contact.
+// Lancées en parallèle (Promise.all) — coût : jusqu'à PAGE_SIZE lectures
+// de plus par page, acceptable pour PAGE_SIZE=10.
+// Un échec individuel (ex: règle Firestore refusant l'accès pour un cas
+// limite) ne bloque pas les autres — la commande garde alors '—' pour
+// son adresse plutôt que de faire échouer toute la page.
+async function enrichirAvecAdresses(docsList) {
+  return Promise.all(
+    docsList.map(async ({ id, data }) => {
+      try {
+        const privSnap = await getDoc(doc(db, 'commandes', id, 'private', 'contact'));
+        const adresseLivraison = privSnap.exists()
+          ? privSnap.data().adresseLivraison
+          : data.adresseLivraison;
+        return { id, data: { ...data, adresseLivraison } };
+      } catch {
+        // Accès refusé ou non disponible — on garde les données publiques
+        // telles quelles, sans bloquer l'affichage de la carte.
+        return { id, data };
+      }
+    })
+  );
+}
 
 export default function MesCommandesPage() {
   const router = useRouter();
@@ -90,7 +120,8 @@ export default function MesCommandesPage() {
           : query(collection(db, 'commandes'), ...clauses, limit(PAGE_SIZE));
 
         const snap = await getDocs(q);
-        const newDocs = snap.docs.map((d) => ({ id: d.id, data: d.data() }));
+        const rawDocs = snap.docs.map((d) => ({ id: d.id, data: d.data() }));
+        const newDocs = await enrichirAvecAdresses(rawDocs);
 
         setDocs((prev) => (reset ? newDocs : [...prev, ...newDocs]));
         setLastDoc(snap.docs[snap.docs.length - 1] || null);
