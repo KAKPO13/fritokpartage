@@ -691,6 +691,69 @@ function useCommentCount(videoId, initialCount) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   HOOK : FOLLOW persisté Firestore (façon TikTok)
+   Modèle bidirectionnel :
+     users/{sellerId}/followers/{followerId}  → { userId: followerId, createdAt }
+     users/{followerId}/following/{sellerId}  → { userId: sellerId,   createdAt }
+   Deux écritures distinctes, mais chaque document reste sous le uid de
+   son propriétaire → compatible avec une règle firestore.rules du type
+   allow write: if request.auth.uid == {le uid du sous-chemin}.
+   `followerCount` compte en direct via onSnapshot sur la sous-collection
+   followers du vendeur (même pattern que useCommentCount / useLike).
+══════════════════════════════════════════════════════════ */
+function useFollow(sellerId, authUser) {
+  const [following,     setFollowing]     = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [ready,         setReady]         = useState(false);
+
+  const isSelf = !!(authUser?.uid && sellerId && authUser.uid === sellerId);
+
+  // Statut "je suis déjà abonné ?" — un seul doc à surveiller
+  useEffect(() => {
+    if (!sellerId || !authUser?.uid || isSelf) { setReady(true); return; }
+    const followRef = doc(db, 'users', sellerId, 'followers', authUser.uid);
+    const unsub = onSnapshot(followRef, snap => {
+      setFollowing(snap.exists());
+      setReady(true);
+    }, () => setReady(true));
+    return unsub;
+  }, [sellerId, authUser?.uid, isSelf]);
+
+  // Compteur d'abonnés temps réel, indépendant de l'état de connexion
+  useEffect(() => {
+    if (!sellerId) return;
+    const unsub = onSnapshot(
+      collection(db, 'users', sellerId, 'followers'),
+      snap => setFollowerCount(snap.size),
+      () => {}
+    );
+    return unsub;
+  }, [sellerId]);
+
+  const toggle = useCallback(async (e) => {
+    e?.stopPropagation();
+    if (!authUser?.uid || !sellerId || isSelf) return;
+
+    const followerRef  = doc(db, 'users', sellerId,     'followers', authUser.uid);
+    const followingRef = doc(db, 'users', authUser.uid, 'following', sellerId);
+
+    if (following) {
+      setFollowing(false);
+      await Promise.all([deleteDoc(followerRef), deleteDoc(followingRef)])
+        .catch(() => setFollowing(true)); // rollback optimiste si échec
+    } else {
+      setFollowing(true);
+      await Promise.all([
+        setDoc(followerRef,  { userId: authUser.uid, createdAt: serverTimestamp() }),
+        setDoc(followingRef, { userId: sellerId,      createdAt: serverTimestamp() }),
+      ]).catch(() => setFollowing(false));
+    }
+  }, [following, sellerId, authUser?.uid, isSelf]);
+
+  return { following, followerCount, toggle, ready, isSelf };
+}
+
+/* ══════════════════════════════════════════════════════════
    HOOK : HISTORIQUE DES VIDÉOS VUES (logique "à la TikTok")
    - Charge une seule fois l'historique existant au montage.
    - seenIdsRef est une ref (pas un state) : on ne veut PAS que le
@@ -765,6 +828,7 @@ function useSeenVideos(authUser, authReady) {
    le son à chaque scroll). `muted` et `setMuted` sont désormais
    reçus en props depuis DemoPage : un seul état partagé par
    toute la liste, mis à jour une fois pour toutes.
+   Ajout : bouton "suivre" sous l'avatar, branché sur useFollow.
 ══════════════════════════════════════════════════════════ */
 function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, markSeen }) {
   const videoRef  = useRef(null);
@@ -775,12 +839,17 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
   const [authPrompt,   setAuthPrompt]   = useState(false);
   const [showComments, setShowComments] = useState(false);
 
+  const sellerId = item.userId ?? item.refArticle ?? '';
+
   // Likes Firestore
   const { liked, count: likeCount, toggle: toggleLike, ready: likeReady } =
     useLike(item.id, item.likes ?? 0, authUser);
 
   // Comment count temps réel
   const commentCount = useCommentCount(item.id, item.comments ?? 0);
+
+  // Follow Firestore (item.userId = id du vendeur/créateur de la vidéo)
+  const { following, toggle: toggleFollow, isSelf } = useFollow(sellerId, authUser);
 
   useEffect(() => {
     const vid = videoRef.current;
@@ -833,6 +902,13 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
     else           { setOrderProduct(item.product); }
   };
 
+  const handleFollow = (e) => {
+    e.stopPropagation();
+    if (!authReady || isSelf) return;
+    if (!authUser) { setAuthPrompt(true); return; }
+    toggleFollow(e);
+  };
+
   const initials = (item.title || '@?').replace('@', '')[0]?.toUpperCase() ?? '?';
   const tags = (item.keywords ?? []).slice(0, 5).map(k => '#' + k).join(' ');
 
@@ -880,9 +956,18 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
 
       {/* Actions droite */}
       <div className={styles.actions}>
-        <div className={styles.avatarWrap}>
+        <div
+          className={styles.avatarWrap}
+          onClick={handleFollow}
+          role={isSelf ? undefined : 'button'}
+          aria-label={isSelf ? undefined : (following ? 'Ne plus suivre' : 'Suivre')}
+        >
           <div className={styles.avatar}>{initials}</div>
-          <div className={styles.followDot}>+</div>
+          {!isSelf && (
+            <div className={following ? styles.followDotActive : styles.followDot}>
+              {following ? '✓' : '+'}
+            </div>
+          )}
         </div>
 
         {/* LIKE */}
@@ -952,7 +1037,7 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
       {orderProduct && (
         <OrderModal
           product={orderProduct}
-          sellerId={item.userId ?? item.refArticle ?? ''}
+          sellerId={sellerId}
           authUser={authUser}
           onClose={() => setOrderProduct(null)}
         />
