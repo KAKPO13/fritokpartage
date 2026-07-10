@@ -1,0 +1,261 @@
+/* ── Page ─────────────────────────────────────────────────────────────────── */
+.page {
+  min-height: 100vh;
+  background: #000;
+  color: #fff;
+  padding-bottom: 40px;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: rgba(0,0,0,0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  z-index: 50;
+}
+.backBtn {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  border: none;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.backBtn:hover { background: rgba(255,255,255,0.15); }
+.headerTitle {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1rem;
+  color: #fff;
+}
+
+/* ── Bloc profil ──────────────────────────────────────────────────────────── */
+.profileTop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 20px 22px;
+  gap: 6px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.avatarBig {
+  width: 96px; height: 96px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--orange), var(--coral));
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 2.2rem;
+  color: #fff;
+  border: 3px solid #fff;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.avatarImg { width: 100%; height: 100%; object-fit: cover; }
+
+.handleText {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.15rem;
+  color: #fff;
+  margin-top: 6px;
+  word-break: break-word;
+  max-width: 320px;
+}
+
+.roleBadge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--orange);
+  background: rgba(255,77,0,0.1);
+  border: 1px solid rgba(255,77,0,0.3);
+  padding: 3px 11px;
+  border-radius: 100px;
+}
+
+/* ── Stats ────────────────────────────────────────────────────────────────── */
+.statsRow {
+  display: flex;
+  align-items: center;
+  margin-top: 16px;
+  width: 100%;
+  max-width: 320px;
+  justify-content: center;
+}
+.statItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+}
+.statValue {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.15rem;
+  color: #fff;
+}
+.statLabel {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.55);
+}
+.statDivider {
+  width: 1px;
+  height: 28px;
+  background: rgba(255,255,255,0.12);
+}
+
+/* ── Bouton suivre ────────────────────────────────────────────────────────── */
+.followBtnMain {
+  margin-top: 16px;
+  padding: 11px 42px;
+  border-radius: 10px;
+  border: none;
+  background: var(--orange);
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(255,77,0,0.35);
+  transition: opacity 0.15s, transform 0.15s;
+}
+.followBtnMain:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+.followBtnMain:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.followBtnActive {
+  margin-top: 16px;
+  padding: 11px 42px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.followBtnActive:hover { background: rgba(255,255,255,0.1); }
+
+.selfTag {
+  margin-top: 16px;
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.45);
+}
+
+/* ── Contenu ──────────────────────────────────────────────────────────────── */
+.content { padding: 8px 16px 40px; }
+
+.sectionLabel {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+  margin: 14px 4px 10px;
+}
+
+/* Grille vidéos (rôle Vendeur) */
+.videoGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+}
+.videoCell {
+  position: relative;
+  aspect-ratio: 9 / 14;
+  background: #111;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+  border-radius: 4px;
+}
+.videoCellImg {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.videoCellOverlay {
+  position: absolute;
+  bottom: 6px; left: 6px;
+  display: flex; align-items: center; gap: 3px;
+  font-size: 0.7rem;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+
+.gridSkeleton {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+}
+.gridSkeletonCell {
+  aspect-ratio: 9 / 14;
+  background: linear-gradient(90deg, #1a1a1a 25%, #252525 50%, #1a1a1a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 4px;
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+.emptyBox {
+  padding: 44px 0;
+  text-align: center;
+  color: rgba(255,255,255,0.4);
+  font-size: 0.88rem;
+}
+
+/* Liste abonnements (rôle Client / Livreur) */
+.followList {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.followRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.15s;
+}
+.followRow:hover { background: rgba(255,255,255,0.03); }
+.followAvatar {
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--orange), var(--coral));
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1rem;
+  color: #fff;
+  flex-shrink: 0;
+}
+.followName {
+  font-size: 0.9rem;
+  color: #fff;
+  font-weight: 500;
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   collection, getDocs, orderBy, query, limit,
   addDoc, serverTimestamp, doc,
@@ -974,6 +975,7 @@ function useSeenVideos(authUser, authReady) {
 function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, markSeen }) {
   const videoRef  = useRef(null);
   const tapTimer  = useRef(null);
+  const router    = useRouter();
   const [playing,      setPlaying]      = useState(false);
   const [tapIcon,      setTapIcon]      = useState(null);
   const [orderProduct, setOrderProduct] = useState(null);
@@ -1058,6 +1060,12 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
     setShowReport(true);
   };
 
+  const handleOpenProfile = (e) => {
+    e.stopPropagation();
+    if (!sellerId) return;
+    router.push(`/profile/${sellerId}`);
+  };
+
   const initials = (item.title || '@?').replace('@', '')[0]?.toUpperCase() ?? '?';
   const tags = (item.keywords ?? []).slice(0, 5).map(k => '#' + k).join(' ');
 
@@ -1110,15 +1118,22 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
 
       {/* Actions droite */}
       <div className={styles.actions}>
-        <div
-          className={styles.avatarWrap}
-          onClick={handleFollow}
-          role={isSelf ? undefined : 'button'}
-          aria-label={isSelf ? undefined : (following ? 'Ne plus suivre' : 'Suivre')}
-        >
-          <div className={styles.avatar}>{initials}</div>
+        <div className={styles.avatarWrap}>
+          <div
+            className={styles.avatar}
+            onClick={handleOpenProfile}
+            role="button"
+            aria-label="Voir le profil"
+          >
+            {initials}
+          </div>
           {!isSelf && (
-            <div className={following ? styles.followDotActive : styles.followDot}>
+            <div
+              className={following ? styles.followDotActive : styles.followDot}
+              onClick={handleFollow}
+              role="button"
+              aria-label={following ? 'Ne plus suivre' : 'Suivre'}
+            >
               {following ? '✓' : '+'}
             </div>
           )}
