@@ -137,6 +137,14 @@ function IconSend() {
     </svg>
   );
 }
+function IconFlag() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+      <line x1="4" y1="22" x2="4" y2="15"/>
+    </svg>
+  );
+}
 
 /* ══════════════════════════════════════════════════════════
    PETITS COMPOSANTS
@@ -623,6 +631,139 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   BOTTOM SHEET — SIGNALER LA VIDÉO
+   ── AJOUT (inspiré de ReportSheet dans live.module.js) ──
+   Écrit dans /video_reports (nouvelle collection, distincte de
+   /live_reports — même modèle mais videoId au lieu de channelId).
+   Nécessite d'ajouter aux firestore.rules :
+
+     match /video_reports/{reportId} {
+       allow read: if false; // modération uniquement (Admin SDK / console)
+       allow create: if isAuth()
+         && request.resource.data.reporterId == request.auth.uid
+         && request.resource.data.keys().hasOnly([
+              'videoId','sellerId','reporterId','reason','details','createdAt','status'
+            ])
+         && request.resource.data.status == 'pending'
+         && request.resource.data.reason is string
+         && request.resource.data.details is string
+         && request.resource.data.details.size() <= 500;
+       allow update, delete: if false;
+     }
+
+   Sans cette règle, l'écriture ci-dessous échouera (permission-denied).
+══════════════════════════════════════════════════════════ */
+const REPORT_REASONS = [
+  { key: 'sexuel',     label: 'Contenu sexuel ou nudité' },
+  { key: 'arnaque',    label: 'Arnaque ou fraude' },
+  { key: 'contrefait', label: 'Produit contrefait ou illégal' },
+  { key: 'haine',      label: 'Propos haineux ou harcèlement' },
+  { key: 'violence',   label: 'Violence ou contenu choquant' },
+  { key: 'spam',       label: 'Spam ou publicité trompeuse' },
+  { key: 'autre',      label: 'Autre raison' },
+];
+
+function ReportSheet({ videoId, sellerId, authUser, onClose }) {
+  const [reason,     setReason]     = useState(null);
+  const [details,    setDetails]    = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [done,       setDone]       = useState(false);
+  const [errMsg,     setErrMsg]     = useState(null);
+
+  const submit = async () => {
+    if (!reason) { setErrMsg('Choisissez un motif.'); return; }
+    if (!authUser || !videoId) return;
+    setSubmitting(true);
+    setErrMsg(null);
+    try {
+      await addDoc(collection(db, 'video_reports'), {
+        videoId,
+        sellerId:   sellerId ?? '',
+        reporterId: authUser.uid,
+        reason,
+        details:    details.trim().slice(0, 500),
+        createdAt:  serverTimestamp(),
+        status:     'pending',
+      });
+      setDone(true);
+      setTimeout(onClose, 2200);
+    } catch (e) {
+      console.warn('⚠️ report submit:', e.code ?? e.message ?? e);
+      setErrMsg("Échec de l'envoi. Réessayez.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modalSheet}>
+        <div className={styles.modalHandle}/>
+        {done ? (
+          <div style={{ textAlign: 'center', padding: '28px 16px' }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+            <p style={{ color: '#fff', fontWeight: 800, fontSize: 16, margin: '0 0 6px' }}>Signalement envoyé</p>
+            <p style={{ color: '#ffffff80', fontSize: 13, margin: 0 }}>Merci, notre équipe va l'examiner rapidement.</p>
+          </div>
+        ) : (
+          <>
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.modalTitle}>Signaler cette vidéo</p>
+                <p className={styles.modalSub}>Aidez-nous à garder FriTok sûr</p>
+              </div>
+              <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
+            </div>
+            <div style={{ padding: '4px 20px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {REPORT_REASONS.map(r => (
+                <button key={r.key} onClick={() => setReason(r.key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '12px 14px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+                    background: reason === r.key ? 'rgba(239,68,68,.12)' : 'rgba(255,255,255,.04)',
+                    border: `1px solid ${reason === r.key ? 'rgba(239,68,68,.5)' : 'rgba(255,255,255,.1)'}`,
+                    color: '#fff', fontSize: 14,
+                  }}>
+                  <span>{r.label}</span>
+                  <span style={{
+                    width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                    border: `2px solid ${reason === r.key ? '#EF4444' : 'rgba(255,255,255,.3)'}`,
+                    background: reason === r.key ? '#EF4444' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {reason === r.key && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }}/>}
+                  </span>
+                </button>
+              ))}
+              <textarea
+                placeholder="Détails supplémentaires (optionnel)"
+                value={details} onChange={e => setDetails(e.target.value)}
+                rows={3} maxLength={500}
+                style={{
+                  marginTop: 4, padding: '10px 12px', borderRadius: 10, resize: 'vertical',
+                  background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)',
+                  color: '#fff', fontSize: 13, fontFamily: 'inherit',
+                }}
+              />
+              {errMsg && <p style={{ color: '#FCA5A5', fontSize: 12, margin: '2px 0 0' }}>{errMsg}</p>}
+              <button onClick={submit} disabled={!reason || submitting}
+                style={{
+                  marginTop: 6, padding: '13px 0', borderRadius: 12, border: 'none',
+                  background: (!reason || submitting) ? 'rgba(239,68,68,.35)' : '#EF4444',
+                  color: '#fff', fontWeight: 700, fontSize: 15,
+                  cursor: (!reason || submitting) ? 'not-allowed' : 'pointer',
+                }}>
+                {submitting ? 'Envoi...' : 'Envoyer le signalement'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
    HOOK : LIKES persistés Firestore
    Sous-collection : video_playlist/{videoId}/likes/{userId}
 ══════════════════════════════════════════════════════════ */
@@ -838,6 +979,7 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
   const [orderProduct, setOrderProduct] = useState(null);
   const [authPrompt,   setAuthPrompt]   = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [showReport,   setShowReport]   = useState(false);
 
   const sellerId = item.userId ?? item.refArticle ?? '';
 
@@ -909,6 +1051,13 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
     toggleFollow(e);
   };
 
+  const handleReport = (e) => {
+    e.stopPropagation();
+    if (!authReady) return;
+    if (!authUser) { setAuthPrompt(true); return; }
+    setShowReport(true);
+  };
+
   const initials = (item.title || '@?').replace('@', '')[0]?.toUpperCase() ?? '?';
   const tags = (item.keywords ?? []).slice(0, 5).map(k => '#' + k).join(' ');
 
@@ -945,13 +1094,18 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
           <span className={styles.topTabActive}>Pour toi</span>
           <span>Live</span>
         </div>
-        <button className={styles.muteBtn}
-          onClick={e => { e.stopPropagation(); setMuted(m => !m); }}>
-          {muted
-            ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-            : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-          }
-        </button>
+        <div className={styles.topBarRight}>
+          <button className={styles.muteBtn}
+            onClick={e => { e.stopPropagation(); setMuted(m => !m); }}>
+            {muted
+              ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+              : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+            }
+          </button>
+          <button className={styles.muteBtn} onClick={handleReport} aria-label="Signaler cette vidéo" title="Signaler cette vidéo">
+            <IconFlag/>
+          </button>
+        </div>
       </div>
 
       {/* Actions droite */}
@@ -1040,6 +1194,16 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
           sellerId={sellerId}
           authUser={authUser}
           onClose={() => setOrderProduct(null)}
+        />
+      )}
+
+      {/* Modal signalement */}
+      {showReport && (
+        <ReportSheet
+          videoId={item.id}
+          sellerId={sellerId}
+          authUser={authUser}
+          onClose={() => setShowReport(false)}
         />
       )}
     </div>
