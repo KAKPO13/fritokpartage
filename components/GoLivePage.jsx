@@ -1003,6 +1003,7 @@ function VideoLayout({ localVideoRef, isEngineReady, cameraOn }) {
     </div>
   );
 }
+
 function CoHostThumbs({ remoteVideoRefs, activeCoHosts, onRemove }) {
   if (activeCoHosts.length === 0) return null;
   return (<div style={{ position: 'absolute', right: 64, top: 104, zIndex: 30, display: 'flex', flexDirection: 'column', gap: 8 }}>{activeCoHosts.map(c => (<div key={c.agoraUid} style={{ width: 88, height: 124, borderRadius: 12, overflow: 'hidden', position: 'relative', background: '#1a1a2e', border: '2px solid rgba(168,85,247,.6)', boxShadow: '0 2px 10px rgba(0,0,0,.5)' }}><div ref={el => { if (el) remoteVideoRefs.current[c.agoraUid] = el; else delete remoteVideoRefs.current[c.agoraUid]; }} style={{ position: 'absolute', inset: 0 }} />{c.status === 'waiting' && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner /></div>}<div style={{ position: 'absolute', bottom: 3, left: 3, right: 3, background: 'rgba(0,0,0,.6)', borderRadius: 5, padding: '1px 4px', fontSize: 9, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.displayName}</div><button onClick={() => onRemove(c.agoraUid)} style={{ position: 'absolute', top: 3, right: 3, width: 18, height: 18, borderRadius: '50%', background: 'rgba(239,68,68,.9)', border: 'none', color: '#fff', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button></div>))}</div>);

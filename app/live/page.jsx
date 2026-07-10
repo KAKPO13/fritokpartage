@@ -419,6 +419,7 @@ function CoHostButton({ session, authUser }) {
   // sont ajoutés plus tard par le serveur (Admin SDK, hors règles)
   // quand le vendeur accepte.
   const requestCoHost = async () => {
+    console.log('🔵 requestCoHost déclenché — status:', status, 'channelId:', channelId, 'uid:', uid);
     if (status !== 'idle') return;
     setErrorMsg(null);
     try {
@@ -453,8 +454,14 @@ function CoHostButton({ session, authUser }) {
         (err) => console.warn('co_host listener:', err)
       );
     } catch (e) {
-      console.error('requestCoHost:', e);
-      if (isMountedRef.current) setErrorMsg('Erreur réseau.');
+      console.error('requestCoHost:', e.code ?? e.message ?? e);
+      if (isMountedRef.current) {
+        setErrorMsg(
+          e.code === 'permission-denied'
+            ? 'Refusé par les règles Firestore (voir console).'
+            : 'Erreur réseau.'
+        );
+      }
     }
   };
 
