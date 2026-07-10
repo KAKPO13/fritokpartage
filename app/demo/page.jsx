@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
-  collection, getDocs, orderBy, query,
+  collection, getDocs, orderBy, query, limit,
   addDoc, serverTimestamp, doc,
   setDoc, deleteDoc, onSnapshot,
 } from 'firebase/firestore';
@@ -38,6 +38,14 @@ function getFrais(villeVendeur, villeClient, typeLivr) {
 }
 
 const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' XOF';
+
+/* ══════════════════════════════════════════════════════════
+   HISTORIQUE "VIDÉOS VUES" (invité, pas connecté)
+   Connecté → Firestore users/{uid}/vues/{videoId}
+   Invité   → localStorage (capé à SEEN_LS_MAX entrées)
+══════════════════════════════════════════════════════════ */
+const SEEN_LS_KEY = 'fritok_vues_invite';
+const SEEN_LS_MAX = 300;
 
 /* ══════════════════════════════════════════════════════════
    ICÔNES
@@ -683,13 +691,85 @@ function useCommentCount(videoId, initialCount) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   VIDEO SLIDE
+   HOOK : HISTORIQUE DES VIDÉOS VUES (logique "à la TikTok")
+   - Charge une seule fois l'historique existant au montage.
+   - seenIdsRef est une ref (pas un state) : on ne veut PAS que le
+     feed se réordonne pendant que l'utilisateur scrolle et que de
+     nouvelles vidéos se marquent "vues" en direct — seenReady ne
+     bascule à true qu'une fois, ce qui déclenche un seul tri initial.
+   - markSeen() met à jour la ref immédiatement (pour éviter les
+     écritures en double) + persiste (Firestore ou localStorage).
 ══════════════════════════════════════════════════════════ */
-function VideoSlide({ item, isActive, authUser, authReady }) {
+function useSeenVideos(authUser, authReady) {
+  const seenIdsRef  = useRef(new Set());
+  const writtenRef  = useRef(new Set()); // anti-doublon d'écriture dans la session
+  const [seenReady, setSeenReady] = useState(false);
+
+  useEffect(() => {
+    if (!authReady) return;
+    let cancelled = false;
+
+    async function load() {
+      try {
+        if (authUser?.uid) {
+          const q = query(
+            collection(db, 'users', authUser.uid, 'vues'),
+            orderBy('vuLe', 'desc'),
+            limit(500)
+          );
+          const snap = await getDocs(q);
+          if (!cancelled) seenIdsRef.current = new Set(snap.docs.map(d => d.id));
+        } else {
+          const raw = JSON.parse(localStorage.getItem(SEEN_LS_KEY) || '[]');
+          if (!cancelled) seenIdsRef.current = new Set(raw);
+        }
+      } catch (e) {
+        console.error('Historique vues:', e);
+      } finally {
+        if (!cancelled) setSeenReady(true);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [authUser?.uid, authReady]);
+
+  const markSeen = useCallback((videoId) => {
+    if (!videoId || writtenRef.current.has(videoId)) return;
+    writtenRef.current.add(videoId);
+    seenIdsRef.current.add(videoId);
+
+    if (authUser?.uid) {
+      // Doc appartenant à l'utilisateur → autorisé par firestore.rules
+      // (allow write: if request.auth.uid == uid sur users/{uid}/vues/{id})
+      setDoc(doc(db, 'users', authUser.uid, 'vues', videoId), {
+        vu: true,
+        vuLe: serverTimestamp(),
+      }, { merge: true }).catch(() => {});
+    } else {
+      try {
+        const raw = JSON.parse(localStorage.getItem(SEEN_LS_KEY) || '[]');
+        const next = [videoId, ...raw.filter(id => id !== videoId)].slice(0, SEEN_LS_MAX);
+        localStorage.setItem(SEEN_LS_KEY, JSON.stringify(next));
+      } catch { /* quota dépassé / navigation privée : on ignore */ }
+    }
+  }, [authUser?.uid]);
+
+  return { seenIdsRef, seenReady, markSeen };
+}
+
+/* ══════════════════════════════════════════════════════════
+   VIDEO SLIDE
+   ── CORRIGÉ ──
+   Le mute/unmute n'est plus un état local par slide (chaque
+   nouvelle slide remontait avec `useState(true)`, ce qui coupait
+   le son à chaque scroll). `muted` et `setMuted` sont désormais
+   reçus en props depuis DemoPage : un seul état partagé par
+   toute la liste, mis à jour une fois pour toutes.
+══════════════════════════════════════════════════════════ */
+function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, markSeen }) {
   const videoRef  = useRef(null);
   const tapTimer  = useRef(null);
   const [playing,      setPlaying]      = useState(false);
-  const [muted,        setMuted]        = useState(true);
   const [tapIcon,      setTapIcon]      = useState(null);
   const [orderProduct, setOrderProduct] = useState(null);
   const [authPrompt,   setAuthPrompt]   = useState(false);
@@ -723,6 +803,17 @@ function VideoSlide({ item, isActive, authUser, authReady }) {
     tapTimer.current = setTimeout(() => setTapIcon(null), 800);
   };
 
+  // Marque la vidéo comme "vue" après ~3s de lecture réelle (ou 70% de sa
+  // durée si elle est très courte) — comme TikTok, pas juste au chargement.
+  const handleTimeUpdate = () => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    const seuil = Number.isFinite(vid.duration) && vid.duration > 0
+      ? Math.min(3, vid.duration * 0.7)
+      : 3;
+    if (vid.currentTime >= seuil) markSeen(item.id);
+  };
+
   const handleLike = (e) => {
     e.stopPropagation();
     if (!authReady) return;
@@ -753,6 +844,7 @@ function VideoSlide({ item, isActive, authUser, authReady }) {
         className={styles.video}
         loop playsInline muted={muted}
         onClick={handleTap}
+        onTimeUpdate={handleTimeUpdate}
         poster={item.product?.thumbnail}
         preload="metadata"
       />
@@ -898,6 +990,10 @@ export default function DemoPage() {
   const [authUser,  setAuthUser]  = useState(null);
   const [authReady, setAuthReady] = useState(false);
 
+  // État son GLOBAL, partagé par toutes les slides. Une fois activé
+  // (clic sur l'icône), il reste activé pour la vidéo suivante au scroll.
+  const [muted, setMuted] = useState(true);
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => {
       setAuthUser(user?.emailVerified ? user : null);
@@ -905,6 +1001,24 @@ export default function DemoPage() {
     });
     return unsub;
   }, []);
+
+  // Historique des vidéos déjà vues (Firestore si connecté, localStorage sinon)
+  const { seenIdsRef, seenReady, markSeen } = useSeenVideos(authUser, authReady);
+
+  // Liste réordonnée : vidéos non-vues d'abord, vidéos déjà vues repoussées
+  // en fin de liste (jamais filtrées — juste dépriorisées, comme TikTok).
+  // Dépend seulement du chargement initial (playlist, seenReady) : seenIdsRef
+  // étant une ref, les marquages "vu" en direct pendant le scroll ne
+  // déclenchent volontairement PAS de nouveau tri (pas de saut dans le feed).
+  const orderedPlaylist = useMemo(() => {
+    if (!seenReady || playlist.length === 0) return playlist;
+    const unseen = [];
+    const seen   = [];
+    for (const item of playlist) {
+      (seenIdsRef.current.has(item.id) ? seen : unseen).push(item);
+    }
+    return [...unseen, ...seen];
+  }, [playlist, seenReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     async function load() {
@@ -928,7 +1042,7 @@ export default function DemoPage() {
   }, []);
 
   useEffect(() => {
-    if (!feedRef.current || playlist.length === 0) return;
+    if (!feedRef.current || orderedPlaylist.length === 0) return;
     const slides = feedRef.current.querySelectorAll('[data-slide]');
     const observer = new IntersectionObserver(
       entries => {
@@ -941,16 +1055,16 @@ export default function DemoPage() {
     );
     slides.forEach(el => observer.observe(el));
     return () => observer.disconnect();
-  }, [playlist]);
+  }, [orderedPlaylist]);
 
   useEffect(() => {
     const onKey = e => {
-      if (e.key === 'ArrowDown') setActiveIdx(i => Math.min(i + 1, playlist.length - 1));
+      if (e.key === 'ArrowDown') setActiveIdx(i => Math.min(i + 1, orderedPlaylist.length - 1));
       if (e.key === 'ArrowUp')   setActiveIdx(i => Math.max(i - 1, 0));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [playlist.length]);
+  }, [orderedPlaylist.length]);
 
   useEffect(() => {
     const slides = feedRef.current?.querySelectorAll('[data-slide]');
@@ -968,7 +1082,7 @@ export default function DemoPage() {
     </div>
   );
 
-  if (playlist.length === 0) return (
+  if (orderedPlaylist.length === 0) return (
     <div className={styles.page}>
       <div className={styles.errorBox}>
         <p>Aucune vidéo disponible.</p>
@@ -980,20 +1094,23 @@ export default function DemoPage() {
   return (
     <div className={styles.page}>
       <div ref={feedRef} className={styles.feed}>
-        {playlist.map((item, i) => (
+        {orderedPlaylist.map((item, i) => (
           <div key={item.id} data-slide={i} className={styles.slideWrapper}>
             <VideoSlide
               item={item}
               isActive={i === activeIdx}
               authUser={authUser}
               authReady={authReady}
+              muted={muted}
+              setMuted={setMuted}
+              markSeen={markSeen}
             />
           </div>
         ))}
       </div>
 
       <div className={styles.dots}>
-        {playlist.map((_, i) => (
+        {orderedPlaylist.map((_, i) => (
           <button key={i}
             className={`${styles.dot} ${i === activeIdx ? styles.dotActive : ''}`}
             onClick={() => setActiveIdx(i)}
@@ -1002,7 +1119,7 @@ export default function DemoPage() {
         ))}
       </div>
 
-      <div className={styles.counter}>{activeIdx + 1} / {playlist.length}</div>
+      <div className={styles.counter}>{activeIdx + 1} / {orderedPlaylist.length}</div>
     </div>
   );
 }
