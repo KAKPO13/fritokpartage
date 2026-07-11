@@ -975,31 +975,63 @@ function ReportSheet({ session, authUser, onClose }) {
 function useProductVideo(product) {
   const [videoUrl, setVideoUrl] = useState(product?.videoUrl || null);
   const [poster,   setPoster]   = useState(product?.thumbnail || null);
-  const [loading,  setLoading]  = useState(!product?.videoUrl && !!product?.videoId);
+  const [loading,  setLoading]  = useState(!product?.videoUrl && !!(product?.videoId || product?.productId));
 
   useEffect(() => {
     setVideoUrl(product?.videoUrl || null);
     setPoster(product?.thumbnail || null);
 
-    if (product?.videoUrl || !product?.videoId) { setLoading(false); return; }
+    if (product?.videoUrl) { setLoading(false); return; }
+    if (!product?.videoId && !product?.productId) { setLoading(false); return; }
 
     let cancelled = false;
     setLoading(true);
-    getDoc(doc(db, 'video_playlist', product.videoId))
-      .then(snap => {
-        if (cancelled || !snap.exists()) return;
-        const data = snap.data();
-        // videoUrl à la racine du doc en priorité (source de vérité utilisée
-        // par le feed /demo) ; repli sur product.videoUrl imbriqué si jamais
-        // seul celui-ci a été renseigné.
-        setVideoUrl(data.videoUrl || data.product?.videoUrl || null);
-        setPoster(prev => prev || data.product?.thumbnail || null);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
+
+    // Extrait videoUrl/thumbnail d'un doc video_playlist, quelle que soit
+    // la forme exacte (racine ou imbriqué sous `product`) — les deux
+    // formes coexistent selon l'ancienneté du document (voir
+    // firestore.rules : les nouveaux docs imposent videoUrl à la racine,
+    // les plus anciens ne l'avaient que dans product.videoUrl).
+    const applyDoc = (data) => {
+      if (!data) return false;
+      const url = data.videoUrl || data.product?.videoUrl || null;
+      if (!url) return false;
+      setVideoUrl(url);
+      setPoster(prev => prev || data.thumbnail || data.product?.thumbnail || null);
+      return true;
+    };
+
+    (async () => {
+      try {
+        // 1) Par videoId — accès direct le plus économe si disponible.
+        if (product.videoId) {
+          const snap = await getDoc(doc(db, 'video_playlist', product.videoId));
+          if (!cancelled && snap.exists() && applyDoc(snap.data())) { setLoading(false); return; }
+        }
+        // 2) Repli par productId — le tableau live_sessions.products[] ne
+        // contient pas toujours videoId, mais productId y est toujours
+        // présent (déjà utilisé par OrderModal). Requête sur le champ
+        // imbriqué product.productId, indexé automatiquement par
+        // Firestore (pas besoin d'index composite manuel pour une seule
+        // égalité, même sur un champ de map).
+        if (!cancelled && product.productId) {
+          const q = query(
+            collection(db, 'video_playlist'),
+            where('product.productId', '==', product.productId),
+            limit(1)
+          );
+          const qs = await getDocs(q);
+          if (!cancelled && !qs.empty) applyDoc(qs.docs[0].data());
+        }
+      } catch (e) {
+        console.warn('⚠️ useProductVideo:', e.code ?? e.message ?? e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
 
     return () => { cancelled = true; };
-  }, [product?.videoId, product?.videoUrl, product?.thumbnail]);
+  }, [product?.videoId, product?.productId, product?.videoUrl, product?.thumbnail]);
 
   return { videoUrl, poster, loading };
 }
