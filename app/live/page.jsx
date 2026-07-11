@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   collection, query, orderBy, where, limit, startAfter,
-  onSnapshot, doc, updateDoc, getDocs,
+  onSnapshot, doc, updateDoc, getDocs, getDoc,
   addDoc, setDoc, deleteDoc, serverTimestamp, getCountFromServer,
 } from 'firebase/firestore';
 import { onAuthStateChanged, updateProfile } from 'firebase/auth';
@@ -959,6 +959,52 @@ function ReportSheet({ session, authUser, onClose }) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   HOOK : résolution de la vidéo produit pour la fiche
+   ── CORRIGÉ ──
+   Le tableau live_sessions.products[] ne contient pas toujours
+   videoUrl selon la façon dont GoLive.jsx a construit chaque entrée
+   au moment de la mise en avant du produit — c'est pourquoi la
+   miniature vidéo pouvait rester invisible (product.videoUrl
+   undefined → bloc entier non rendu). videoUrl existe en revanche
+   TOUJOURS à la racine du document video_playlist (voir demo.js, où
+   il alimente <video src={item.videoUrl}>). Si l'objet product de la
+   session ne l'a pas déjà, on va donc le chercher une seule fois
+   (getDoc, pas de listener) via product.videoId — présent dans la
+   capture partagée — plutôt que de renoncer à l'aperçu.
+══════════════════════════════════════════════════════════ */
+function useProductVideo(product) {
+  const [videoUrl, setVideoUrl] = useState(product?.videoUrl || null);
+  const [poster,   setPoster]   = useState(product?.thumbnail || null);
+  const [loading,  setLoading]  = useState(!product?.videoUrl && !!product?.videoId);
+
+  useEffect(() => {
+    setVideoUrl(product?.videoUrl || null);
+    setPoster(product?.thumbnail || null);
+
+    if (product?.videoUrl || !product?.videoId) { setLoading(false); return; }
+
+    let cancelled = false;
+    setLoading(true);
+    getDoc(doc(db, 'video_playlist', product.videoId))
+      .then(snap => {
+        if (cancelled || !snap.exists()) return;
+        const data = snap.data();
+        // videoUrl à la racine du doc en priorité (source de vérité utilisée
+        // par le feed /demo) ; repli sur product.videoUrl imbriqué si jamais
+        // seul celui-ci a été renseigné.
+        setVideoUrl(data.videoUrl || data.product?.videoUrl || null);
+        setPoster(prev => prev || data.product?.thumbnail || null);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [product?.videoId, product?.videoUrl, product?.thumbnail]);
+
+  return { videoUrl, poster, loading };
+}
+
+/* ══════════════════════════════════════════════════════════
    MINIATURE VIDÉO PRODUIT (façon Pinduoduo)
    Lecture muette, en boucle, déclenchée au tap — poster = thumbnail
    du produit pour un affichage instantané avant lecture.
@@ -1027,6 +1073,8 @@ function ProductVideoPreview({ videoUrl, poster }) {
    Firestore supplémentaire n'est nécessaire pour l'ouvrir.
 ══════════════════════════════════════════════════════════ */
 function ProductSheet({ product, onClose, onOrder }) {
+  const { videoUrl, poster, loading: videoLoading } = useProductVideo(product);
+
   if (!product) return null;
 
   const prix   = Number(product.price ?? 0);
@@ -1060,9 +1108,18 @@ function ProductSheet({ product, onClose, onOrder }) {
           </div>
 
           {/* Miniature vidéo produit */}
-          {product.videoUrl && (
+          {(videoUrl || videoLoading) && (
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-              <ProductVideoPreview videoUrl={product.videoUrl} poster={product.thumbnail}/>
+              {videoUrl ? (
+                <ProductVideoPreview videoUrl={videoUrl} poster={poster}/>
+              ) : (
+                <div style={{
+                  width: 110, aspectRatio: '9 / 14', flexShrink: 0, borderRadius: 12,
+                  background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Spinner/>
+                </div>
+              )}
               <p style={{
                 flex: 1, fontSize: 12.5, color: 'rgba(255,255,255,0.5)',
                 lineHeight: 1.6, margin: '4px 0 0',
