@@ -959,6 +959,164 @@ function ReportSheet({ session, authUser, onClose }) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   MINIATURE VIDÉO PRODUIT (façon Pinduoduo)
+   Lecture muette, en boucle, déclenchée au tap — poster = thumbnail
+   du produit pour un affichage instantané avant lecture.
+══════════════════════════════════════════════════════════ */
+function ProductVideoPreview({ videoUrl, poster }) {
+  const videoRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
+
+  if (!videoUrl) return null;
+
+  const toggle = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) { v.play(); setPlaying(true); }
+    else { v.pause(); setPlaying(false); }
+  };
+
+  return (
+    <div
+      onClick={toggle}
+      style={{
+        position: 'relative', width: 110, aspectRatio: '9 / 14', flexShrink: 0,
+        borderRadius: 12, overflow: 'hidden', background: '#000', cursor: 'pointer',
+      }}
+    >
+      <video
+        ref={videoRef}
+        src={videoUrl}
+        poster={poster}
+        muted loop playsInline
+        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+      />
+      {!playing && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex',
+          alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.28)',
+        }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: '50%', background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </div>
+        </div>
+      )}
+      <span style={{
+        position: 'absolute', bottom: 6, left: 6, fontSize: 9, fontWeight: 700, color: '#fff',
+        background: 'rgba(0,0,0,0.55)', padding: '2px 6px', borderRadius: 6,
+      }}>
+        Vidéo produit
+      </span>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   FICHE PRODUIT COMPLÈTE (façon Pinduoduo)
+   Ouverte au clic sur la carte du carrousel produit (voir
+   productCarousel dans LivePlayer). Photo, miniature vidéo du
+   produit, nom, prix, description — puis bouton Commander séparé,
+   qui déclenche le flux de commande (OrderModal) indépendamment.
+   Les champs viennent directement de l'objet product déjà présent
+   dans live_sessions.products[] (image/thumbnail/name/price/
+   description/videoUrl/title — même structure que le champ `product`
+   de video_playlist, voir capture partagée), donc aucune requête
+   Firestore supplémentaire n'est nécessaire pour l'ouvrir.
+══════════════════════════════════════════════════════════ */
+function ProductSheet({ product, onClose, onOrder }) {
+  if (!product) return null;
+
+  const prix   = Number(product.price ?? 0);
+  const prixAff = prix.toLocaleString('fr-FR') + ' F CFA';
+  const seller  = product.title || '';
+
+  return (
+    <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modalSheet}>
+        <div className={styles.modalHandle}/>
+        <div className={styles.modalHeader}>
+          <div>
+            <p className={styles.modalTitle}>Fiche produit</p>
+            {seller && <p className={styles.modalSub}>{seller}</p>}
+          </div>
+          <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
+        </div>
+
+        <div style={{ padding: '4px 20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Photo principale */}
+          <div style={{
+            width: '100%', aspectRatio: '1 / 1', borderRadius: 14,
+            overflow: 'hidden', background: '#111',
+          }}>
+            <img
+              src={product.image || product.thumbnail}
+              alt={product.name}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              onError={e => { e.currentTarget.style.display = 'none'; }}
+            />
+          </div>
+
+          {/* Miniature vidéo produit */}
+          {product.videoUrl && (
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <ProductVideoPreview videoUrl={product.videoUrl} poster={product.thumbnail}/>
+              <p style={{
+                flex: 1, fontSize: 12.5, color: 'rgba(255,255,255,0.5)',
+                lineHeight: 1.6, margin: '4px 0 0',
+              }}>
+                Voyez le produit en situation dans la vidéo du vendeur.
+              </p>
+            </div>
+          )}
+
+          {/* Nom + prix */}
+          <div>
+            <p style={{
+              fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.1rem',
+              color: '#fff', margin: '0 0 6px', lineHeight: 1.4,
+            }}>
+              {product.name}
+            </p>
+            <p style={{
+              fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.3rem',
+              color: 'var(--gold)', margin: 0,
+            }}>
+              {prixAff}
+            </p>
+          </div>
+
+          {/* Description */}
+          {product.description && (
+            <div>
+              <p style={{
+                fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                color: 'rgba(255,255,255,0.45)', margin: '0 0 6px',
+              }}>
+                Description
+              </p>
+              <p style={{
+                fontSize: 14, color: 'rgba(255,255,255,0.85)', lineHeight: 1.65,
+                margin: 0, whiteSpace: 'pre-wrap',
+              }}>
+                {product.description}
+              </p>
+            </div>
+          )}
+
+          {/* Commander — action séparée du simple clic sur la carte */}
+          <button className={styles.confirmBtn} onClick={() => onOrder(product)}>
+            Commander — {prixAff}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
    PLAYER LIVE PLEIN ÉCRAN
 ══════════════════════════════════════════════════════════ */
 function LivePlayer({ session, authUser, authReady, onClose }) {
@@ -970,6 +1128,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
     useLiveLike(session.id, session.likeCount ?? 0, authUser);
 
   const [activeProduct, setActiveProduct] = useState(session.products?.[0] ?? null);
+  const [detailProduct, setDetailProduct] = useState(null);
   const [messages,      setMessages]      = useState([]);
   const [inputMsg,      setInputMsg]      = useState('');
   const [orderProduct,  setOrderProduct]  = useState(null);
@@ -1164,20 +1323,38 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
             {products.map((p, i) => {
               const isActive = activeProduct?.productId === p.productId;
               return (
-                <div key={p.productId ?? i} className={isActive ? styles.carouselItemActive : styles.carouselItem}>
-                  <div className={styles.carouselImgWrap} onClick={() => setActiveProduct(p)}>
+                <div
+                  key={p.productId ?? i}
+                  className={isActive ? styles.carouselItemActive : styles.carouselItem}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => { setActiveProduct(p); setDetailProduct(p); }}
+                >
+                  <div className={styles.carouselImgWrap}>
                     <img src={p.image} alt={p.name} className={styles.carouselImg}
                       onError={e2 => { e2.currentTarget.style.display = 'none'; }}/>
                     {isActive && <div className={styles.carouselActiveDot}/>}
                   </div>
                   <span className={styles.carouselName}>{p.name}</span>
                   <span className={styles.carouselPrice}>{Number(p.price).toLocaleString('fr-FR')} F</span>
-                  <button className={styles.carouselOrderBtn} onClick={() => handleOrder(p)}>Commander</button>
+                  <button
+                    className={styles.carouselOrderBtn}
+                    onClick={e => { e.stopPropagation(); handleOrder(p); }}
+                  >
+                    Commander
+                  </button>
                 </div>
               );
             })}
           </div>
         </div>
+      )}
+
+      {detailProduct && (
+        <ProductSheet
+          product={detailProduct}
+          onClose={() => setDetailProduct(null)}
+          onOrder={p => { setDetailProduct(null); handleOrder(p); }}
+        />
       )}
 
       {authPrompt && <AuthRequiredModal onClose={() => setAuthPrompt(false)}/>}
