@@ -3,9 +3,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  collection, getDocs, orderBy, query, limit,
+  collection, getDocs, orderBy, query, limit, startAfter,
   addDoc, serverTimestamp, doc,
-  setDoc, deleteDoc, onSnapshot,
+  setDoc, deleteDoc, onSnapshot, getCountFromServer,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import QRCode from 'qrcode';
@@ -47,6 +47,18 @@ const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' XOF';
 ══════════════════════════════════════════════════════════ */
 const SEEN_LS_KEY = 'fritok_vues_invite';
 const SEEN_LS_MAX = 300;
+
+// Nombre de slides montées de chaque côté de la slide active (P0 —
+// virtualisation du feed, voir DemoPage). RENDER_WINDOW=2 → au plus 5
+// <VideoSlide> réellement montées à tout moment, donc au plus ~25
+// listeners Firestore ouverts pour le feed entier, quelle que soit la
+// taille du catalogue de vidéos.
+const RENDER_WINDOW = 2;
+
+// Taille de page pour le chargement paginé de video_playlist (P0 — voir
+// point 4 de l'analyse : plus de getDocs() sans limit() sur toute la
+// collection).
+const PAGE_SIZE = 20;
 
 /* ══════════════════════════════════════════════════════════
    ICÔNES
@@ -199,7 +211,7 @@ function AuthRequiredModal({ onClose }) {
 /* ══════════════════════════════════════════════════════════
    MODAL : COMMENTAIRES
 ══════════════════════════════════════════════════════════ */
-function CommentsModal({ videoId, authUser, onClose, onAuthRequired }) {
+function CommentsModal({ videoId, authUser, onClose, onAuthRequired, onSent }) {
   const [comments,  setComments]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [text,      setText]      = useState('');
@@ -238,6 +250,7 @@ function CommentsModal({ videoId, authUser, onClose, onAuthRequired }) {
       });
       setText('');
       inputRef.current?.focus();
+      onSent?.();
     } catch (e) {
       showToast('Erreur : ' + e.message);
     } finally {
@@ -785,15 +798,25 @@ function useLike(videoId, initialCount, authUser) {
     return unsub;
   }, [videoId, authUser?.uid]);
 
-  // Écoute le count en temps réel (optionnel mais propre)
+  // ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 2) : ce compteur
+  // écoutait auparavant TOUTE la sous-collection `likes` en onSnapshot pour en
+  // déduire snap.size. Facturation Firestore : un read par document du
+  // snapshot initial + un read par like ajouté/retiré, PAR CLIENT qui écoute.
+  // Sur une vidéo virale (ex. 200k likes × 50k spectateurs simultanés), ça
+  // représente des milliards de reads pour afficher un simple chiffre.
+  // Remplacé par une requête d'agrégation ponctuelle (getCountFromServer) :
+  // facturée ~1 read par tranche de 1000 documents scannés, pas 1 par
+  // document. Le compteur n'est donc plus mis à jour en temps réel quand un
+  // AUTRE utilisateur like — seule l'action de CET utilisateur (toggle
+  // optimiste ci-dessous) met à jour l'affichage immédiatement, ce qui est
+  // un compromis largement acceptable pour un compteur d'affichage.
   useEffect(() => {
     if (!videoId) return;
-    const unsub = onSnapshot(
-      collection(db, 'video_playlist', videoId, 'likes'),
-      snap => setCount(snap.size),
-      () => {} // ignore erreur silencieusement
-    );
-    return unsub;
+    let cancelled = false;
+    getCountFromServer(collection(db, 'video_playlist', videoId, 'likes'))
+      .then(snap => { if (!cancelled) setCount(snap.data().count); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [videoId]);
 
   const toggle = useCallback(async (e) => {
@@ -816,20 +839,28 @@ function useLike(videoId, initialCount, authUser) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   HOOK : COMMENT COUNT temps réel
+   HOOK : COMMENT COUNT
+   ⚠️ P0 — CORRIGÉ : même correctif que useLike (voir plus haut).
+   getCountFromServer au montage au lieu d'un onSnapshot permanent sur
+   toute la sous-collection comments. `bump()` permet un incrément
+   optimiste local juste après l'envoi d'un commentaire par CET
+   utilisateur (voir CommentsModal.onSent), sans re-solliciter Firestore.
 ══════════════════════════════════════════════════════════ */
 function useCommentCount(videoId, initialCount) {
   const [count, setCount] = useState(initialCount ?? 0);
+
   useEffect(() => {
     if (!videoId) return;
-    const unsub = onSnapshot(
-      collection(db, 'video_playlist', videoId, 'comments'),
-      snap => setCount(snap.size),
-      () => {}
-    );
-    return unsub;
+    let cancelled = false;
+    getCountFromServer(collection(db, 'video_playlist', videoId, 'comments'))
+      .then(snap => { if (!cancelled) setCount(snap.data().count); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [videoId]);
-  return count;
+
+  const bump = useCallback(() => setCount(c => c + 1), []);
+
+  return [count, bump];
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -861,15 +892,16 @@ function useFollow(sellerId, authUser) {
     return unsub;
   }, [sellerId, authUser?.uid, isSelf]);
 
-  // Compteur d'abonnés temps réel, indépendant de l'état de connexion
+  // ⚠️ P0 — CORRIGÉ : même correctif que useLike/useCommentCount. Agrégation
+  // ponctuelle au lieu d'un onSnapshot permanent sur toute la sous-collection
+  // followers (voir analyse-scalabilite-fritok.md, point 2).
   useEffect(() => {
     if (!sellerId) return;
-    const unsub = onSnapshot(
-      collection(db, 'users', sellerId, 'followers'),
-      snap => setFollowerCount(snap.size),
-      () => {}
-    );
-    return unsub;
+    let cancelled = false;
+    getCountFromServer(collection(db, 'users', sellerId, 'followers'))
+      .then(snap => { if (!cancelled) setFollowerCount(snap.data().count); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [sellerId]);
 
   const toggle = useCallback(async (e) => {
@@ -881,14 +913,16 @@ function useFollow(sellerId, authUser) {
 
     if (following) {
       setFollowing(false);
+      setFollowerCount(c => Math.max(0, c - 1));
       await Promise.all([deleteDoc(followerRef), deleteDoc(followingRef)])
-        .catch(() => setFollowing(true)); // rollback optimiste si échec
+        .catch(() => { setFollowing(true); setFollowerCount(c => c + 1); });
     } else {
       setFollowing(true);
+      setFollowerCount(c => c + 1);
       await Promise.all([
         setDoc(followerRef,  { userId: authUser.uid, createdAt: serverTimestamp() }),
         setDoc(followingRef, { userId: sellerId,      createdAt: serverTimestamp() }),
-      ]).catch(() => setFollowing(false));
+      ]).catch(() => { setFollowing(false); setFollowerCount(c => Math.max(0, c - 1)); });
     }
   }, [following, sellerId, authUser?.uid, isSelf]);
 
@@ -989,8 +1023,8 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
   const { liked, count: likeCount, toggle: toggleLike, ready: likeReady } =
     useLike(item.id, item.likes ?? 0, authUser);
 
-  // Comment count temps réel
-  const commentCount = useCommentCount(item.id, item.comments ?? 0);
+  // Comment count : lecture ponctuelle (P0) + incrément optimiste local
+  const [commentCount, bumpCommentCount] = useCommentCount(item.id, item.comments ?? 0);
 
   // Follow Firestore (item.userId = id du vendeur/créateur de la vidéo)
   const { following, toggle: toggleFollow, isSelf } = useFollow(sellerId, authUser);
@@ -1199,6 +1233,7 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
           authUser={authUser}
           onClose={() => setShowComments(false)}
           onAuthRequired={() => setAuthPrompt(true)}
+          onSent={bumpCommentCount}
         />
       )}
 
@@ -1251,6 +1286,13 @@ export default function DemoPage() {
   const [activeIdx, setActiveIdx] = useState(0);
   const feedRef = useRef(null);
 
+  // ⚠️ P0 — pagination (voir analyse-scalabilite-fritok.md, point 4) :
+  // video_playlist n'est plus chargée en une fois sans limite. cursorSnap
+  // retient le dernier document Firestore chargé pour startAfter().
+  const [cursorSnap,  setCursorSnap]  = useState(null);
+  const [hasMore,     setHasMore]     = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const [authUser,  setAuthUser]  = useState(null);
   const [authReady, setAuthReady] = useState(false);
 
@@ -1287,7 +1329,11 @@ export default function DemoPage() {
   useEffect(() => {
     async function load() {
       try {
-        const q    = query(collection(db, 'video_playlist'), orderBy('createdAt', 'desc'));
+        // ⚠️ P0 — CORRIGÉ : plus de getDocs() sans limite sur toute la
+        // collection video_playlist (voir point 4 de l'analyse). Première
+        // page bornée à PAGE_SIZE ; le reste se charge via loadMore()
+        // quand l'utilisateur approche de la fin de la liste chargée.
+        const q    = query(collection(db, 'video_playlist'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
         const snap = await getDocs(q);
         const videos = snap.docs.map(d => ({
           id: d.id,
@@ -1295,6 +1341,8 @@ export default function DemoPage() {
           createdAt: d.data().createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
         }));
         setPlaylist(videos);
+        setCursorSnap(snap.docs[snap.docs.length - 1] ?? null);
+        setHasMore(snap.docs.length === PAGE_SIZE);
       } catch (err) {
         console.error('Firestore:', err);
         setError('Impossible de charger les vidéos.');
@@ -1304,6 +1352,42 @@ export default function DemoPage() {
     }
     load();
   }, []);
+
+  // Page suivante de video_playlist — même requête que le chargement
+  // initial, avec startAfter(cursorSnap). Appelée quand l'utilisateur
+  // approche de la fin des vidéos déjà chargées (voir useEffect plus bas).
+  const loadMore = useCallback(async () => {
+    if (!hasMore || loadingMore || !cursorSnap) return;
+    setLoadingMore(true);
+    try {
+      const q = query(
+        collection(db, 'video_playlist'),
+        orderBy('createdAt', 'desc'),
+        startAfter(cursorSnap),
+        limit(PAGE_SIZE)
+      );
+      const snap = await getDocs(q);
+      const videos = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        createdAt: d.data().createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
+      }));
+      setPlaylist(prev => [...prev, ...videos]);
+      setCursorSnap(snap.docs[snap.docs.length - 1] ?? cursorSnap);
+      setHasMore(snap.docs.length === PAGE_SIZE);
+    } catch (err) {
+      console.error('Firestore (page suivante):', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore, cursorSnap]);
+
+  // Déclenche le chargement de la page suivante quand il ne reste plus que
+  // quelques vidéos non chargées devant l'utilisateur.
+  useEffect(() => {
+    if (orderedPlaylist.length === 0) return;
+    if (orderedPlaylist.length - activeIdx <= 5) loadMore();
+  }, [activeIdx, orderedPlaylist.length, loadMore]);
 
   useEffect(() => {
     if (!feedRef.current || orderedPlaylist.length === 0) return;
@@ -1358,19 +1442,36 @@ export default function DemoPage() {
   return (
     <div className={styles.page}>
       <div ref={feedRef} className={styles.feed}>
-        {orderedPlaylist.map((item, i) => (
-          <div key={item.id} data-slide={i} className={styles.slideWrapper}>
-            <VideoSlide
-              item={item}
-              isActive={i === activeIdx}
-              authUser={authUser}
-              authReady={authReady}
-              muted={muted}
-              setMuted={setMuted}
-              markSeen={markSeen}
-            />
-          </div>
-        ))}
+        {orderedPlaylist.map((item, i) => {
+          // ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 1) :
+          // avant, CHAQUE vidéo de la playlist montait un <VideoSlide>, donc
+          // 3 à 5 listeners Firestore par vidéo — même pour les vidéos
+          // jamais scrollées. Avec ne serait-ce que quelques centaines de
+          // vidéos, un seul utilisateur ouvrait déjà 1000+ listeners.
+          // Ici, seule une fenêtre de RENDER_WINDOW slides autour de la
+          // vidéo active monte réellement <VideoSlide> (et donc ses hooks/
+          // listeners) ; les autres restent un simple div vide de la même
+          // taille, ce qui préserve le scroll-snap et le calcul de
+          // activeIdx (IntersectionObserver sur data-slide) à l'identique.
+          const shouldRender = Math.abs(i - activeIdx) <= RENDER_WINDOW;
+          return (
+            <div key={item.id} data-slide={i} className={styles.slideWrapper}>
+              {shouldRender ? (
+                <VideoSlide
+                  item={item}
+                  isActive={i === activeIdx}
+                  authUser={authUser}
+                  authReady={authReady}
+                  muted={muted}
+                  setMuted={setMuted}
+                  markSeen={markSeen}
+                />
+              ) : (
+                <div className={styles.slidePlaceholder}/>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div className={styles.dots}>

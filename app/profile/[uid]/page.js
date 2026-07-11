@@ -3,8 +3,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  collection, query, where, orderBy, limit,
-  getDocs, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp,
+  collection, query, where, orderBy, limit, startAfter,
+  getDocs, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, getCountFromServer,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../../../lib/firebaseClient';
@@ -96,14 +96,16 @@ function useFollow(profileUid, authUser) {
     return unsub;
   }, [profileUid, authUser?.uid, isSelf]);
 
+  // ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 2) : agrégation
+  // ponctuelle au lieu d'un onSnapshot permanent sur toute la sous-collection
+  // followers.
   useEffect(() => {
     if (!profileUid) return;
-    const unsub = onSnapshot(
-      collection(db, 'users', profileUid, 'followers'),
-      snap => setFollowerCount(snap.size),
-      () => {}
-    );
-    return unsub;
+    let cancelled = false;
+    getCountFromServer(collection(db, 'users', profileUid, 'followers'))
+      .then(snap => { if (!cancelled) setFollowerCount(snap.data().count); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [profileUid]);
 
   const toggle = useCallback(async () => {
@@ -114,14 +116,16 @@ function useFollow(profileUid, authUser) {
 
     if (following) {
       setFollowing(false);
+      setFollowerCount(c => Math.max(0, c - 1));
       await Promise.all([deleteDoc(followerRef), deleteDoc(followingRef)])
-        .catch(() => setFollowing(true));
+        .catch(() => { setFollowing(true); setFollowerCount(c => c + 1); });
     } else {
       setFollowing(true);
+      setFollowerCount(c => c + 1);
       await Promise.all([
         setDoc(followerRef,  { userId: authUser.uid, createdAt: serverTimestamp() }),
         setDoc(followingRef, { userId: profileUid,    createdAt: serverTimestamp() }),
-      ]).catch(() => setFollowing(false));
+      ]).catch(() => { setFollowing(false); setFollowerCount(c => Math.max(0, c - 1)); });
     }
   }, [following, profileUid, authUser?.uid, isSelf]);
 
@@ -130,17 +134,18 @@ function useFollow(profileUid, authUser) {
 
 /* ══════════════════════════════════════════════════════════
    HOOK : compteur "Abonnements" (combien de personnes uid suit)
+   ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 2) :
+   agrégation ponctuelle au lieu d'un onSnapshot permanent.
 ══════════════════════════════════════════════════════════ */
 function useFollowingCount(uid) {
   const [count, setCount] = useState(0);
   useEffect(() => {
     if (!uid) return;
-    const unsub = onSnapshot(
-      collection(db, 'users', uid, 'following'),
-      snap => setCount(snap.size),
-      () => {}
-    );
-    return unsub;
+    let cancelled = false;
+    getCountFromServer(collection(db, 'users', uid, 'following'))
+      .then(snap => { if (!cancelled) setCount(snap.data().count); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [uid]);
   return count;
 }
@@ -201,14 +206,27 @@ function useFollowingList(uid) {
    HOOK : vidéos publiées par uid (userId == uid)
    Pas de orderBy côté requête (évite un index composite
    userId+createdAt à créer manuellement) — tri fait côté client.
+
+   ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 4) :
+   requête auparavant sans limite. Un vendeur avec un catalogue massif
+   aurait rechargé/re-synchronisé sa collection entière à chaque
+   ouverture de son profil. Plafonnée à PROFILE_VIDEOS_CAP.
+   Note : une VRAIE pagination multi-pages nécessiterait un orderBy
+   explicite (donc un index composite userId+createdAt) pour garder un
+   tri chronologique cohérent entre les pages — volontairement pas
+   ajoutée ici pour ne pas casser l'ordre d'affichage avec une
+   pagination basée sur l'ID de document. À faire si un vendeur dépasse
+   régulièrement ce plafond.
 ══════════════════════════════════════════════════════════ */
+const PROFILE_VIDEOS_CAP = 200;
+
 function useProfileVideos(uid) {
   const [videos,  setVideos]  = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!uid) return;
-    const q = query(collection(db, 'video_playlist'), where('userId', '==', uid));
+    const q = query(collection(db, 'video_playlist'), where('userId', '==', uid), limit(PROFILE_VIDEOS_CAP));
     const unsub = onSnapshot(q, snap => {
       const vids = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       vids.sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0));
@@ -223,8 +241,12 @@ function useProfileVideos(uid) {
 
 /* ══════════════════════════════════════════════════════════
    HOOK : total des likes cumulés sur les vidéos données
-   Un listener par vidéo (video_playlist/{id}/likes), même
-   pattern que useLike dans /demo — sommé ici.
+   ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 2) :
+   ouvrait auparavant un onSnapshot permanent PAR VIDÉO sur toute sa
+   sous-collection likes — pour un vendeur avec beaucoup de vidéos
+   virales, ouvrir sa page profil pouvait déclencher des millions de
+   reads. Remplacé par une agrégation ponctuelle par vidéo, exécutée
+   une fois au chargement de la liste de vidéos.
 ══════════════════════════════════════════════════════════ */
 function useVideoLikeCounts(videoIds) {
   const [counts, setCounts] = useState({});
@@ -232,14 +254,15 @@ function useVideoLikeCounts(videoIds) {
 
   useEffect(() => {
     if (!videoIds.length) { setCounts({}); return; }
-    const unsubs = videoIds.map(id =>
-      onSnapshot(
-        collection(db, 'video_playlist', id, 'likes'),
-        snap => setCounts(prev => ({ ...prev, [id]: snap.size })),
-        () => {}
-      )
-    );
-    return () => unsubs.forEach(u => u && u());
+    let cancelled = false;
+    Promise.all(videoIds.map(id =>
+      getCountFromServer(collection(db, 'video_playlist', id, 'likes'))
+        .then(snap => [id, snap.data().count])
+        .catch(() => [id, 0])
+    )).then(entries => {
+      if (!cancelled) setCounts(Object.fromEntries(entries));
+    });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey]);
 

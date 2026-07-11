@@ -2,9 +2,9 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  collection, query, orderBy, where,
-  onSnapshot, doc, updateDoc,
-  addDoc, setDoc, deleteDoc, serverTimestamp,
+  collection, query, orderBy, where, limit, startAfter,
+  onSnapshot, doc, updateDoc, getDocs,
+  addDoc, setDoc, deleteDoc, serverTimestamp, getCountFromServer,
 } from 'firebase/firestore';
 import { onAuthStateChanged, updateProfile } from 'firebase/auth';
 import QRCode from 'qrcode';
@@ -36,12 +36,19 @@ function getFrais(villeVendeur, villeClient, typeLivr) {
 }
 const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' XOF';
 
+// Taille de page pour la liste des lives/replays (P0 — voir
+// analyse-scalabilite-fritok.md, point 4 : plus de requête sans limit()
+// sur live_sessions, qui ne faisait auparavant que grossir indéfiniment,
+// lives terminés depuis longtemps compris).
+const LIVE_PAGE_SIZE = 20;
+
+// Nombre de commentaires live chargés/synchronisés en temps réel (P0 —
+// voir point 3 : le chat live n'avait auparavant AUCUNE limite, donc
+// chaque nouvel arrivant téléchargeait tout l'historique complet, et
+// chaque nouveau message fan-out un read vers chaque spectateur connecté).
+const LIVE_CHAT_LIMIT = 100;
+
 // ── Profil vidéo/audio co-host adapté 4G Afrique ────────────────────────────
-// Le co-host s'affiche en petite vignette (88×124px côté vendeur) : pas
-// besoin de haute résolution, et le co-host est presque toujours sur
-// données mobiles personnelles (donc le poste le plus contraint en bande
-// passante des deux côtés de l'appel) — profil délibérément plus bas que
-// celui du vendeur principal.
 const COHOST_VIDEO_PROFILE = {
   width: { ideal: 320 }, height: { ideal: 240 },
   frameRate: { ideal: 15, max: 18 },
@@ -187,11 +194,14 @@ function ChatBubble({ msg }) {
 /* ══════════════════════════════════════════════════════════
    HOOK : LIKES persistés Firestore pour un live
    Sous-collection : live_sessions/{id}/likes/{userId}
-   (remplace l'ancien updateDoc(..., { likeCount: increment(...) })
-   qui était systématiquement rejeté : firestore.rules interdit
-   toute écriture cliente sur le document live_sessions parent —
-   à raison, sinon n'importe qui pourrait gonfler artificiellement
-   le compteur. Même pattern que useLike() dans /demo.)
+   ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 2) : le
+   compteur écoutait auparavant TOUTE la sous-collection `likes` en
+   onSnapshot pour en déduire snap.size — sur un live à forte audience,
+   chaque like ajouté fan-out un read vers CHAQUE spectateur connecté
+   simultanément. Remplacé par une agrégation ponctuelle
+   (getCountFromServer) au montage, + incrément optimiste local sur
+   l'action de CET utilisateur uniquement (le statut "j'ai liké" reste
+   un onSnapshot, mais sur un seul document — coût négligeable).
 ══════════════════════════════════════════════════════════ */
 function useLiveLike(sessionId, initialCount, authUser) {
   const [liked, setLiked] = useState(false);
@@ -206,12 +216,11 @@ function useLiveLike(sessionId, initialCount, authUser) {
 
   useEffect(() => {
     if (!sessionId) return;
-    const unsub = onSnapshot(
-      collection(db, 'live_sessions', sessionId, 'likes'),
-      snap => setCount(snap.size),
-      () => {}
-    );
-    return unsub;
+    let cancelled = false;
+    getCountFromServer(collection(db, 'live_sessions', sessionId, 'likes'))
+      .then(snap => { if (!cancelled) setCount(snap.data().count); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [sessionId]);
 
   const toggle = useCallback(async () => {
@@ -234,7 +243,6 @@ function useLiveLike(sessionId, initialCount, authUser) {
 
 /* ══════════════════════════════════════════════════════════
    HELPER STYLE CO-HOST
-   Déclaré avant CoHostButton pour éviter tout ReferenceError
 ══════════════════════════════════════════════════════════ */
 function coHostBtnStyle(color, noClick = false) {
   return {
@@ -250,12 +258,9 @@ function coHostBtnStyle(color, noClick = false) {
 /* ══════════════════════════════════════════════════════════
    BOUTON CO-HOST — demande temps réel
    Cycle : idle → pending → joining → live | declined | removed
-   Ajout (juillet 2026) : contrôles caméra ON/OFF, micro ON/OFF
-   et bascule caméra avant/arrière une fois status === 'live'.
 ══════════════════════════════════════════════════════════ */
 function CoHostButton({ session, authUser }) {
   const [status,   setStatus]   = useState('idle');
-  // 'idle' | 'pending' | 'joining' | 'live' | 'declined' | 'removed'
   const [errorMsg, setErrorMsg] = useState(null);
 
   const unsubDocRef    = useRef(null);
@@ -264,20 +269,11 @@ function CoHostButton({ session, authUser }) {
   const localDivRef    = useRef(null);
   const isMountedRef   = useRef(true);
 
-  // ── Caméra / micro du co-host ────────────────────────────
   const [cameraOn,       setCameraOn]       = useState(true);
   const [micOn,          setMicOn]          = useState(true);
-  const [facingMode,     setFacingMode]     = useState('user'); // 'user' = avant, 'environment' = arrière
+  const [facingMode,     setFacingMode]     = useState('user');
   const [switchingCamera,setSwitchingCamera]= useState(false);
 
-  // ⚠️ CRITIQUE : doit être EXACTEMENT le même App ID que côté vendeur
-  // (GoLive.jsx → process.env.NEXT_PUBLIC_AGORA_APP_ID). Le token Agora
-  // généré par le serveur est signé pour un App ID précis : si host et
-  // co-host utilisent deux App ID différents, la jointure Agora du
-  // co-host échoue silencieusement juste après l'acceptation — c'est
-  // exactement le symptôme "la connexion ne passe plus après acceptation".
-  // La valeur codée en dur précédente ('5bbfd51877e2435f87afef0f89cebda3')
-  // a été remplacée par la même variable d'environnement que le vendeur.
   const AGORA_APP_ID_V = process.env.NEXT_PUBLIC_AGORA_APP_ID;
 
   useEffect(() => {
@@ -289,11 +285,6 @@ function CoHostButton({ session, authUser }) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-reset après refus/retrait : on supprime aussi le document
-  // Firestore (autorisé par les rules pour les statuts terminaux
-  // pending/declined/removed/left — voir firestore.rules) afin qu'un
-  // nouveau clic sur "Sur scène" puisse recréer un doc frais au lieu de
-  // heurter un doc existant dans un état terminal.
   useEffect(() => {
     if (status === 'declined' || status === 'removed') {
       _releaseCoHostAgora();
@@ -305,7 +296,6 @@ function CoHostButton({ session, authUser }) {
     }
   }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Guards
   if (!session.isLive || session.coHostEnabled === false) return null;
   if (!authUser) return null;
   const sellerId = session.sellerId ?? session.userId ?? '';
@@ -346,7 +336,7 @@ function CoHostButton({ session, authUser }) {
   async function _joinAsCoHost(token, agoraUid) {
     if (!isMountedRef.current) return;
     if (!AGORA_APP_ID_V) {
-      console.error('❌ NEXT_PUBLIC_AGORA_APP_ID manquant côté client (co-host) — vérifier .env.local / variables Netlify.');
+      console.error('❌ NEXT_PUBLIC_AGORA_APP_ID manquant côté client (co-host).');
       if (isMountedRef.current) {
         setStatus('idle');
         setErrorMsg('Config Agora manquante côté client.');
@@ -359,7 +349,7 @@ function CoHostButton({ session, authUser }) {
       const AgoraRTC = window.AgoraRTC;
       AgoraRTC.setLogLevel(3);
 
-      const client = AgoraRTC.createClient({ mode: 'live', codec: 'h264' }); // aligné sur le codec du vendeur (GoLive.jsx)
+      const client = AgoraRTC.createClient({ mode: 'live', codec: 'h264' });
       agoraClientRef.current = client;
 
       await client.setClientRole('host');
@@ -400,7 +390,6 @@ function CoHostButton({ session, authUser }) {
       setMicOn(true);
       setFacingMode('user');
       setStatus('live');
-      console.log('✅ Co-host sur scène, canal:', channelId);
     } catch (err) {
       console.error('❌ _joinAsCoHost:', err);
       await _releaseCoHostAgora();
@@ -411,15 +400,7 @@ function CoHostButton({ session, authUser }) {
     }
   }
 
-  // ── 1. Demande pending ───────────────────────────────────
-  // FIX : le document envoyé ne contient plus que les 4 champs autorisés
-  // par firestore.rules (status, displayName, avatarUrl, requestedAt).
-  // `uid`, `agoraUid` et `token` étaient rejetés par la règle (hasOnly) —
-  // chaque demande échouait avant cette correction. `agoraUid`/`token`
-  // sont ajoutés plus tard par le serveur (Admin SDK, hors règles)
-  // quand le vendeur accepte.
   const requestCoHost = async () => {
-    console.log('🔵 requestCoHost déclenché — status:', status, 'channelId:', channelId, 'uid:', uid);
     if (status !== 'idle') return;
     setErrorMsg(null);
     try {
@@ -465,20 +446,12 @@ function CoHostButton({ session, authUser }) {
     }
   };
 
-  // ── 2. Annuler avant acceptation ─────────────────────────
-  // firestore.rules autorise le delete pour le statut 'pending' — la
-  // demande est proprement retirée, pas juste masquée côté client.
   const cancelRequest = async () => {
     unsubDocRef.current?.();
     await deleteDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid)).catch(() => {});
     if (isMountedRef.current) setStatus('idle');
   };
 
-  // ── 3. Quitter la scène (pendant live) ───────────────────
-  // Écrit status:'left' (seule transition autorisée par les rules pour
-  // une update initiée par le co-host lui-même), puis supprime le doc
-  // (delete autorisé pour 'left') pour qu'une future demande reparte
-  // d'un état propre.
   const leaveStage = async () => {
     try {
       await updateDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
@@ -491,7 +464,6 @@ function CoHostButton({ session, authUser }) {
     }
   };
 
-  // ── 4. Caméra / micro (pendant live) ─────────────────────
   const toggleCoHostCamera = async () => {
     const videoTrack = tracksRef.current?.video;
     if (!videoTrack) return;
@@ -516,7 +488,6 @@ function CoHostButton({ session, authUser }) {
     }
   };
 
-  // ── 5. Bascule caméra avant/arrière (pendant live) ───────
   const switchCoHostCamera = async () => {
     const videoTrack = tracksRef.current?.video;
     if (!videoTrack || switchingCamera) return;
@@ -548,8 +519,6 @@ function CoHostButton({ session, authUser }) {
       if (targetCamera) {
         await videoTrack.setDevice(targetCamera.deviceId);
       } else {
-        // Repli si les labels ne sont pas exploitables (ex. Safari iOS
-        // avant confirmation de la permission caméra)
         const currentLabel = videoTrack.getTrackLabel ? videoTrack.getTrackLabel() : null;
         const otherCamera = cameras.find(cam => cam.label !== currentLabel) ?? cameras[1];
         await videoTrack.setDevice(otherCamera.deviceId);
@@ -570,7 +539,6 @@ function CoHostButton({ session, authUser }) {
     }
   };
 
-  // ── Rendu ─────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
 
@@ -672,16 +640,6 @@ function AuthRequiredModal({ onClose }) {
 
 /* ══════════════════════════════════════════════════════════
    MODAL COMMANDE
-   ── CORRIGÉ ──
-   Alignée sur la version déjà corrigée de /demo/page.js : la commande
-   passe désormais par netlify/functions/create-colis (seule fonction
-   réelle en prod), avec le format de payload qu'elle attend
-   (nomDestinataire / telDestinataire / villeDestination /
-   adresseLivraison / articles[] / photoUrl), et un sellerId distinct
-   du client pour que le vendeur (pas l'acheteur) soit crédité comme
-   userIdVend. Le QR est généré localement (lib `qrcode`) — il ne
-   transite plus par api.qrserver.com avec les données du client dans
-   l'URL.
 ══════════════════════════════════════════════════════════ */
 function OrderModal({ product, sellerId, authUser, onClose }) {
   const [step,        setStep]        = useState('form');
@@ -742,8 +700,6 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          // sellerId != l'appelant → commande marketplace : la fonction
-          // crédite userIdVend = sellerId, pas l'acheteur.
           sellerId,
           nomDestinataire: nomDest.trim(),
           telDestinataire: telephone.trim(),
@@ -889,24 +845,8 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
 
 /* ══════════════════════════════════════════════════════════
    BOTTOM SHEET — SIGNALER LE LIVE
-   Écrit dans /live_reports (nouvelle collection). Nécessite d'ajouter
-   aux firestore.rules :
-
-     match /live_reports/{reportId} {
-       allow read: if false; // modération uniquement (Admin SDK / console)
-       allow create: if isAuth()
-         && request.resource.data.reporterId == request.auth.uid
-         && request.resource.data.keys().hasOnly([
-              'channelId','sellerId','reporterId','reason','details','createdAt','status'
-            ])
-         && request.resource.data.status == 'pending'
-         && request.resource.data.reason is string
-         && request.resource.data.details is string
-         && request.resource.data.details.size() <= 500;
-       allow update, delete: if false;
-     }
-
-   Sans cette règle, l'écriture ci-dessous échouera (permission-denied).
+   Écrit dans /live_reports. Règle firestore.rules déployée (voir
+   firestore.rules — match /live_reports/{reportId}).
 ══════════════════════════════════════════════════════════ */
 const REPORT_REASONS = [
   { key: 'sexuel',     label: 'Contenu sexuel ou nudité' },
@@ -1025,7 +965,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
   const { videoContainerRef, remoteUsers, status, error: agoraError } =
     useAgoraPlayer(session.channelId, session.isLive);
 
-  // Likes persistés (sous-collection), plus updateDoc/increment direct
+  // Likes persistés (sous-collection), compteur en agrégation ponctuelle (P0)
   const { liked, count: likeCount, toggle: toggleLike } =
     useLiveLike(session.id, session.likeCount ?? 0, authUser);
 
@@ -1038,15 +978,21 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
   const chatRef  = useRef(null);
 
   // ── Commentaires Firestore partagés avec le vendeur ──────────────────────
-  // Même collection `live_comments` (filtrée par channelId) que celle
-  // utilisée côté vendeur dans GoLive.jsx. Avant cette correction, le chat
-  // du spectateur vivait uniquement en local state (DEMO_CHAT simulé) et
-  // n'était jamais lu ni écrit dans Firestore : les commentaires du
-  // vendeur et ceux des spectateurs ne se rencontraient jamais.
+  // ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 3) : cette
+  // requête n'avait AUCUNE limite — chaque nouvel arrivant sur un live
+  // long téléchargeait tout l'historique des commentaires, et chaque
+  // nouveau message fan-out un read vers CHAQUE spectateur connecté
+  // simultanément. Ajout de orderBy('timestamp','desc') +
+  // limit(LIVE_CHAT_LIMIT) : ne synchronise plus que les derniers messages.
   useEffect(() => {
     if (!session.channelId) return;
     const unsub = onSnapshot(
-      query(collection(db, 'live_comments'), where('channelId', '==', session.channelId)),
+      query(
+        collection(db, 'live_comments'),
+        where('channelId', '==', session.channelId),
+        orderBy('timestamp', 'desc'),
+        limit(LIVE_CHAT_LIMIT)
+      ),
       snap => {
         const docs = snap.docs.map(d => {
           const data = d.data();
@@ -1088,19 +1034,11 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
   };
 
   const sendMessage = async () => {
-    const text = inputMsg.trim().slice(0, 300); // même limite client que côté vendeur
+    const text = inputMsg.trim().slice(0, 300);
     if (!text || !session.channelId) return;
     if (!authReady) return;
     if (!authUser) { setAuthPrompt(true); return; }
 
-    // ⚠️ Les règles Firestore exigent une égalité STRICTE :
-    //   request.resource.data.sender == request.auth.token.name
-    // Le claim `name` du ID token peut être absent si le compte n'a
-    // jamais eu de displayName. Bloquer silencieusement ici rendait le
-    // bouton "Envoyer" apparemment inerte (aucun retour visible). On
-    // répare maintenant automatiquement : si le claim manque, on définit
-    // un displayName par défaut puis on force le rafraîchissement du
-    // token pour récupérer le nouveau claim, avant de réessayer.
     let senderName;
     try {
       let idTokenResult = await authUser.getIdTokenResult();
@@ -1110,7 +1048,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
           || authUser.email?.split('@')[0]
           || `Spectateur_${authUser.uid.slice(0, 6)}`;
         await updateProfile(authUser, { displayName: fallbackName });
-        idTokenResult = await authUser.getIdTokenResult(true); // forceRefresh
+        idTokenResult = await authUser.getIdTokenResult(true);
         senderName = idTokenResult.claims.name;
       }
     } catch (e) {
@@ -1124,8 +1062,6 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
     setInputMsg('');
     try {
       const ref = doc(collection(db, 'live_comments'));
-      // ✅ Mêmes champs que GoLive.jsx (userId + sender requis par les
-      // règles Firestore) pour que le message apparaisse aussi côté vendeur.
       await setDoc(ref, {
         commentId: ref.id,
         userId:    authUser.uid,
@@ -1326,15 +1262,25 @@ function Skeleton() {
 
 /* ══════════════════════════════════════════════════════════
    PAGE /live
+   ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 4) :
+   live_sessions n'a plus de requête onSnapshot illimitée sur TOUTE la
+   collection. La requête temps réel est désormais bornée à
+   LIVE_PAGE_SIZE ; un bouton "Charger plus" pagine le reste via une
+   lecture ponctuelle (getDocs + startAfter), volontairement pas en
+   onSnapshot pour ne pas ouvrir un listener permanent par page.
+   lastDocRef retient le dernier QueryDocumentSnapshot chargé.
 ══════════════════════════════════════════════════════════ */
 export default function LivePage() {
-  const [sessions,  setSessions]  = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [selected,  setSelected]  = useState(null);
-  const [filter,    setFilter]    = useState('all');
-  const [authUser,  setAuthUser]  = useState(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [sessions,    setSessions]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState(null);
+  const [selected,    setSelected]    = useState(null);
+  const [filter,      setFilter]      = useState('all');
+  const [authUser,    setAuthUser]    = useState(null);
+  const [authReady,   setAuthReady]   = useState(false);
+  const [hasMore,     setHasMore]     = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const lastDocRef = useRef(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => {
@@ -1345,7 +1291,7 @@ export default function LivePage() {
   }, []);
 
   useEffect(() => {
-    const q = query(collection(db, 'live_sessions'), orderBy('startedAt', 'desc'));
+    const q = query(collection(db, 'live_sessions'), orderBy('startedAt', 'desc'), limit(LIVE_PAGE_SIZE));
     const unsub = onSnapshot(q,
       snap => {
         setSessions(snap.docs.map(d => ({
@@ -1353,12 +1299,40 @@ export default function LivePage() {
           ...d.data(),
           startedAt: d.data().startedAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
         })));
+        lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
+        setHasMore(snap.docs.length === LIVE_PAGE_SIZE);
         setLoading(false);
       },
       err => { console.error(err); setError('Impossible de charger les lives.'); setLoading(false); }
     );
     return () => unsub();
   }, []);
+
+  const loadMoreSessions = async () => {
+    if (!hasMore || loadingMore || !lastDocRef.current) return;
+    setLoadingMore(true);
+    try {
+      const q = query(
+        collection(db, 'live_sessions'),
+        orderBy('startedAt', 'desc'),
+        startAfter(lastDocRef.current),
+        limit(LIVE_PAGE_SIZE)
+      );
+      const snap = await getDocs(q);
+      const more = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        startedAt: d.data().startedAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
+      }));
+      setSessions(prev => [...prev, ...more]);
+      lastDocRef.current = snap.docs[snap.docs.length - 1] ?? lastDocRef.current;
+      setHasMore(snap.docs.length === LIVE_PAGE_SIZE);
+    } catch (e) {
+      console.warn('⚠️ loadMoreSessions:', e);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   if (selected) {
     return (
@@ -1410,9 +1384,26 @@ export default function LivePage() {
           <div className={styles.emptyBox}><p>Aucun live pour ce filtre.</p></div>
         )}
         {!loading && !error && filtered.length > 0 && (
-          <div className={styles.grid}>
-            {filtered.map(s => <LiveCard key={s.id} session={s} onSelect={setSelected}/>)}
-          </div>
+          <>
+            <div className={styles.grid}>
+              {filtered.map(s => <LiveCard key={s.id} session={s} onSelect={setSelected}/>)}
+            </div>
+            {hasMore && filter === 'all' && (
+              <button
+                onClick={loadMoreSessions}
+                disabled={loadingMore}
+                style={{
+                  display: 'block', margin: '20px auto', padding: '12px 32px',
+                  borderRadius: 12, border: '1.5px solid rgba(255,255,255,0.15)',
+                  background: 'rgba(255,255,255,0.06)', color: '#fff',
+                  fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '0.85rem',
+                  cursor: loadingMore ? 'not-allowed' : 'pointer', opacity: loadingMore ? 0.6 : 1,
+                }}
+              >
+                {loadingMore ? 'Chargement…' : 'Charger plus'}
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

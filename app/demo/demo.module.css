@@ -40,6 +40,16 @@
   background: #111;
 }
 
+/* Remplace <VideoSlide> pour les slides hors de la fenêtre de rendu (P0 —
+   virtualisation du feed) : mêmes dimensions, aucun listener/vidéo montés. */
+.slidePlaceholder {
+  width: 100%;
+  max-width: 480px;
+  height: 100%;
+  margin: 0 auto;
+  background: #111;
+}
+
 /* ── Vidéo ────────────────────────────────────────────────────────────────── */
 .video {
   position: absolute;
@@ -150,7 +160,7 @@
   z-index: 20;
 }
 
-.avatarWrap { position: relative; margin-bottom: 0.5rem; cursor: pointer; }
+.avatarWrap { position: relative; margin-bottom: 0.5rem; }
 
 .avatar {
   width: 48px; height: 48px;
@@ -161,6 +171,7 @@
   font-weight: 800; font-size: 1.15rem;
   color: #fff;
   border: 2px solid #fff;
+  cursor: pointer;
 }
 
 .followDot {
@@ -173,6 +184,7 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 0.85rem; color: #fff; font-weight: 700;
   border: 2px solid #000;
+  cursor: pointer;
   transition: background 0.15s, transform 0.15s;
 }
 .avatarWrap:hover .followDot { transform: translateX(-50%) scale(1.1); }
@@ -188,6 +200,7 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 0.72rem; color: #fff; font-weight: 700;
   border: 2px solid #000;
+  cursor: pointer;
   transition: background 0.15s, transform 0.15s;
 }
 .avatarWrap:hover .followDotActive { transform: translateX(-50%) scale(1.1); }
