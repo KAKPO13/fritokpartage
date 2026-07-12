@@ -13,28 +13,146 @@ import { useAgoraPlayer } from '../../lib/useAgoraPlayer';
 import styles from './live.module.css';
 
 /* ══════════════════════════════════════════════════════════
-   CONSTANTES LIVRAISON
-   (affichage instantané uniquement — le montant définitif est
-   TOUJOURS recalculé et validé côté serveur dans
-   netlify/functions/create-colis.js avant écriture)
+   PAYS / VILLES / TARIFS DE LIVRAISON
+   ── ÉTENDU (multi-pays Afrique de l'Ouest) ──
+   Même structure que demo.js (voir ce fichier pour le détail des
+   notes) — dupliquée ici volontairement, comme le reste des
+   composants partagés entre /demo et /live dans ce projet.
+
+   ⚠️ TARIFS non-CI = PLACEHOLDERS, à remplacer par tes vrais barèmes
+   avant mise en production sur ces marchés.
+   ⚠️ villeDepart reste approximé par la ville "hub" du pays choisi,
+   faute de connaître la ville réelle du vendeur ici.
 ══════════════════════════════════════════════════════════ */
-const VILLES_CI = [
-  'Abidjan','Bouaké','Daloa','Korhogo','Yamoussoukro','San-Pédro',
-  'Man','Divo','Gagnoa','Abengourou','Soubré','Odienné','Duekoué',
-  'Bondoukou','Mankono','Séguéla','Touba','Ferkessédougou','Katiola',
-  'Agboville','Adzopé','Tiassalé','Lakota','Issia','Sassandra',
-];
-const TARIFS = {
-  'Abidjan': { 'Abidjan': 1500, 'Bouaké': 2500, default: 3000 },
-  'Bouaké':  { 'Bouaké':  1500, 'Abidjan': 2500, default: 3500 },
-  default:   { default: 3000 },
+const COUNTRIES = {
+  CI: {
+    label: "Côte d'Ivoire",
+    currency: 'XOF',
+    hub: 'Abidjan',
+    villes: [
+      'Abidjan','Bouaké','Daloa','Korhogo','Yamoussoukro','San-Pédro',
+      'Man','Divo','Gagnoa','Abengourou','Soubré','Odienné','Duekoué',
+      'Bondoukou','Mankono','Séguéla','Touba','Ferkessédougou','Katiola',
+      'Agboville','Adzopé','Tiassalé','Lakota','Issia','Sassandra',
+    ],
+    tarifs: {
+      'Abidjan': { 'Abidjan': 1500, 'Bouaké': 2500, default: 3000 },
+      'Bouaké' : { 'Bouaké' : 1500, 'Abidjan': 2500, default: 3500 },
+      default  : { default: 3000 },
+    },
+    fallback: 8000,
+  },
+  SN: {
+    label: 'Sénégal',
+    currency: 'XOF',
+    hub: 'Dakar',
+    villes: [
+      'Dakar','Thiès','Rufisque','Mbour','Saint-Louis','Kaolack',
+      'Ziguinchor','Touba','Diourbel','Louga','Tambacounda','Kolda',
+    ],
+    // PLACEHOLDER — à remplacer par de vrais tarifs Sénégal.
+    tarifs: {
+      'Dakar': { 'Dakar': 1500, 'Thiès': 2500, default: 3000 },
+      default: { default: 3500 },
+    },
+    fallback: 8000,
+  },
+  GH: {
+    label: 'Ghana',
+    currency: 'GHS',
+    hub: 'Accra',
+    villes: [
+      'Accra','Kumasi','Tamale','Sekondi-Takoradi','Ashaiman',
+      'Sunyani','Cape Coast','Obuasi','Teshie','Tema',
+    ],
+    // PLACEHOLDER — à remplacer par de vrais tarifs Ghana (GHS).
+    tarifs: {
+      'Accra':  { 'Accra': 20, 'Kumasi': 35, default: 40 },
+      'Kumasi': { 'Kumasi': 20, 'Accra': 35, default: 40 },
+      default:  { default: 45 },
+    },
+    fallback: 100,
+  },
+  NG: {
+    label: 'Nigeria',
+    currency: 'NGN',
+    hub: 'Lagos',
+    villes: [
+      'Lagos','Abuja','Kano','Ibadan','Port Harcourt','Benin City',
+      'Kaduna','Enugu','Aba','Onitsha',
+    ],
+    // PLACEHOLDER — à remplacer par de vrais tarifs Nigeria (NGN).
+    tarifs: {
+      'Lagos': { 'Lagos': 1000, 'Abuja': 2500, default: 3000 },
+      'Abuja': { 'Abuja': 1000, 'Lagos': 2500, default: 3000 },
+      default: { default: 3500 },
+    },
+    fallback: 6000,
+  },
+  BJ: {
+    label: 'Bénin',
+    currency: 'XOF',
+    hub: 'Cotonou',
+    villes: [
+      'Cotonou','Porto-Novo','Parakou','Djougou','Bohicon',
+      'Kandi','Ouidah','Abomey','Natitingou','Lokossa',
+    ],
+    // PLACEHOLDER — à remplacer par de vrais tarifs Bénin.
+    tarifs: {
+      'Cotonou': { 'Cotonou': 1000, 'Porto-Novo': 2000, default: 2500 },
+      default:   { default: 3000 },
+    },
+    fallback: 8000,
+  },
+  TG: {
+    label: 'Togo',
+    currency: 'XOF',
+    hub: 'Lomé',
+    villes: [
+      'Lomé','Sokodé','Kara','Kpalimé','Atakpamé',
+      'Dapaong','Tsévié','Aného','Bassar','Notsé',
+    ],
+    // PLACEHOLDER — à remplacer par de vrais tarifs Togo.
+    tarifs: {
+      'Lomé':  { 'Lomé': 1000, 'Sokodé': 2500, default: 3000 },
+      default: { default: 3500 },
+    },
+    fallback: 8000,
+  },
+  BF: {
+    label: 'Burkina Faso',
+    currency: 'XOF',
+    hub: 'Ouagadougou',
+    villes: [
+      'Ouagadougou','Bobo-Dioulasso','Koudougou','Banfora','Ouahigouya',
+      'Kaya','Tenkodogo','Fada N\'Gourma','Dédougou','Gaoua',
+    ],
+    // PLACEHOLDER — à remplacer par de vrais tarifs Burkina Faso.
+    tarifs: {
+      'Ouagadougou':    { 'Ouagadougou': 1000, 'Bobo-Dioulasso': 2500, default: 3000 },
+      'Bobo-Dioulasso': { 'Bobo-Dioulasso': 1000, 'Ouagadougou': 2500, default: 3000 },
+      default:          { default: 3500 },
+    },
+    fallback: 8000,
+  },
 };
-function getFrais(villeVendeur, villeClient, typeLivr) {
-  const base = (TARIFS[villeVendeur] ?? TARIFS.default)[villeClient]
-            ?? (TARIFS[villeVendeur] ?? TARIFS.default).default ?? 8000;
+
+const DEFAULT_COUNTRY = 'CI';
+const CURRENCY_SUFFIX = { XOF: 'XOF', GHS: 'GH₵', NGN: '₦' };
+
+function getFrais(countryCode, villeVendeur, villeClient, typeLivr) {
+  const country = COUNTRIES[countryCode] ?? COUNTRIES[DEFAULT_COUNTRY];
+  const table   = country.tarifs;
+  const base = (table[villeVendeur] ?? table.default)[villeClient]
+            ?? (table[villeVendeur] ?? table.default).default
+            ?? country.fallback;
   return typeLivr === 'groupee' ? Math.round(base * 0.8) : base;
 }
-const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' XOF';
+
+const fmt = (n, countryCode = DEFAULT_COUNTRY) => {
+  const currency = COUNTRIES[countryCode]?.currency ?? 'XOF';
+  return Number(n).toLocaleString('fr-FR') + ' ' + (CURRENCY_SUFFIX[currency] ?? currency);
+};
 
 // Taille de page pour la liste des lives/replays (P0 — voir
 // analyse-scalabilite-fritok.md, point 4 : plus de requête sans limit()
@@ -648,6 +766,7 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
   );
   const [telephone,   setTelephone]   = useState(authUser?.phoneNumber ?? '');
   const [adresse,     setAdresse]     = useState('');
+  const [pays,        setPays]        = useState(DEFAULT_COUNTRY);
   const [villeClient, setVilleClient] = useState('');
   const [typeLivr,    setTypeLivr]    = useState('solo');
   const [modePaiem,   setModePaiem]   = useState('livraison');
@@ -660,9 +779,15 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
   const [serverTotal, setServerTotal] = useState(null);
   const [toast,       setToast]       = useState(null);
 
+  const country  = COUNTRIES[pays] ?? COUNTRIES[DEFAULT_COUNTRY];
   const prix     = Number(product?.price ?? 0);
-  const fraisXof = villeClient ? getFrais('Abidjan', villeClient, typeLivr) : 0;
+  const fraisXof = villeClient ? getFrais(pays, country.hub, villeClient, typeLivr) : 0;
   const totalXof = prix + fraisXof;
+
+  const handlePaysChange = (nextPays) => {
+    setPays(nextPays);
+    setVilleClient('');
+  };
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
 
@@ -703,7 +828,10 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
           sellerId,
           nomDestinataire: nomDest.trim(),
           telDestinataire: telephone.trim(),
-          villeDepart: 'Abidjan',
+          // ⚠️ villeDepart approximé par la ville "hub" du pays choisi —
+          // voir note en tête de fichier. `pays` ajouté pour create-colis.js.
+          pays,
+          villeDepart: country.hub,
           villeDestination: villeClient,
           adresseLivraison: adresse.trim(),
           descriptionColis: product?.name ?? '',
@@ -759,7 +887,7 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
               {(product?.image || product?.thumbnail) && <img className={styles.recapImg} src={product.image || product.thumbnail} alt=""/>}
               <div className={styles.recapInfo}>
                 <p className={styles.recapName}>{product?.name}</p>
-                <p className={styles.recapPrice}>{fmt(prix)}</p>
+                <p className={styles.recapPrice}>{fmt(prix, pays)}</p>
               </div>
             </div>
             <FieldLabel text="TYPE DE LIVRAISON"/>
@@ -782,19 +910,26 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
               type="tel" placeholder="07 XX XX XX XX"
               value={telephone} onChange={e => setTelephone(e.target.value)}/>
             {errors.telephone && <p className={styles.errMsg}>{errors.telephone}</p>}
+            <FieldLabel text="PAYS DE LIVRAISON"/>
+            <select className={styles.formInput}
+              value={pays} onChange={e => handlePaysChange(e.target.value)}>
+              {Object.entries(COUNTRIES).map(([code, c]) => (
+                <option key={code} value={code}>{c.label}</option>
+              ))}
+            </select>
             <FieldLabel text="VILLE DE LIVRAISON"/>
             <select className={`${styles.formInput}${errors.ville ? ' ' + styles.inputErr : ''}`}
               value={villeClient} onChange={e => setVilleClient(e.target.value)}>
               <option value="">Sélectionnez votre ville…</option>
-              {VILLES_CI.map(c => <option key={c} value={c}>{c}</option>)}
+              {country.villes.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             {errors.ville && <p className={styles.errMsg}>{errors.ville}</p>}
             {villeClient && (
               <div className={styles.fraisCard}>
-                <div className={styles.fraisRow}><span>Articles</span><span>{fmt(prix)}</span></div>
-                <div className={styles.fraisRow}><span>Livraison{typeLivr === 'groupee' ? ' (-20%)' : ''}</span><span>{fmt(fraisXof)}</span></div>
+                <div className={styles.fraisRow}><span>Articles</span><span>{fmt(prix, pays)}</span></div>
+                <div className={styles.fraisRow}><span>Livraison{typeLivr === 'groupee' ? ' (-20%)' : ''}</span><span>{fmt(fraisXof, pays)}</span></div>
                 <div className={styles.fraisDivider}/>
-                <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total (estimé)</span><span>{fmt(totalXof)}</span></div>
+                <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total (estimé)</span><span>{fmt(totalXof, pays)}</span></div>
               </div>
             )}
             <FieldLabel text="ADRESSE DE LIVRAISON"/>
@@ -809,7 +944,7 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
                 : <><IconPin/> Localiser mon adresse</>}
             </button>
             <button className={styles.confirmBtn} onClick={confirmer} disabled={submitting}>
-              {submitting ? <Spinner/> : modePaiem === 'immediat' ? `Payer ${fmt(totalXof)}` : 'Commander — payer à la livraison'}
+              {submitting ? <Spinner/> : modePaiem === 'immediat' ? `Payer ${fmt(totalXof, pays)}` : 'Commander — payer à la livraison'}
             </button>
           </div>
         )}
@@ -826,10 +961,10 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
             </div>
             {gpsCoords && <p className={styles.gpsTag}>{gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}</p>}
             <div className={styles.fraisCard} style={{ width: '100%' }}>
-              <div className={styles.fraisRow}><span>{product?.name}</span><span>{fmt(prix)}</span></div>
-              <div className={styles.fraisRow}><span>Livraison {villeClient}</span><span>{fmt(serverTotal?.fraisXof ?? fraisXof)}</span></div>
+              <div className={styles.fraisRow}><span>{product?.name}</span><span>{fmt(prix, pays)}</span></div>
+              <div className={styles.fraisRow}><span>Livraison {villeClient}</span><span>{fmt(serverTotal?.fraisXof ?? fraisXof, pays)}</span></div>
               <div className={styles.fraisDivider}/>
-              <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{fmt(serverTotal?.totalXof ?? totalXof)}</span></div>
+              <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{fmt(serverTotal?.totalXof ?? totalXof, pays)}</span></div>
               <div className={styles.fraisRow} style={{ opacity: 0.65, fontSize: '.75rem', marginTop: 6 }}>
                 <span>Paiement</span><span>{modePaiem === 'immediat' ? 'En ligne' : 'À la livraison'}</span>
               </div>
