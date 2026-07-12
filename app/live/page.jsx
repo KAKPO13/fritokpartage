@@ -1382,7 +1382,7 @@ function ProductSheet({ product, onClose, onOrder }) {
 
           {/* Commander — action séparée du simple clic sur la carte */}
           <button className={styles.confirmBtn} onClick={() => onOrder(product)}>
-            Commander — {prixAff}
+            Acheter — {prixAff}
           </button>
         </div>
       </div>
