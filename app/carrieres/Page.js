@@ -1,10 +1,10 @@
 import Navbar from '../../components/Navbar';
 import Footer from '../../components/Footer';
-import CareersHero from '../../components/careers/Careershero';
-import CareersPositions from '../../components/careers/Careerspositions';
-import CareersProcess from '../../components/careers/Careersprocess';
-import CareersAmbassador from '../../components/careers/Careersambassador';
-import CareersFaq from '../../components/careers/Careersfaq';
+import CareersHero from '../../components/careers/CareersHero';
+import CareersPositions from '../../components/careers/CareersPositions';
+import CareersProcess from '../../components/careers/CareersProcess';
+import CareersAmbassador from '../../components/careers/CareersAmbassador';
+import CareersFaq from '../../components/careers/CareersFaq';
 
 export const metadata = {
   title: 'Carrières — Rejoignez Made in Benin Live | FriTok',
