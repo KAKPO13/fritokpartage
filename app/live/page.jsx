@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   collection, query, orderBy, where, limit, startAfter,
   onSnapshot, doc, updateDoc, getDocs, getDoc,
@@ -973,13 +974,15 @@ function ReportSheet({ session, authUser, onClose }) {
    capture partagée — plutôt que de renoncer à l'aperçu.
 ══════════════════════════════════════════════════════════ */
 function useProductVideo(product) {
-  const [videoUrl, setVideoUrl] = useState(product?.videoUrl || null);
-  const [poster,   setPoster]   = useState(product?.thumbnail || null);
-  const [loading,  setLoading]  = useState(!product?.videoUrl && !!(product?.videoId || product?.productId));
+  const [videoUrl,   setVideoUrl]   = useState(product?.videoUrl || null);
+  const [poster,     setPoster]     = useState(product?.thumbnail || null);
+  const [videoDocId, setVideoDocId] = useState(product?.videoId || null);
+  const [loading,    setLoading]    = useState(!product?.videoUrl && !!(product?.videoId || product?.productId));
 
   useEffect(() => {
     setVideoUrl(product?.videoUrl || null);
     setPoster(product?.thumbnail || null);
+    setVideoDocId(product?.videoId || null);
 
     if (product?.videoUrl) { setLoading(false); return; }
     if (!product?.videoId && !product?.productId) { setLoading(false); return; }
@@ -992,12 +995,13 @@ function useProductVideo(product) {
     // formes coexistent selon l'ancienneté du document (voir
     // firestore.rules : les nouveaux docs imposent videoUrl à la racine,
     // les plus anciens ne l'avaient que dans product.videoUrl).
-    const applyDoc = (data) => {
+    const applyDoc = (id, data) => {
       if (!data) return false;
       const url = data.videoUrl || data.product?.videoUrl || null;
       if (!url) return false;
       setVideoUrl(url);
       setPoster(prev => prev || data.thumbnail || data.product?.thumbnail || null);
+      setVideoDocId(id);
       return true;
     };
 
@@ -1006,7 +1010,7 @@ function useProductVideo(product) {
         // 1) Par videoId — accès direct le plus économe si disponible.
         if (product.videoId) {
           const snap = await getDoc(doc(db, 'video_playlist', product.videoId));
-          if (!cancelled && snap.exists() && applyDoc(snap.data())) { setLoading(false); return; }
+          if (!cancelled && snap.exists() && applyDoc(snap.id, snap.data())) { setLoading(false); return; }
         }
         // 2) Repli par productId — le tableau live_sessions.products[] ne
         // contient pas toujours videoId, mais productId y est toujours
@@ -1021,7 +1025,7 @@ function useProductVideo(product) {
             limit(1)
           );
           const qs = await getDocs(q);
-          if (!cancelled && !qs.empty) applyDoc(qs.docs[0].data());
+          if (!cancelled && !qs.empty) applyDoc(qs.docs[0].id, qs.docs[0].data());
         }
       } catch (e) {
         console.warn('⚠️ useProductVideo:', e.code ?? e.message ?? e);
@@ -1033,7 +1037,7 @@ function useProductVideo(product) {
     return () => { cancelled = true; };
   }, [product?.videoId, product?.productId, product?.videoUrl, product?.thumbnail]);
 
-  return { videoUrl, poster, loading };
+  return { videoUrl, poster, videoDocId, loading };
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1041,22 +1045,32 @@ function useProductVideo(product) {
    Lecture muette, en boucle, déclenchée au tap — poster = thumbnail
    du produit pour un affichage instantané avant lecture.
 ══════════════════════════════════════════════════════════ */
-function ProductVideoPreview({ videoUrl, poster }) {
+function ProductVideoPreview({ videoUrl, poster, videoDocId }) {
   const videoRef = useRef(null);
-  const [playing, setPlaying] = useState(false);
+  const router = useRouter();
+
+  // Lecture automatique dès l'affichage — `muted` + `playsInline` sont
+  // requis par les navigateurs pour autoriser l'autoplay sans geste
+  // utilisateur. L'appel .play() en useEffect sert de filet de sécurité
+  // pour les navigateurs (Safari notamment) qui ignorent parfois
+  // l'attribut autoPlay seul sur un <video> injecté dynamiquement.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.play().catch(() => {}); // ignore silencieusement (ex. onglet en arrière-plan)
+  }, [videoUrl]);
 
   if (!videoUrl) return null;
 
-  const toggle = () => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) { v.play(); setPlaying(true); }
-    else { v.pause(); setPlaying(false); }
+  const openInDemo = () => {
+    router.push(videoDocId ? `/demo?video=${videoDocId}` : '/demo');
   };
 
   return (
     <div
-      onClick={toggle}
+      onClick={openInDemo}
+      role="button"
+      aria-label="Voir la vidéo complète dans le feed"
       style={{
         position: 'relative', width: 110, aspectRatio: '9 / 14', flexShrink: 0,
         borderRadius: 12, overflow: 'hidden', background: '#000', cursor: 'pointer',
@@ -1066,22 +1080,21 @@ function ProductVideoPreview({ videoUrl, poster }) {
         ref={videoRef}
         src={videoUrl}
         poster={poster}
-        muted loop playsInline
+        muted loop playsInline autoPlay
         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
       />
-      {!playing && (
-        <div style={{
-          position: 'absolute', inset: 0, display: 'flex',
-          alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.28)',
-        }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: '50%', background: 'rgba(0,0,0,0.55)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          </div>
-        </div>
-      )}
+      {/* Icône "ouvrir" en coin — la vidéo joue déjà, ce badge signale
+          juste que le tap mène vers le feed complet, pas un play/pause. */}
+      <div style={{
+        position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: '50%',
+        background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+          <polyline points="15 3 21 3 21 9"/>
+          <line x1="10" y1="14" x2="21" y2="3"/>
+        </svg>
+      </div>
       <span style={{
         position: 'absolute', bottom: 6, left: 6, fontSize: 9, fontWeight: 700, color: '#fff',
         background: 'rgba(0,0,0,0.55)', padding: '2px 6px', borderRadius: 6,
@@ -1105,7 +1118,7 @@ function ProductVideoPreview({ videoUrl, poster }) {
    Firestore supplémentaire n'est nécessaire pour l'ouvrir.
 ══════════════════════════════════════════════════════════ */
 function ProductSheet({ product, onClose, onOrder }) {
-  const { videoUrl, poster, loading: videoLoading } = useProductVideo(product);
+  const { videoUrl, poster, videoDocId, loading: videoLoading } = useProductVideo(product);
 
   if (!product) return null;
 
@@ -1143,7 +1156,7 @@ function ProductSheet({ product, onClose, onOrder }) {
           {(videoUrl || videoLoading) && (
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
               {videoUrl ? (
-                <ProductVideoPreview videoUrl={videoUrl} poster={poster}/>
+                <ProductVideoPreview videoUrl={videoUrl} poster={poster} videoDocId={videoDocId}/>
               ) : (
                 <div style={{
                   width: 110, aspectRatio: '9 / 14', flexShrink: 0, borderRadius: 12,
@@ -1156,7 +1169,7 @@ function ProductSheet({ product, onClose, onOrder }) {
                 flex: 1, fontSize: 12.5, color: 'rgba(255,255,255,0.5)',
                 lineHeight: 1.6, margin: '4px 0 0',
               }}>
-                Voyez le produit en situation dans la vidéo du vendeur.
+                Voyez le produit en situation. Touchez la vidéo pour l'ouvrir en entier dans le feed.
               </p>
             </div>
           )}
