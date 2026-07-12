@@ -1279,6 +1279,35 @@ function Skeleton() {
 /* ══════════════════════════════════════════════════════════
    PAGE /demo
 ══════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   NORMALISATION D'UN DOC video_playlist
+   ── CORRIGÉ ──
+   Certains documents (selon le flux d'upload d'origine) n'ont
+   videoUrl / userId / title / refArticle QU'imbriqués sous `product`,
+   pas à la racine du document — confirmé par capture Firestore
+   partagée par Gabriel (le doc n'a que comments/createdAt/keywords/
+   likes/product/views à la racine, rien d'autre). Or tout le feed
+   /demo (lecture vidéo, follow, signalement, ouverture de profil) lit
+   ces champs à la racine (item.videoUrl, item.userId, item.title).
+   Cette fonction garantit qu'ils y sont TOUJOURS, quelle que soit la
+   forme d'origine du document — utilisée à chaque endroit où un doc
+   video_playlist est transformé en item de playlist (chargement
+   initial, pagination, et récupération ciblée pour le deep link
+   ?video=).
+══════════════════════════════════════════════════════════ */
+function normalizeVideoDoc(id, data) {
+  const p = data.product ?? {};
+  return {
+    id,
+    ...data,
+    videoUrl:   data.videoUrl   || p.videoUrl   || '',
+    userId:     data.userId     || p.userId     || '',
+    refArticle: data.refArticle || p.refArticle || '',
+    title:      data.title      || p.title      || '',
+    createdAt:  data.createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
+  };
+}
+
 function DemoPageInner() {
   const [playlist,  setPlaylist]  = useState([]);
   const [loading,   setLoading]   = useState(true);
@@ -1366,16 +1395,8 @@ function DemoPageInner() {
       try {
         const snap = await getDoc(doc(db, 'video_playlist', targetVideoId));
         if (!snap.exists()) return;
-        const video = {
-          id: snap.id,
-          ...snap.data(),
-          createdAt: snap.data().createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
-        };
+        const video = normalizeVideoDoc(snap.id, snap.data());
         setPlaylist(prev => prev.some(v => v.id === video.id) ? prev : [video, ...prev]);
-        // deepLinkDoneRef reste false ici : le prochain passage de cet
-        // effet (déclenché par le changement de orderedPlaylist une fois
-        // le nouvel élément inséré) trouvera l'index et complètera le
-        // scroll.
       } catch (e) {
         console.warn('⚠️ Deep link vidéo introuvable:', e.code ?? e.message ?? e);
       }
@@ -1391,11 +1412,7 @@ function DemoPageInner() {
         // quand l'utilisateur approche de la fin de la liste chargée.
         const q    = query(collection(db, 'video_playlist'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
         const snap = await getDocs(q);
-        const videos = snap.docs.map(d => ({
-          id: d.id,
-          ...d.data(),
-          createdAt: d.data().createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
-        }));
+        const videos = snap.docs.map(d => normalizeVideoDoc(d.id, d.data()));
         setPlaylist(videos);
         setCursorSnap(snap.docs[snap.docs.length - 1] ?? null);
         setHasMore(snap.docs.length === PAGE_SIZE);
@@ -1423,11 +1440,7 @@ function DemoPageInner() {
         limit(PAGE_SIZE)
       );
       const snap = await getDocs(q);
-      const videos = snap.docs.map(d => ({
-        id: d.id,
-        ...d.data(),
-        createdAt: d.data().createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
-      }));
+      const videos = snap.docs.map(d => normalizeVideoDoc(d.id, d.data()));
       setPlaylist(prev => [...prev, ...videos]);
       setCursorSnap(snap.docs[snap.docs.length - 1] ?? cursorSnap);
       setHasMore(snap.docs.length === PAGE_SIZE);
