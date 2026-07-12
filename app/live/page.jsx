@@ -1382,7 +1382,7 @@ function ProductSheet({ product, onClose, onOrder }) {
 
           {/* Commander — action séparée du simple clic sur la carte */}
           <button className={styles.confirmBtn} onClick={() => onOrder(product)}>
-            Acheter — {prixAff}
+            Commander — {prixAff}
           </button>
         </div>
       </div>
@@ -1614,7 +1614,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
                     className={styles.carouselOrderBtn}
                     onClick={e => { e.stopPropagation(); handleOrder(p); }}
                   >
-                    Commander
+                    Acheter
                   </button>
                 </div>
               );
