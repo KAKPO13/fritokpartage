@@ -1,23 +1,22 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  collection, query, orderBy, where, limit, startAfter,
-  onSnapshot, doc, updateDoc, getDocs, getDoc,
-  addDoc, setDoc, deleteDoc, serverTimestamp, getCountFromServer,
+  collection, getDocs, orderBy, query, limit, startAfter,
+  addDoc, serverTimestamp, doc, getDoc,
+  setDoc, deleteDoc, onSnapshot, getCountFromServer,
 } from 'firebase/firestore';
-import { onAuthStateChanged, updateProfile } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
 import QRCode from 'qrcode';
 import { db, auth } from '../../lib/firebaseClient';
-import { useAgoraPlayer } from '../../lib/useAgoraPlayer';
-import styles from './live.module.css';
+import styles from './demo.module.css';
 
 /* ══════════════════════════════════════════════════════════
    CONSTANTES LIVRAISON
-   (affichage instantané uniquement — le montant définitif est
-   TOUJOURS recalculé et validé côté serveur dans
-   netlify/functions/create-colis.js avant écriture)
+   (gardées ici pour l'affichage instantané du récapitulatif —
+   le montant définitif est TOUJOURS recalculé et validé côté
+   serveur dans netlify/functions/create-colis.js avant écriture)
 ══════════════════════════════════════════════════════════ */
 const VILLES_CI = [
   'Abidjan','Bouaké','Daloa','Korhogo','Yamoussoukro','San-Pédro',
@@ -25,67 +24,75 @@ const VILLES_CI = [
   'Bondoukou','Mankono','Séguéla','Touba','Ferkessédougou','Katiola',
   'Agboville','Adzopé','Tiassalé','Lakota','Issia','Sassandra',
 ];
+
 const TARIFS = {
   'Abidjan': { 'Abidjan': 1500, 'Bouaké': 2500, default: 3000 },
-  'Bouaké':  { 'Bouaké':  1500, 'Abidjan': 2500, default: 3500 },
-  default:   { default: 3000 },
+  'Bouaké' : { 'Bouaké' : 1500, 'Abidjan': 2500, default: 3500 },
+  default  : { default: 3000 },
 };
+
 function getFrais(villeVendeur, villeClient, typeLivr) {
   const base = (TARIFS[villeVendeur] ?? TARIFS.default)[villeClient]
-            ?? (TARIFS[villeVendeur] ?? TARIFS.default).default ?? 8000;
+            ?? (TARIFS[villeVendeur] ?? TARIFS.default).default
+            ?? 8000;
   return typeLivr === 'groupee' ? Math.round(base * 0.8) : base;
 }
+
 const fmt = (n) => Number(n).toLocaleString('fr-FR') + ' XOF';
 
-// Taille de page pour la liste des lives/replays (P0 — voir
-// analyse-scalabilite-fritok.md, point 4 : plus de requête sans limit()
-// sur live_sessions, qui ne faisait auparavant que grossir indéfiniment,
-// lives terminés depuis longtemps compris).
-const LIVE_PAGE_SIZE = 20;
+/* ══════════════════════════════════════════════════════════
+   HISTORIQUE "VIDÉOS VUES" (invité, pas connecté)
+   Connecté → Firestore users/{uid}/vues/{videoId}
+   Invité   → localStorage (capé à SEEN_LS_MAX entrées)
+══════════════════════════════════════════════════════════ */
+const SEEN_LS_KEY = 'fritok_vues_invite';
+const SEEN_LS_MAX = 300;
 
-// Nombre de commentaires live chargés/synchronisés en temps réel (P0 —
-// voir point 3 : le chat live n'avait auparavant AUCUNE limite, donc
-// chaque nouvel arrivant téléchargeait tout l'historique complet, et
-// chaque nouveau message fan-out un read vers chaque spectateur connecté).
-const LIVE_CHAT_LIMIT = 100;
+// Nombre de slides montées de chaque côté de la slide active (P0 —
+// virtualisation du feed, voir DemoPage). RENDER_WINDOW=2 → au plus 5
+// <VideoSlide> réellement montées à tout moment, donc au plus ~25
+// listeners Firestore ouverts pour le feed entier, quelle que soit la
+// taille du catalogue de vidéos.
+const RENDER_WINDOW = 2;
 
-// ── Profil vidéo/audio co-host adapté 4G Afrique ────────────────────────────
-const COHOST_VIDEO_PROFILE = {
-  width: { ideal: 320 }, height: { ideal: 240 },
-  frameRate: { ideal: 15, max: 18 },
-  bitrateMin: 80, bitrateMax: 350,
-};
-const COHOST_AUDIO_PROFILE = 'speech_standard'; // ~18kbps, voix uniquement
+// Taille de page pour le chargement paginé de video_playlist (P0 — voir
+// point 4 de l'analyse : plus de getDocs() sans limit() sur toute la
+// collection).
+const PAGE_SIZE = 20;
 
 /* ══════════════════════════════════════════════════════════
    ICÔNES
 ══════════════════════════════════════════════════════════ */
 function IconHeart({ filled }) {
   return (
-    <svg width="26" height="26" viewBox="0 0 24 24"
+    <svg width="28" height="28" viewBox="0 0 24 24"
       fill={filled ? '#ff3c6e' : 'none'} stroke={filled ? '#ff3c6e' : '#fff'}
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
     </svg>
   );
 }
-function IconGift() {
+function IconComment() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 12 20 22 4 22 4 12"/>
-      <rect x="2" y="7" width="20" height="5"/>
-      <line x1="12" y1="22" x2="12" y2="7"/>
-      <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/>
-      <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
     </svg>
   );
 }
 function IconShare() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
       <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
       <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+    </svg>
+  );
+}
+function IconCart() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
     </svg>
   );
 }
@@ -96,27 +103,10 @@ function IconClose() {
     </svg>
   );
 }
-function IconFlag() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
-      <line x1="4" y1="22" x2="4" y2="15"/>
-    </svg>
-  );
-}
-function IconEye() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-      <circle cx="12" cy="12" r="3"/>
-    </svg>
-  );
-}
 function IconPin() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
-      <circle cx="12" cy="10" r="3"/>
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>
     </svg>
   );
 }
@@ -130,7 +120,7 @@ function IconCopy() {
 }
 function IconLock() {
   return (
-    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#FF6B00" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ff4d00" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
       <path d="M9 12l2 2 4-4"/>
     </svg>
@@ -139,8 +129,7 @@ function IconLock() {
 function IconUser() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
-      <circle cx="12" cy="7" r="4"/>
+      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
     </svg>
   );
 }
@@ -153,13 +142,19 @@ function IconUserCheck() {
     </svg>
   );
 }
-function IconMic() {
+function IconSend() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-      <line x1="12" y1="19" x2="12" y2="23"/>
-      <line x1="8" y1="23" x2="16" y2="23"/>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="22" y1="2" x2="11" y2="13"/>
+      <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+    </svg>
+  );
+}
+function IconFlag() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+      <line x1="4" y1="22" x2="4" y2="15"/>
     </svg>
   );
 }
@@ -179,447 +174,13 @@ function ToggleOpt({ label, sub, selected, onTap }) {
   );
 }
 function Spinner() { return <span className={styles.spinnerSm}/>; }
-function Toast({ msg }) {
+function ToastMsg({ msg }) {
   if (!msg) return null;
-  return <div className={styles.toast}>{msg}</div>;
-}
-function ChatBubble({ msg }) {
-  return (
-    <div className={styles.chatBubble}>
-      <span className={styles.chatUser}>{msg.user}</span>
-      <span className={styles.chatText}>{msg.text}</span>
-    </div>
-  );
+  return <div className={styles.toastMsg}>{msg}</div>;
 }
 
 /* ══════════════════════════════════════════════════════════
-   HOOK : LIKES persistés Firestore pour un live
-   Sous-collection : live_sessions/{id}/likes/{userId}
-   ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 2) : le
-   compteur écoutait auparavant TOUTE la sous-collection `likes` en
-   onSnapshot pour en déduire snap.size — sur un live à forte audience,
-   chaque like ajouté fan-out un read vers CHAQUE spectateur connecté
-   simultanément. Remplacé par une agrégation ponctuelle
-   (getCountFromServer) au montage, + incrément optimiste local sur
-   l'action de CET utilisateur uniquement (le statut "j'ai liké" reste
-   un onSnapshot, mais sur un seul document — coût négligeable).
-══════════════════════════════════════════════════════════ */
-function useLiveLike(sessionId, initialCount, authUser) {
-  const [liked, setLiked] = useState(false);
-  const [count, setCount] = useState(initialCount ?? 0);
-
-  useEffect(() => {
-    if (!sessionId || !authUser?.uid) return;
-    const likeRef = doc(db, 'live_sessions', sessionId, 'likes', authUser.uid);
-    const unsub = onSnapshot(likeRef, snap => setLiked(snap.exists()), () => {});
-    return unsub;
-  }, [sessionId, authUser?.uid]);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    let cancelled = false;
-    getCountFromServer(collection(db, 'live_sessions', sessionId, 'likes'))
-      .then(snap => { if (!cancelled) setCount(snap.data().count); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [sessionId]);
-
-  const toggle = useCallback(async () => {
-    if (!authUser?.uid || !sessionId) return;
-    const likeRef = doc(db, 'live_sessions', sessionId, 'likes', authUser.uid);
-    if (liked) {
-      setLiked(false);
-      setCount(c => Math.max(0, c - 1));
-      await deleteDoc(likeRef).catch(() => { setLiked(true); setCount(c => c + 1); });
-    } else {
-      setLiked(true);
-      setCount(c => c + 1);
-      await setDoc(likeRef, { userId: authUser.uid, createdAt: serverTimestamp() })
-        .catch(() => { setLiked(false); setCount(c => Math.max(0, c - 1)); });
-    }
-  }, [liked, sessionId, authUser?.uid]);
-
-  return { liked, count, toggle };
-}
-
-/* ══════════════════════════════════════════════════════════
-   HELPER STYLE CO-HOST
-══════════════════════════════════════════════════════════ */
-function coHostBtnStyle(color, noClick = false) {
-  return {
-    background: 'none', border: 'none',
-    display: 'flex', flexDirection: 'column',
-    alignItems: 'center', gap: 1, padding: '5px 0',
-    cursor: noClick ? 'default' : 'pointer',
-    filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.6))',
-    position: 'relative',
-  };
-}
-
-/* ══════════════════════════════════════════════════════════
-   BOUTON CO-HOST — demande temps réel
-   Cycle : idle → pending → joining → live | declined | removed
-══════════════════════════════════════════════════════════ */
-function CoHostButton({ session, authUser }) {
-  const [status,   setStatus]   = useState('idle');
-  const [errorMsg, setErrorMsg] = useState(null);
-
-  const unsubDocRef    = useRef(null);
-  const agoraClientRef = useRef(null);
-  const tracksRef      = useRef({ audio: null, video: null });
-  const localDivRef    = useRef(null);
-  const isMountedRef   = useRef(true);
-
-  const [cameraOn,       setCameraOn]       = useState(true);
-  const [micOn,          setMicOn]          = useState(true);
-  const [facingMode,     setFacingMode]     = useState('user');
-  const [switchingCamera,setSwitchingCamera]= useState(false);
-
-  const AGORA_APP_ID_V = process.env.NEXT_PUBLIC_AGORA_APP_ID;
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      unsubDocRef.current?.();
-      _releaseCoHostAgora();
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (status === 'declined' || status === 'removed') {
-      _releaseCoHostAgora();
-      const t = setTimeout(() => {
-        deleteDoc(doc(db, 'live_sessions', session.channelId, 'co_hosts', authUser.uid)).catch(() => {});
-        if (isMountedRef.current) setStatus('idle');
-      }, 3000);
-      return () => clearTimeout(t);
-    }
-  }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!session.isLive || session.coHostEnabled === false) return null;
-  if (!authUser) return null;
-  const sellerId = session.sellerId ?? session.userId ?? '';
-  if (authUser.uid === sellerId) return null;
-
-  const channelId   = session.channelId;
-  const uid         = authUser.uid;
-  const displayName = authUser.displayName
-    || authUser.email?.split('@')[0]
-    || 'Viewer';
-
-  async function _releaseCoHostAgora() {
-    try {
-      const { audio, video } = tracksRef.current;
-      audio?.stop(); audio?.close();
-      video?.stop(); video?.close();
-      tracksRef.current = { audio: null, video: null };
-      if (agoraClientRef.current) {
-        await agoraClientRef.current.leave();
-        agoraClientRef.current = null;
-      }
-    } catch (_) {}
-  }
-
-  async function _loadSdk() {
-    if (window.AgoraRTC) return;
-    await new Promise((resolve, reject) => {
-      if (document.querySelector('script[src*="AgoraRTC_N"]')) { resolve(); return; }
-      const s = document.createElement('script');
-      s.src = 'https://download.agora.io/sdk/release/AgoraRTC_N-4.22.1.js';
-      s.async = true;
-      s.onload = resolve;
-      s.onerror = () => reject(new Error('SDK Agora introuvable'));
-      document.head.appendChild(s);
-    });
-  }
-
-  async function _joinAsCoHost(token, agoraUid) {
-    if (!isMountedRef.current) return;
-    if (!AGORA_APP_ID_V) {
-      console.error('❌ NEXT_PUBLIC_AGORA_APP_ID manquant côté client (co-host).');
-      if (isMountedRef.current) {
-        setStatus('idle');
-        setErrorMsg('Config Agora manquante côté client.');
-      }
-      return;
-    }
-    setStatus('joining');
-    try {
-      await _loadSdk();
-      const AgoraRTC = window.AgoraRTC;
-      AgoraRTC.setLogLevel(3);
-
-      const client = AgoraRTC.createClient({ mode: 'live', codec: 'h264' });
-      agoraClientRef.current = client;
-
-      await client.setClientRole('host');
-      await client.join(AGORA_APP_ID_V, channelId, token, agoraUid);
-
-      let audioTrack = null, videoTrack = null;
-      try {
-        [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-          { encoderConfig: COHOST_AUDIO_PROFILE },
-          { encoderConfig: COHOST_VIDEO_PROFILE, optimizationMode: 'motion' }
-        );
-      } catch {
-        try { [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks({}, {}); }
-        catch (e1) {
-          try { audioTrack = await AgoraRTC.createMicrophoneAudioTrack(); }
-          catch (e2) { throw new Error('Micro inaccessible : ' + e2.message); }
-        }
-      }
-      tracksRef.current = { audio: audioTrack, video: videoTrack };
-
-      const toPublish = [audioTrack, videoTrack].filter(Boolean);
-      if (toPublish.length) await client.publish(toPublish);
-
-      if (!isMountedRef.current) {
-        await _releaseCoHostAgora();
-        return;
-      }
-
-      if (videoTrack) {
-        setTimeout(() => {
-          if (localDivRef.current && isMountedRef.current) {
-            videoTrack.play(localDivRef.current);
-          }
-        }, 150);
-      }
-
-      setCameraOn(true);
-      setMicOn(true);
-      setFacingMode('user');
-      setStatus('live');
-    } catch (err) {
-      console.error('❌ _joinAsCoHost:', err);
-      await _releaseCoHostAgora();
-      if (isMountedRef.current) {
-        setStatus('idle');
-        setErrorMsg('Erreur: ' + err.message);
-      }
-    }
-  }
-
-  const requestCoHost = async () => {
-    if (status !== 'idle') return;
-    setErrorMsg(null);
-    try {
-      await setDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
-        displayName,
-        avatarUrl:   authUser.photoURL ?? null,
-        status:      'pending',
-        requestedAt: serverTimestamp(),
-      });
-      if (!isMountedRef.current) return;
-      setStatus('pending');
-
-      unsubDocRef.current = onSnapshot(
-        doc(db, 'live_sessions', channelId, 'co_hosts', uid),
-        async (snap) => {
-          if (!snap.exists()) {
-            if (isMountedRef.current) setStatus('idle');
-            return;
-          }
-          const d = snap.data();
-          if (d.status === 'active' && d.token && d.agoraUid) {
-            unsubDocRef.current?.();
-            await _joinAsCoHost(d.token, d.agoraUid);
-          } else if (d.status === 'declined') {
-            unsubDocRef.current?.();
-            if (isMountedRef.current) setStatus('declined');
-          } else if (d.status === 'removed') {
-            unsubDocRef.current?.();
-            if (isMountedRef.current) setStatus('removed');
-          }
-        },
-        (err) => console.warn('co_host listener:', err)
-      );
-    } catch (e) {
-      console.error('requestCoHost:', e.code ?? e.message ?? e);
-      if (isMountedRef.current) {
-        setErrorMsg(
-          e.code === 'permission-denied'
-            ? 'Refusé par les règles Firestore (voir console).'
-            : 'Erreur réseau.'
-        );
-      }
-    }
-  };
-
-  const cancelRequest = async () => {
-    unsubDocRef.current?.();
-    await deleteDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid)).catch(() => {});
-    if (isMountedRef.current) setStatus('idle');
-  };
-
-  const leaveStage = async () => {
-    try {
-      await updateDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
-        status: 'left', leftAt: serverTimestamp(),
-      });
-      await deleteDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid)).catch(() => {});
-    } finally {
-      await _releaseCoHostAgora();
-      if (isMountedRef.current) setStatus('idle');
-    }
-  };
-
-  const toggleCoHostCamera = async () => {
-    const videoTrack = tracksRef.current?.video;
-    if (!videoTrack) return;
-    try {
-      const next = !cameraOn;
-      await videoTrack.setEnabled(next);
-      if (isMountedRef.current) setCameraOn(next);
-    } catch (e) {
-      console.warn('⚠️ toggleCoHostCamera:', e);
-    }
-  };
-
-  const toggleCoHostMic = async () => {
-    const audioTrack = tracksRef.current?.audio;
-    if (!audioTrack) return;
-    try {
-      const next = !micOn;
-      await audioTrack.setEnabled(next);
-      if (isMountedRef.current) setMicOn(next);
-    } catch (e) {
-      console.warn('⚠️ toggleCoHostMic:', e);
-    }
-  };
-
-  const switchCoHostCamera = async () => {
-    const videoTrack = tracksRef.current?.video;
-    if (!videoTrack || switchingCamera) return;
-
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (!isMobile) {
-      setErrorMsg('Changement de caméra disponible uniquement sur mobile.');
-      return;
-    }
-
-    setSwitchingCamera(true);
-    const nextFacingMode = facingMode === 'user' ? 'environment' : 'user';
-
-    try {
-      const cameras = await window.AgoraRTC.getCameras();
-      if (!cameras || cameras.length < 2) {
-        setErrorMsg('Une seule caméra détectée.');
-        setSwitchingCamera(false);
-        return;
-      }
-
-      const targetCamera = cameras.find(cam => {
-        const label = cam.label?.toLowerCase() ?? '';
-        return nextFacingMode === 'environment'
-          ? /back|rear|environment|arrière/.test(label)
-          : /front|user|avant|face/.test(label);
-      });
-
-      if (targetCamera) {
-        await videoTrack.setDevice(targetCamera.deviceId);
-      } else {
-        const currentLabel = videoTrack.getTrackLabel ? videoTrack.getTrackLabel() : null;
-        const otherCamera = cameras.find(cam => cam.label !== currentLabel) ?? cameras[1];
-        await videoTrack.setDevice(otherCamera.deviceId);
-      }
-
-      if (isMountedRef.current) setFacingMode(nextFacingMode);
-
-      if (localDivRef.current) {
-        setTimeout(() => {
-          if (isMountedRef.current) videoTrack.play(localDivRef.current);
-        }, 100);
-      }
-    } catch (e) {
-      console.error('❌ switchCoHostCamera:', e);
-      if (isMountedRef.current) setErrorMsg('Changement de caméra impossible.');
-    } finally {
-      if (isMountedRef.current) setSwitchingCamera(false);
-    }
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-
-      {status === 'live' && (
-        <div style={{ position: 'relative', width: 56, height: 80, marginBottom: 4, flexShrink: 0 }}>
-          <div ref={localDivRef} style={{
-            width: 56, height: 80, borderRadius: 8, overflow: 'hidden',
-            background: '#111', border: '2px solid #22C55E',
-          }} />
-          {!cameraOn && (
-            <div style={{
-              position: 'absolute', inset: 0, borderRadius: 8,
-              background: 'rgba(0,0,0,.75)', display: 'flex',
-              alignItems: 'center', justifyContent: 'center', fontSize: 18,
-            }}>🚫📷</div>
-          )}
-        </div>
-      )}
-
-      {status === 'live' && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-          <button onClick={toggleCoHostCamera} style={coHostBtnStyle(cameraOn ? '#fff' : '#EF4444')}>
-            <span style={{ fontSize: 16 }}>{cameraOn ? '📷' : '🚫'}</span>
-          </button>
-          <button onClick={switchCoHostCamera} style={coHostBtnStyle('#fff')}>
-            <span style={{ fontSize: 16 }}>{switchingCamera ? '⏳' : '🔄'}</span>
-          </button>
-          <button onClick={toggleCoHostMic} style={coHostBtnStyle(micOn ? '#fff' : '#EF4444')}>
-            <span style={{ fontSize: 16 }}>{micOn ? '🎤' : '🔇'}</span>
-          </button>
-        </div>
-      )}
-
-      {status === 'idle' && (
-        <button onClick={requestCoHost} style={coHostBtnStyle('#7C3AED')}>
-          <IconMic />
-          <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Sur scène</span>
-        </button>
-      )}
-      {status === 'pending' && (
-        <button onClick={cancelRequest} style={coHostBtnStyle('#F97316')}>
-          <span style={{ fontSize: 18 }}>⏳</span>
-          <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Annuler</span>
-        </button>
-      )}
-      {status === 'joining' && (
-        <div style={coHostBtnStyle('#A855F7', true)}>
-          <span style={{ fontSize: 14 }}>📡</span>
-          <span style={{ fontSize: 9, color: '#fff', marginTop: 2 }}>Connexion...</span>
-        </div>
-      )}
-      {status === 'live' && (
-        <button onClick={leaveStage} style={coHostBtnStyle('#22C55E')}>
-          <span style={{ fontSize: 18 }}>🎙️</span>
-          <span style={{ fontSize: 10, color: '#fff', marginTop: 2 }}>Quitter</span>
-        </button>
-      )}
-      {status === 'declined' && (
-        <div style={coHostBtnStyle('#EF4444', true)}>
-          <span style={{ fontSize: 15 }}>❌</span>
-          <span style={{ fontSize: 9, color: '#fff', marginTop: 2 }}>Refusé</span>
-        </div>
-      )}
-      {status === 'removed' && (
-        <div style={coHostBtnStyle('#666', true)}>
-          <span style={{ fontSize: 15 }}>🚫</span>
-          <span style={{ fontSize: 9, color: '#fff', marginTop: 2 }}>Retiré</span>
-        </div>
-      )}
-      {errorMsg && (
-        <span style={{ fontSize: 9, color: '#FCA5A5', textAlign: 'center', maxWidth: 60, lineHeight: 1.2, marginTop: 2 }}>
-          {errorMsg}
-        </span>
-      )}
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════
-   MODAL AUTH REQUISE
+   MODAL : CONNEXION REQUISE
 ══════════════════════════════════════════════════════════ */
 function AuthRequiredModal({ onClose }) {
   return (
@@ -629,10 +190,18 @@ function AuthRequiredModal({ onClose }) {
         <div className={styles.authModalBody}>
           <div className={styles.authIconWrap}><IconLock/></div>
           <h2 className={styles.authTitle}>Connexion requise</h2>
-          <p className={styles.authSub}>Connectez-vous pour passer une commande sur FriTok.</p>
-          <a className={styles.authBtnPrimary} href="/login"><IconUser/> Se connecter</a>
-          <a className={styles.authBtnOutline} href="/register">Créer un compte gratuit</a>
-          <button className={styles.authSkip} onClick={onClose}>Continuer à regarder</button>
+          <p className={styles.authSub}>
+            Connectez-vous pour interagir sur FriTok.
+          </p>
+          <a className={styles.authBtnPrimary} href="/login">
+            <IconUser/> Se connecter
+          </a>
+          <a className={styles.authBtnOutline} href="/register">
+            Créer un compte gratuit
+          </a>
+          <button className={styles.authSkip} onClick={onClose}>
+            Continuer à regarder
+          </button>
         </div>
       </div>
     </div>
@@ -640,11 +209,182 @@ function AuthRequiredModal({ onClose }) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   MODAL COMMANDE
+   MODAL : COMMENTAIRES
+══════════════════════════════════════════════════════════ */
+function CommentsModal({ videoId, authUser, onClose, onAuthRequired, onSent }) {
+  const [comments,  setComments]  = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [text,      setText]      = useState('');
+  const [sending,   setSending]   = useState(false);
+  const [toast,     setToast]     = useState(null);
+  const inputRef = useRef(null);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+
+  // Écoute temps-réel des commentaires
+  useEffect(() => {
+    if (!videoId) return;
+    const q = query(
+      collection(db, 'video_playlist', videoId, 'comments'),
+      orderBy('createdAt', 'desc')
+    );
+    const unsub = onSnapshot(q, snap => {
+      setComments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    }, () => setLoading(false));
+    return unsub;
+  }, [videoId]);
+
+  const handleSend = async () => {
+    if (!authUser) { onClose(); onAuthRequired(); return; }
+    const trimmed = text.trim().slice(0, 500); // borne alignée sur firestore.rules
+    if (!trimmed) return;
+    setSending(true);
+    try {
+      await addDoc(collection(db, 'video_playlist', videoId, 'comments'), {
+        text     : trimmed,
+        userId   : authUser.uid,
+        userName : authUser.displayName || authUser.email?.split('@')[0] || 'Anonyme',
+        userPhoto: authUser.photoURL || '',
+        createdAt: serverTimestamp(),
+      });
+      setText('');
+      inputRef.current?.focus();
+      onSent?.();
+    } catch (e) {
+      showToast('Erreur : ' + e.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleKeyDown = e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
+
+  const formatTs = (ts) => {
+    if (!ts) return '';
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    const diff = Date.now() - d.getTime();
+    if (diff < 60000)   return 'À l\'instant';
+    if (diff < 3600000) return Math.floor(diff / 60000) + ' min';
+    if (diff < 86400000)return Math.floor(diff / 3600000) + 'h';
+    return d.toLocaleDateString('fr-FR');
+  };
+
+  return (
+    <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modalSheet}>
+        <div className={styles.modalHandle}/>
+
+        <div className={styles.modalHeader}>
+          <div>
+            <p className={styles.modalTitle}>Commentaires</p>
+            {!loading && <p className={styles.modalSub}>{comments.length} commentaire{comments.length !== 1 ? 's' : ''}</p>}
+          </div>
+          <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
+        </div>
+
+        {/* Liste commentaires */}
+        <div className={styles.commentList}>
+          {loading && (
+            <div className={styles.commentLoading}>
+              <Spinner/>
+            </div>
+          )}
+          {!loading && comments.length === 0 && (
+            <div className={styles.commentEmpty}>
+              <p>Aucun commentaire pour l'instant.</p>
+              <p>Soyez le premier à commenter !</p>
+            </div>
+          )}
+          {!loading && comments.map(c => (
+            <div key={c.id} className={styles.commentItem}>
+              <div className={styles.commentAvatar}>
+                {c.userPhoto
+                  ? <img src={c.userPhoto} alt="" className={styles.commentAvatarImg}/>
+                  : <div className={styles.commentAvatarFallback}>
+                      {(c.userName || '?')[0].toUpperCase()}
+                    </div>
+                }
+              </div>
+              <div className={styles.commentContent}>
+                <div className={styles.commentMeta}>
+                  <span className={styles.commentName}>{c.userName || 'Anonyme'}</span>
+                  <span className={styles.commentTime}>{formatTs(c.createdAt)}</span>
+                </div>
+                <p className={styles.commentText}>{c.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Saisie commentaire */}
+        <div className={styles.commentInputBar}>
+          {authUser
+            ? (
+              <div className={styles.commentInputWrap}>
+                <div className={styles.commentAvatarSm}>
+                  {authUser.photoURL
+                    ? <img src={authUser.photoURL} alt="" className={styles.commentAvatarImg}/>
+                    : <div className={styles.commentAvatarFallback} style={{ width: 36, height: 36, fontSize: '.85rem' }}>
+                        {(authUser.displayName || authUser.email || '?')[0].toUpperCase()}
+                      </div>
+                  }
+                </div>
+                <textarea
+                  ref={inputRef}
+                  className={styles.commentInput}
+                  placeholder="Ajouter un commentaire…"
+                  value={text}
+                  onChange={e => setText(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  rows={1}
+                  maxLength={500}
+                />
+                <button
+                  className={styles.commentSendBtn}
+                  onClick={handleSend}
+                  disabled={sending || !text.trim()}
+                >
+                  {sending ? <Spinner/> : <IconSend/>}
+                </button>
+              </div>
+            ) : (
+              <button className={styles.commentLoginPrompt} onClick={() => { onClose(); onAuthRequired(); }}>
+                <IconUser/> Connectez-vous pour commenter
+              </button>
+            )
+          }
+        </div>
+
+        <ToastMsg msg={toast}/>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   MODAL : COMMANDE + LIVRAISON
+   ── CORRIGÉ ──
+   La commande n'est plus écrite directement dans Firestore
+   (firestore.rules interdit `allow create` sur /commandes — le
+   client n'a jamais eu la permission d'y écrire). Elle passe
+   maintenant par la Netlify Function `create-colis`, qui :
+     - revalide tout côté serveur
+     - recalcule fraisLivraison / totalXof (ne fait jamais confiance
+       au calcul client, qui reste ici uniquement pour l'affichage
+       instantané du récapitulatif avant confirmation)
+     - sépare téléphone / adresse précise / GPS dans une
+       sous-collection privée non lisible par tout le vivier de
+       livreurs (voir firestore.rules)
+   Le QR code est généré localement (lib `qrcode`) — il ne transite
+   plus par un service tiers (api.qrserver.com) avec les données du
+   client dans l'URL.
 ══════════════════════════════════════════════════════════ */
 function OrderModal({ product, sellerId, authUser, onClose }) {
   const [step,        setStep]        = useState('form');
-  const [nomDest,     setNomDest]     = useState(
+  const [nomDest,      setNomDest]     = useState(
     authUser?.displayName || authUser?.email?.split('@')[0] || ''
   );
   const [telephone,   setTelephone]   = useState(authUser?.phoneNumber ?? '');
@@ -658,10 +398,12 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
   const [errors,      setErrors]      = useState({});
   const [commandeId,  setCommandeId]  = useState(null);
   const [qrImgUrl,    setQrImgUrl]    = useState(null);
-  const [serverTotal, setServerTotal] = useState(null);
+  const [serverTotal, setServerTotal] = useState(null); // { fraisXof, totalXof } validés serveur
   const [toast,       setToast]       = useState(null);
 
   const prix     = Number(product?.price ?? 0);
+  // Estimation affichée avant confirmation — le montant qui compte réellement
+  // est celui renvoyé par create-colis après recalcul serveur.
   const fraisXof = villeClient ? getFrais('Abidjan', villeClient, typeLivr) : 0;
   const totalXof = prix + fraisXof;
 
@@ -670,7 +412,11 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
   const localiser = () => {
     setLocLoading(true);
     navigator.geolocation.getCurrentPosition(
-      pos => { setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); showToast('Position capturée !'); setLocLoading(false); },
+      pos => {
+        setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        showToast('Position capturée !');
+        setLocLoading(false);
+      },
       err => { showToast('GPS refusé : ' + err.message); setLocLoading(false); },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -678,11 +424,11 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
 
   const validate = () => {
     const e = {};
-    if (!nomDest.trim())               e.nomDest   = 'Nom obligatoire';
+    if (!nomDest.trim())                e.nomDest   = 'Nom obligatoire';
     const digits = telephone.replace(/\D/g, '');
     if (!digits || digits.length < 8) e.telephone = 'Numéro invalide (min 8 chiffres)';
-    if (!adresse.trim())              e.adresse   = 'Adresse obligatoire';
-    if (!villeClient)                 e.ville     = 'Choisissez une ville';
+    if (!adresse.trim())               e.adresse   = 'Adresse obligatoire';
+    if (!villeClient)                  e.ville     = 'Choisissez une ville';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -701,6 +447,8 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
+          // sellerId != l'appelant → la fonction traite ceci comme une
+          // commande marketplace (userIdVend = sellerId, pas l'acheteur)
           sellerId,
           nomDestinataire: nomDest.trim(),
           telDestinataire: telephone.trim(),
@@ -724,6 +472,8 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Échec de la commande');
 
+      // QR généré localement — ne contient plus téléphone/adresse/GPS,
+      // uniquement l'identifiant de commande et le vendeur (pour le scan livreur).
       const dataUrl = await QRCode.toDataURL(data.qrPayload, {
         width: 220,
         margin: 1,
@@ -734,8 +484,11 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
       setServerTotal({ fraisXof: data.fraisXof, totalXof: data.totalXof });
       setQrImgUrl(dataUrl);
       setStep('qr');
-    } catch (e) { showToast('Erreur : ' + e.message); }
-    finally { setSubmitting(false); }
+    } catch (e) {
+      showToast('Erreur : ' + e.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!product) return null;
@@ -746,108 +499,173 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
         <div className={styles.modalHandle}/>
         <div className={styles.modalHeader}>
           <div>
-            <p className={styles.modalTitle}>{step === 'qr' ? 'Commande confirmée' : 'Commander avec livraison'}</p>
+            <p className={styles.modalTitle}>
+              {step === 'qr' ? 'Commande confirmée' : 'Commander avec livraison'}
+            </p>
             <p className={styles.modalSub}>{product?.name ?? ''}</p>
           </div>
           <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
         </div>
+
         {step === 'form' && authUser && (
-          <div className={styles.authBadge}><IconUserCheck/><span>Connecté : <strong>{authUser.email}</strong></span></div>
+          <div className={styles.authBadge}>
+            <IconUserCheck/>
+            <span>Connecté : <strong>{authUser.email}</strong></span>
+          </div>
         )}
+
         {step === 'form' && (
           <div className={styles.modalBody}>
             <div className={styles.recapCard}>
-              {(product?.image || product?.thumbnail) && <img className={styles.recapImg} src={product.image || product.thumbnail} alt=""/>}
+              {(product?.image || product?.thumbnail) && (
+                <img className={styles.recapImg} src={product.image || product.thumbnail} alt=""/>
+              )}
               <div className={styles.recapInfo}>
                 <p className={styles.recapName}>{product?.name}</p>
                 <p className={styles.recapPrice}>{fmt(prix)}</p>
               </div>
             </div>
+
             <FieldLabel text="TYPE DE LIVRAISON"/>
             <div className={styles.toggleRow}>
               <ToggleOpt label="Solo"    sub="Livreur dédié"    selected={typeLivr === 'solo'}    onTap={() => setTypeLivr('solo')}/>
               <ToggleOpt label="Groupée" sub="Tournée partagée" selected={typeLivr === 'groupee'} onTap={() => setTypeLivr('groupee')}/>
             </div>
+
             <FieldLabel text="MODE DE PAIEMENT"/>
             <div className={styles.toggleRow}>
               <ToggleOpt label="À la livraison" sub="Cash"               selected={modePaiem === 'livraison'} onTap={() => setModePaiem('livraison')}/>
               <ToggleOpt label="En ligne"        sub="Paiement sécurisé" selected={modePaiem === 'immediat'}  onTap={() => setModePaiem('immediat')}/>
             </div>
+
             <FieldLabel text="NOM DU DESTINATAIRE"/>
-            <input className={`${styles.formInput}${errors.nomDest ? ' ' + styles.inputErr : ''}`}
+            <input
+              className={`${styles.formInput}${errors.nomDest ? ' ' + styles.inputErr : ''}`}
               type="text" placeholder="Nom complet"
-              value={nomDest} onChange={e => setNomDest(e.target.value)}/>
+              value={nomDest} onChange={e => setNomDest(e.target.value)}
+            />
             {errors.nomDest && <p className={styles.errMsg}>{errors.nomDest}</p>}
+
             <FieldLabel text="TÉLÉPHONE DE CONTACT"/>
-            <input className={`${styles.formInput}${errors.telephone ? ' ' + styles.inputErr : ''}`}
+            <input
+              className={`${styles.formInput}${errors.telephone ? ' ' + styles.inputErr : ''}`}
               type="tel" placeholder="07 XX XX XX XX"
-              value={telephone} onChange={e => setTelephone(e.target.value)}/>
+              value={telephone} onChange={e => setTelephone(e.target.value)}
+            />
             {errors.telephone && <p className={styles.errMsg}>{errors.telephone}</p>}
+
             <FieldLabel text="VILLE DE LIVRAISON"/>
-            <select className={`${styles.formInput}${errors.ville ? ' ' + styles.inputErr : ''}`}
-              value={villeClient} onChange={e => setVilleClient(e.target.value)}>
+            <select
+              className={`${styles.formInput}${errors.ville ? ' ' + styles.inputErr : ''}`}
+              value={villeClient} onChange={e => setVilleClient(e.target.value)}
+            >
               <option value="">Sélectionnez votre ville…</option>
               {VILLES_CI.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             {errors.ville && <p className={styles.errMsg}>{errors.ville}</p>}
+
             {villeClient && (
               <div className={styles.fraisCard}>
                 <div className={styles.fraisRow}><span>Articles</span><span>{fmt(prix)}</span></div>
-                <div className={styles.fraisRow}><span>Livraison{typeLivr === 'groupee' ? ' (-20%)' : ''}</span><span>{fmt(fraisXof)}</span></div>
+                <div className={styles.fraisRow}>
+                  <span>Livraison{typeLivr === 'groupee' ? ' (-20%)' : ''}</span>
+                  <span>{fmt(fraisXof)}</span>
+                </div>
                 <div className={styles.fraisDivider}/>
-                <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total (estimé)</span><span>{fmt(totalXof)}</span></div>
+                <div className={`${styles.fraisRow} ${styles.fraisTotal}`}>
+                  <span>Total (estimé)</span><span>{fmt(totalXof)}</span>
+                </div>
               </div>
             )}
+
             <FieldLabel text="ADRESSE DE LIVRAISON"/>
-            <textarea className={`${styles.formInput} ${styles.formTextarea}${errors.adresse ? ' ' + styles.inputErr : ''}`}
+            <textarea
+              className={`${styles.formInput} ${styles.formTextarea}${errors.adresse ? ' ' + styles.inputErr : ''}`}
               placeholder="Quartier, rue, point de repère…"
-              value={adresse} onChange={e => setAdresse(e.target.value)} rows={2}/>
+              value={adresse} onChange={e => setAdresse(e.target.value)} rows={2}
+            />
             {errors.adresse && <p className={styles.errMsg}>{errors.adresse}</p>}
-            <button className={`${styles.locBtn}${gpsCoords ? ' ' + styles.locOk : ''}`}
-              onClick={localiser} disabled={locLoading}>
-              {locLoading ? <Spinner/> : gpsCoords
-                ? `${gpsCoords.lat.toFixed(4)}, ${gpsCoords.lng.toFixed(4)}`
-                : <><IconPin/> Localiser mon adresse</>}
+
+            <button
+              className={`${styles.locBtn}${gpsCoords ? ' ' + styles.locOk : ''}`}
+              onClick={localiser} disabled={locLoading}
+            >
+              {locLoading
+                ? <Spinner/>
+                : gpsCoords
+                  ? `${gpsCoords.lat.toFixed(4)}, ${gpsCoords.lng.toFixed(4)}`
+                  : <><IconPin/> Localiser mon adresse</>
+              }
             </button>
+
             <button className={styles.confirmBtn} onClick={confirmer} disabled={submitting}>
-              {submitting ? <Spinner/> : modePaiem === 'immediat' ? `Payer ${fmt(totalXof)}` : 'Commander — payer à la livraison'}
+              {submitting
+                ? <Spinner/>
+                : modePaiem === 'immediat' ? `Payer ${fmt(totalXof)}` : 'Commander — payer à la livraison'
+              }
             </button>
           </div>
         )}
+
         {step === 'qr' && commandeId && (
           <div className={`${styles.modalBody} ${styles.qrStep}`}>
             <p className={styles.qrHint}>Le livreur scannera ce code pour récupérer votre commande</p>
             <div className={styles.qrWrap}>
               {qrImgUrl && <img className={styles.qrImg} src={qrImgUrl} alt="QR commande"/>}
             </div>
-            <div className={styles.cidCard} onClick={() => { navigator.clipboard?.writeText(commandeId); showToast('ID copié !'); }}>
+            <div className={styles.cidCard} onClick={() => {
+              navigator.clipboard?.writeText(commandeId);
+              showToast('ID copié !');
+            }}>
               <span className={styles.cidLabel}>Commande #</span>
               <span className={styles.cidValue}>{commandeId}</span>
               <IconCopy/>
             </div>
-            {gpsCoords && <p className={styles.gpsTag}>{gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}</p>}
+            {gpsCoords && (
+              <p className={styles.gpsTag}>{gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}</p>
+            )}
             <div className={styles.fraisCard} style={{ width: '100%' }}>
               <div className={styles.fraisRow}><span>{product?.name}</span><span>{fmt(prix)}</span></div>
               <div className={styles.fraisRow}><span>Livraison {villeClient}</span><span>{fmt(serverTotal?.fraisXof ?? fraisXof)}</span></div>
               <div className={styles.fraisDivider}/>
               <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{fmt(serverTotal?.totalXof ?? totalXof)}</span></div>
               <div className={styles.fraisRow} style={{ opacity: 0.65, fontSize: '.75rem', marginTop: 6 }}>
-                <span>Paiement</span><span>{modePaiem === 'immediat' ? 'En ligne' : 'À la livraison'}</span>
+                <span>Paiement</span>
+                <span>{modePaiem === 'immediat' ? 'En ligne' : 'À la livraison'}</span>
               </div>
             </div>
             <button className={styles.confirmBtn} onClick={onClose}>Fermer</button>
           </div>
         )}
-        <Toast msg={toast}/>
+
+        <ToastMsg msg={toast}/>
       </div>
     </div>
   );
 }
 
 /* ══════════════════════════════════════════════════════════
-   BOTTOM SHEET — SIGNALER LE LIVE
-   Écrit dans /live_reports. Règle firestore.rules déployée (voir
-   firestore.rules — match /live_reports/{reportId}).
+   BOTTOM SHEET — SIGNALER LA VIDÉO
+   ── AJOUT (inspiré de ReportSheet dans live.module.js) ──
+   Écrit dans /video_reports (nouvelle collection, distincte de
+   /live_reports — même modèle mais videoId au lieu de channelId).
+   Nécessite d'ajouter aux firestore.rules :
+
+     match /video_reports/{reportId} {
+       allow read: if false; // modération uniquement (Admin SDK / console)
+       allow create: if isAuth()
+         && request.resource.data.reporterId == request.auth.uid
+         && request.resource.data.keys().hasOnly([
+              'videoId','sellerId','reporterId','reason','details','createdAt','status'
+            ])
+         && request.resource.data.status == 'pending'
+         && request.resource.data.reason is string
+         && request.resource.data.details is string
+         && request.resource.data.details.size() <= 500;
+       allow update, delete: if false;
+     }
+
+   Sans cette règle, l'écriture ci-dessous échouera (permission-denied).
 ══════════════════════════════════════════════════════════ */
 const REPORT_REASONS = [
   { key: 'sexuel',     label: 'Contenu sexuel ou nudité' },
@@ -859,7 +677,7 @@ const REPORT_REASONS = [
   { key: 'autre',      label: 'Autre raison' },
 ];
 
-function ReportSheet({ session, authUser, onClose }) {
+function ReportSheet({ videoId, sellerId, authUser, onClose }) {
   const [reason,     setReason]     = useState(null);
   const [details,    setDetails]    = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -868,13 +686,13 @@ function ReportSheet({ session, authUser, onClose }) {
 
   const submit = async () => {
     if (!reason) { setErrMsg('Choisissez un motif.'); return; }
-    if (!authUser || !session.channelId) return;
+    if (!authUser || !videoId) return;
     setSubmitting(true);
     setErrMsg(null);
     try {
-      await addDoc(collection(db, 'live_reports'), {
-        channelId:  session.channelId,
-        sellerId:   session.sellerId ?? session.userId ?? '',
+      await addDoc(collection(db, 'video_reports'), {
+        videoId,
+        sellerId:   sellerId ?? '',
         reporterId: authUser.uid,
         reason,
         details:    details.trim().slice(0, 500),
@@ -905,7 +723,7 @@ function ReportSheet({ session, authUser, onClose }) {
           <>
             <div className={styles.modalHeader}>
               <div>
-                <p className={styles.modalTitle}>Signaler ce live</p>
+                <p className={styles.modalTitle}>Signaler cette vidéo</p>
                 <p className={styles.modalSub}>Aidez-nous à garder FriTok sûr</p>
               </div>
               <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
@@ -960,513 +778,466 @@ function ReportSheet({ session, authUser, onClose }) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   HOOK : résolution de la vidéo produit pour la fiche
-   ── CORRIGÉ ──
-   Le tableau live_sessions.products[] ne contient pas toujours
-   videoUrl selon la façon dont GoLive.jsx a construit chaque entrée
-   au moment de la mise en avant du produit — c'est pourquoi la
-   miniature vidéo pouvait rester invisible (product.videoUrl
-   undefined → bloc entier non rendu). videoUrl existe en revanche
-   TOUJOURS à la racine du document video_playlist (voir demo.js, où
-   il alimente <video src={item.videoUrl}>). Si l'objet product de la
-   session ne l'a pas déjà, on va donc le chercher une seule fois
-   (getDoc, pas de listener) via product.videoId — présent dans la
-   capture partagée — plutôt que de renoncer à l'aperçu.
+   HOOK : LIKES persistés Firestore
+   Sous-collection : video_playlist/{videoId}/likes/{userId}
 ══════════════════════════════════════════════════════════ */
-function useProductVideo(product) {
-  const [videoUrl,   setVideoUrl]   = useState(product?.videoUrl || null);
-  const [poster,     setPoster]     = useState(product?.thumbnail || null);
-  const [videoDocId, setVideoDocId] = useState(product?.videoId || null);
-  const [loading,    setLoading]    = useState(!product?.videoUrl && !!(product?.videoId || product?.productId));
+function useLike(videoId, initialCount, authUser) {
+  const [liked,  setLiked]  = useState(false);
+  const [count,  setCount]  = useState(initialCount ?? 0);
+  const [ready,  setReady]  = useState(false);
+
+  // Vérifie si l'utilisateur a déjà liké (une seule fois à l'init)
+  useEffect(() => {
+    if (!videoId || !authUser?.uid) { setReady(true); return; }
+    const likeRef = doc(db, 'video_playlist', videoId, 'likes', authUser.uid);
+    // onSnapshot pour rester sync si multiple onglets
+    const unsub = onSnapshot(likeRef, snap => {
+      setLiked(snap.exists());
+      setReady(true);
+    });
+    return unsub;
+  }, [videoId, authUser?.uid]);
+
+  // ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 2) : ce compteur
+  // écoutait auparavant TOUTE la sous-collection `likes` en onSnapshot pour en
+  // déduire snap.size. Facturation Firestore : un read par document du
+  // snapshot initial + un read par like ajouté/retiré, PAR CLIENT qui écoute.
+  // Sur une vidéo virale (ex. 200k likes × 50k spectateurs simultanés), ça
+  // représente des milliards de reads pour afficher un simple chiffre.
+  // Remplacé par une requête d'agrégation ponctuelle (getCountFromServer) :
+  // facturée ~1 read par tranche de 1000 documents scannés, pas 1 par
+  // document. Le compteur n'est donc plus mis à jour en temps réel quand un
+  // AUTRE utilisateur like — seule l'action de CET utilisateur (toggle
+  // optimiste ci-dessous) met à jour l'affichage immédiatement, ce qui est
+  // un compromis largement acceptable pour un compteur d'affichage.
+  useEffect(() => {
+    if (!videoId) return;
+    let cancelled = false;
+    getCountFromServer(collection(db, 'video_playlist', videoId, 'likes'))
+      .then(snap => { if (!cancelled) setCount(snap.data().count); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [videoId]);
+
+  const toggle = useCallback(async (e) => {
+    e?.stopPropagation();
+    if (!authUser?.uid || !videoId) return;
+    const likeRef = doc(db, 'video_playlist', videoId, 'likes', authUser.uid);
+    if (liked) {
+      setLiked(false);
+      setCount(c => Math.max(0, c - 1));
+      await deleteDoc(likeRef).catch(() => { setLiked(true); setCount(c => c + 1); });
+    } else {
+      setLiked(true);
+      setCount(c => c + 1);
+      await setDoc(likeRef, { userId: authUser.uid, createdAt: serverTimestamp() })
+            .catch(() => { setLiked(false); setCount(c => Math.max(0, c - 1)); });
+    }
+  }, [liked, videoId, authUser?.uid]);
+
+  return { liked, count, toggle, ready };
+}
+
+/* ══════════════════════════════════════════════════════════
+   HOOK : COMMENT COUNT
+   ⚠️ P0 — CORRIGÉ : même correctif que useLike (voir plus haut).
+   getCountFromServer au montage au lieu d'un onSnapshot permanent sur
+   toute la sous-collection comments. `bump()` permet un incrément
+   optimiste local juste après l'envoi d'un commentaire par CET
+   utilisateur (voir CommentsModal.onSent), sans re-solliciter Firestore.
+══════════════════════════════════════════════════════════ */
+function useCommentCount(videoId, initialCount) {
+  const [count, setCount] = useState(initialCount ?? 0);
 
   useEffect(() => {
-    setVideoUrl(product?.videoUrl || null);
-    setPoster(product?.thumbnail || null);
-    setVideoDocId(product?.videoId || null);
-
-    if (product?.videoUrl) { setLoading(false); return; }
-    if (!product?.videoId && !product?.productId) { setLoading(false); return; }
-
+    if (!videoId) return;
     let cancelled = false;
-    setLoading(true);
+    getCountFromServer(collection(db, 'video_playlist', videoId, 'comments'))
+      .then(snap => { if (!cancelled) setCount(snap.data().count); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [videoId]);
 
-    // Extrait videoUrl/thumbnail d'un doc video_playlist, quelle que soit
-    // la forme exacte (racine ou imbriqué sous `product`) — les deux
-    // formes coexistent selon l'ancienneté du document (voir
-    // firestore.rules : les nouveaux docs imposent videoUrl à la racine,
-    // les plus anciens ne l'avaient que dans product.videoUrl).
-    const applyDoc = (id, data) => {
-      if (!data) return false;
-      const url = data.videoUrl || data.product?.videoUrl || null;
-      if (!url) return false;
-      setVideoUrl(url);
-      setPoster(prev => prev || data.thumbnail || data.product?.thumbnail || null);
-      setVideoDocId(id);
-      return true;
-    };
+  const bump = useCallback(() => setCount(c => c + 1), []);
 
-    (async () => {
+  return [count, bump];
+}
+
+/* ══════════════════════════════════════════════════════════
+   HOOK : FOLLOW persisté Firestore (façon TikTok)
+   Modèle bidirectionnel :
+     users/{sellerId}/followers/{followerId}  → { userId: followerId, createdAt }
+     users/{followerId}/following/{sellerId}  → { userId: sellerId,   createdAt }
+   Deux écritures distinctes, mais chaque document reste sous le uid de
+   son propriétaire → compatible avec une règle firestore.rules du type
+   allow write: if request.auth.uid == {le uid du sous-chemin}.
+   `followerCount` compte en direct via onSnapshot sur la sous-collection
+   followers du vendeur (même pattern que useCommentCount / useLike).
+══════════════════════════════════════════════════════════ */
+function useFollow(sellerId, authUser) {
+  const [following,     setFollowing]     = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [ready,         setReady]         = useState(false);
+
+  const isSelf = !!(authUser?.uid && sellerId && authUser.uid === sellerId);
+
+  // Statut "je suis déjà abonné ?" — un seul doc à surveiller
+  useEffect(() => {
+    if (!sellerId || !authUser?.uid || isSelf) { setReady(true); return; }
+    const followRef = doc(db, 'users', sellerId, 'followers', authUser.uid);
+    const unsub = onSnapshot(followRef, snap => {
+      setFollowing(snap.exists());
+      setReady(true);
+    }, () => setReady(true));
+    return unsub;
+  }, [sellerId, authUser?.uid, isSelf]);
+
+  // ⚠️ P0 — CORRIGÉ : même correctif que useLike/useCommentCount. Agrégation
+  // ponctuelle au lieu d'un onSnapshot permanent sur toute la sous-collection
+  // followers (voir analyse-scalabilite-fritok.md, point 2).
+  useEffect(() => {
+    if (!sellerId) return;
+    let cancelled = false;
+    getCountFromServer(collection(db, 'users', sellerId, 'followers'))
+      .then(snap => { if (!cancelled) setFollowerCount(snap.data().count); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [sellerId]);
+
+  const toggle = useCallback(async (e) => {
+    e?.stopPropagation();
+    if (!authUser?.uid || !sellerId || isSelf) return;
+
+    const followerRef  = doc(db, 'users', sellerId,     'followers', authUser.uid);
+    const followingRef = doc(db, 'users', authUser.uid, 'following', sellerId);
+
+    if (following) {
+      setFollowing(false);
+      setFollowerCount(c => Math.max(0, c - 1));
+      await Promise.all([deleteDoc(followerRef), deleteDoc(followingRef)])
+        .catch(() => { setFollowing(true); setFollowerCount(c => c + 1); });
+    } else {
+      setFollowing(true);
+      setFollowerCount(c => c + 1);
+      await Promise.all([
+        setDoc(followerRef,  { userId: authUser.uid, createdAt: serverTimestamp() }),
+        setDoc(followingRef, { userId: sellerId,      createdAt: serverTimestamp() }),
+      ]).catch(() => { setFollowing(false); setFollowerCount(c => Math.max(0, c - 1)); });
+    }
+  }, [following, sellerId, authUser?.uid, isSelf]);
+
+  return { following, followerCount, toggle, ready, isSelf };
+}
+
+/* ══════════════════════════════════════════════════════════
+   HOOK : HISTORIQUE DES VIDÉOS VUES (logique "à la TikTok")
+   - Charge une seule fois l'historique existant au montage.
+   - seenIdsRef est une ref (pas un state) : on ne veut PAS que le
+     feed se réordonne pendant que l'utilisateur scrolle et que de
+     nouvelles vidéos se marquent "vues" en direct — seenReady ne
+     bascule à true qu'une fois, ce qui déclenche un seul tri initial.
+   - markSeen() met à jour la ref immédiatement (pour éviter les
+     écritures en double) + persiste (Firestore ou localStorage).
+══════════════════════════════════════════════════════════ */
+function useSeenVideos(authUser, authReady) {
+  const seenIdsRef  = useRef(new Set());
+  const writtenRef  = useRef(new Set()); // anti-doublon d'écriture dans la session
+  const [seenReady, setSeenReady] = useState(false);
+
+  useEffect(() => {
+    if (!authReady) return;
+    let cancelled = false;
+
+    async function load() {
       try {
-        // 1) Par videoId — accès direct le plus économe si disponible.
-        if (product.videoId) {
-          const snap = await getDoc(doc(db, 'video_playlist', product.videoId));
-          if (!cancelled && snap.exists() && applyDoc(snap.id, snap.data())) { setLoading(false); return; }
-        }
-        // 2) Repli par productId — le tableau live_sessions.products[] ne
-        // contient pas toujours videoId, mais productId y est toujours
-        // présent (déjà utilisé par OrderModal). Requête sur le champ
-        // imbriqué product.productId, indexé automatiquement par
-        // Firestore (pas besoin d'index composite manuel pour une seule
-        // égalité, même sur un champ de map).
-        if (!cancelled && product.productId) {
+        if (authUser?.uid) {
           const q = query(
-            collection(db, 'video_playlist'),
-            where('product.productId', '==', product.productId),
-            limit(1)
+            collection(db, 'users', authUser.uid, 'vues'),
+            orderBy('vuLe', 'desc'),
+            limit(500)
           );
-          const qs = await getDocs(q);
-          if (!cancelled && !qs.empty) applyDoc(qs.docs[0].id, qs.docs[0].data());
+          const snap = await getDocs(q);
+          if (!cancelled) seenIdsRef.current = new Set(snap.docs.map(d => d.id));
+        } else {
+          const raw = JSON.parse(localStorage.getItem(SEEN_LS_KEY) || '[]');
+          if (!cancelled) seenIdsRef.current = new Set(raw);
         }
       } catch (e) {
-        console.warn('⚠️ useProductVideo:', e.code ?? e.message ?? e);
+        console.error('Historique vues:', e);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setSeenReady(true);
       }
-    })();
-
+    }
+    load();
     return () => { cancelled = true; };
-  }, [product?.videoId, product?.productId, product?.videoUrl, product?.thumbnail]);
+  }, [authUser?.uid, authReady]);
 
-  return { videoUrl, poster, videoDocId, loading };
+  const markSeen = useCallback((videoId) => {
+    if (!videoId || writtenRef.current.has(videoId)) return;
+    writtenRef.current.add(videoId);
+    seenIdsRef.current.add(videoId);
+
+    if (authUser?.uid) {
+      // Doc appartenant à l'utilisateur → autorisé par firestore.rules
+      // (allow write: if request.auth.uid == uid sur users/{uid}/vues/{id})
+      setDoc(doc(db, 'users', authUser.uid, 'vues', videoId), {
+        vu: true,
+        vuLe: serverTimestamp(),
+      }, { merge: true }).catch(() => {});
+    } else {
+      try {
+        const raw = JSON.parse(localStorage.getItem(SEEN_LS_KEY) || '[]');
+        const next = [videoId, ...raw.filter(id => id !== videoId)].slice(0, SEEN_LS_MAX);
+        localStorage.setItem(SEEN_LS_KEY, JSON.stringify(next));
+      } catch { /* quota dépassé / navigation privée : on ignore */ }
+    }
+  }, [authUser?.uid]);
+
+  return { seenIdsRef, seenReady, markSeen };
 }
 
 /* ══════════════════════════════════════════════════════════
-   MINIATURE VIDÉO PRODUIT (façon Pinduoduo)
-   Lecture muette, en boucle, déclenchée au tap — poster = thumbnail
-   du produit pour un affichage instantané avant lecture.
+   VIDEO SLIDE
+   ── CORRIGÉ ──
+   Le mute/unmute n'est plus un état local par slide (chaque
+   nouvelle slide remontait avec `useState(true)`, ce qui coupait
+   le son à chaque scroll). `muted` et `setMuted` sont désormais
+   reçus en props depuis DemoPage : un seul état partagé par
+   toute la liste, mis à jour une fois pour toutes.
+   Ajout : bouton "suivre" sous l'avatar, branché sur useFollow.
 ══════════════════════════════════════════════════════════ */
-function ProductVideoPreview({ videoUrl, poster, videoDocId }) {
-  const videoRef = useRef(null);
-  const router = useRouter();
+function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, markSeen }) {
+  const videoRef  = useRef(null);
+  const tapTimer  = useRef(null);
+  const router    = useRouter();
+  const [playing,      setPlaying]      = useState(false);
+  const [tapIcon,      setTapIcon]      = useState(null);
+  const [orderProduct, setOrderProduct] = useState(null);
+  const [authPrompt,   setAuthPrompt]   = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [showReport,   setShowReport]   = useState(false);
 
-  // Lecture automatique dès l'affichage — `muted` + `playsInline` sont
-  // requis par les navigateurs pour autoriser l'autoplay sans geste
-  // utilisateur. L'appel .play() en useEffect sert de filet de sécurité
-  // pour les navigateurs (Safari notamment) qui ignorent parfois
-  // l'attribut autoPlay seul sur un <video> injecté dynamiquement.
+  const sellerId = item.userId ?? item.refArticle ?? '';
+
+  // Likes Firestore
+  const { liked, count: likeCount, toggle: toggleLike, ready: likeReady } =
+    useLike(item.id, item.likes ?? 0, authUser);
+
+  // Comment count : lecture ponctuelle (P0) + incrément optimiste local
+  const [commentCount, bumpCommentCount] = useCommentCount(item.id, item.comments ?? 0);
+
+  // Follow Firestore (item.userId = id du vendeur/créateur de la vidéo)
+  const { following, toggle: toggleFollow, isSelf } = useFollow(sellerId, authUser);
+
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.play().catch(() => {}); // ignore silencieusement (ex. onglet en arrière-plan)
-  }, [videoUrl]);
+    const vid = videoRef.current;
+    if (!vid) return;
+    if (isActive) {
+      vid.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+    } else {
+      vid.pause();
+      vid.currentTime = 0;
+      setPlaying(false);
+    }
+  }, [isActive]);
 
-  if (!videoUrl) return null;
-
-  const openInDemo = () => {
-    router.push(videoDocId ? `/demo?video=${videoDocId}` : '/demo');
+  const handleTap = () => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    if (vid.paused) { vid.play(); setPlaying(true); setTapIcon('play'); }
+    else            { vid.pause(); setPlaying(false); setTapIcon('pause'); }
+    clearTimeout(tapTimer.current);
+    tapTimer.current = setTimeout(() => setTapIcon(null), 800);
   };
 
+  // Marque la vidéo comme "vue" après ~3s de lecture réelle (ou 70% de sa
+  // durée si elle est très courte) — comme TikTok, pas juste au chargement.
+  const handleTimeUpdate = () => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    const seuil = Number.isFinite(vid.duration) && vid.duration > 0
+      ? Math.min(3, vid.duration * 0.7)
+      : 3;
+    if (vid.currentTime >= seuil) markSeen(item.id);
+  };
+
+  const handleLike = (e) => {
+    e.stopPropagation();
+    if (!authReady) return;
+    if (!authUser) { setAuthPrompt(true); return; }
+    toggleLike(e);
+  };
+
+  const handleComment = (e) => {
+    e.stopPropagation();
+    setShowComments(true);
+  };
+
+  const handleOrder = e => {
+    e.stopPropagation();
+    if (!authReady) return;
+    if (!authUser) { setAuthPrompt(true); }
+    else           { setOrderProduct(item.product); }
+  };
+
+  const handleFollow = (e) => {
+    e.stopPropagation();
+    if (!authReady || isSelf) return;
+    if (!authUser) { setAuthPrompt(true); return; }
+    toggleFollow(e);
+  };
+
+  const handleReport = (e) => {
+    e.stopPropagation();
+    if (!authReady) return;
+    if (!authUser) { setAuthPrompt(true); return; }
+    setShowReport(true);
+  };
+
+  const handleOpenProfile = (e) => {
+    e.stopPropagation();
+    if (!sellerId) return;
+    router.push(`/profile/${sellerId}`);
+  };
+
+  const initials = (item.title || '@?').replace('@', '')[0]?.toUpperCase() ?? '?';
+  const tags = (item.keywords ?? []).slice(0, 5).map(k => '#' + k).join(' ');
+
   return (
-    <div
-      onClick={openInDemo}
-      role="button"
-      aria-label="Voir la vidéo complète dans le feed"
-      style={{
-        position: 'relative', width: 110, aspectRatio: '9 / 14', flexShrink: 0,
-        borderRadius: 12, overflow: 'hidden', background: '#000', cursor: 'pointer',
-      }}
-    >
+    <div className={styles.slide}>
       <video
         ref={videoRef}
-        src={videoUrl}
-        poster={poster}
-        muted loop playsInline autoPlay
-        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        src={item.videoUrl}
+        className={styles.video}
+        loop playsInline muted={muted}
+        onClick={handleTap}
+        onTimeUpdate={handleTimeUpdate}
+        poster={item.product?.thumbnail}
+        preload="metadata"
       />
-      {/* Icône "ouvrir" en coin — la vidéo joue déjà, ce badge signale
-          juste que le tap mène vers le feed complet, pas un play/pause. */}
-      <div style={{
-        position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: '50%',
-        background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-          <polyline points="15 3 21 3 21 9"/>
-          <line x1="10" y1="14" x2="21" y2="3"/>
-        </svg>
-      </div>
-      <span style={{
-        position: 'absolute', bottom: 6, left: 6, fontSize: 9, fontWeight: 700, color: '#fff',
-        background: 'rgba(0,0,0,0.55)', padding: '2px 6px', borderRadius: 6,
-      }}>
-        Vidéo produit
-      </span>
-    </div>
-  );
-}
 
-/* ══════════════════════════════════════════════════════════
-   FICHE PRODUIT COMPLÈTE (façon Pinduoduo)
-   Ouverte au clic sur la carte du carrousel produit (voir
-   productCarousel dans LivePlayer). Photo, miniature vidéo du
-   produit, nom, prix, description — puis bouton Commander séparé,
-   qui déclenche le flux de commande (OrderModal) indépendamment.
-   Les champs viennent directement de l'objet product déjà présent
-   dans live_sessions.products[] (image/thumbnail/name/price/
-   description/videoUrl/title — même structure que le champ `product`
-   de video_playlist, voir capture partagée), donc aucune requête
-   Firestore supplémentaire n'est nécessaire pour l'ouvrir.
-══════════════════════════════════════════════════════════ */
-function ProductSheet({ product, onClose, onOrder }) {
-  const { videoUrl, poster, videoDocId, loading: videoLoading } = useProductVideo(product);
+      <div className={styles.gradTop}/>
+      <div className={styles.gradBottom}/>
 
-  if (!product) return null;
-
-  const prix   = Number(product.price ?? 0);
-  const prixAff = prix.toLocaleString('fr-FR') + ' F CFA';
-  const seller  = product.title || '';
-
-  return (
-    <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className={styles.modalSheet}>
-        <div className={styles.modalHandle}/>
-        <div className={styles.modalHeader}>
-          <div>
-            <p className={styles.modalTitle}>Fiche produit</p>
-            {seller && <p className={styles.modalSub}>{seller}</p>}
-          </div>
-          <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
-        </div>
-
-        <div style={{ padding: '4px 20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Photo principale */}
-          <div style={{
-            width: '100%', aspectRatio: '1 / 1', borderRadius: 14,
-            overflow: 'hidden', background: '#111',
-          }}>
-            <img
-              src={product.image || product.thumbnail}
-              alt={product.name}
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-              onError={e => { e.currentTarget.style.display = 'none'; }}
-            />
-          </div>
-
-          {/* Miniature vidéo produit */}
-          {(videoUrl || videoLoading) && (
-            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-              {videoUrl ? (
-                <ProductVideoPreview videoUrl={videoUrl} poster={poster} videoDocId={videoDocId}/>
-              ) : (
-                <div style={{
-                  width: 110, aspectRatio: '9 / 14', flexShrink: 0, borderRadius: 12,
-                  background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Spinner/>
-                </div>
-              )}
-              <p style={{
-                flex: 1, fontSize: 12.5, color: 'rgba(255,255,255,0.5)',
-                lineHeight: 1.6, margin: '4px 0 0',
-              }}>
-                Voyez le produit en situation. Touchez la vidéo pour l'ouvrir en entier dans le feed.
-              </p>
-            </div>
-          )}
-
-          {/* Nom + prix */}
-          <div>
-            <p style={{
-              fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.1rem',
-              color: '#fff', margin: '0 0 6px', lineHeight: 1.4,
-            }}>
-              {product.name}
-            </p>
-            <p style={{
-              fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.3rem',
-              color: 'var(--gold)', margin: 0,
-            }}>
-              {prixAff}
-            </p>
-          </div>
-
-          {/* Description */}
-          {product.description && (
-            <div>
-              <p style={{
-                fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
-                color: 'rgba(255,255,255,0.45)', margin: '0 0 6px',
-              }}>
-                Description
-              </p>
-              <p style={{
-                fontSize: 14, color: 'rgba(255,255,255,0.85)', lineHeight: 1.65,
-                margin: 0, whiteSpace: 'pre-wrap',
-              }}>
-                {product.description}
-              </p>
-            </div>
-          )}
-
-          {/* Commander — action séparée du simple clic sur la carte */}
-          <button className={styles.confirmBtn} onClick={() => onOrder(product)}>
-            Commander — {prixAff}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════
-   PLAYER LIVE PLEIN ÉCRAN
-══════════════════════════════════════════════════════════ */
-function LivePlayer({ session, authUser, authReady, onClose }) {
-  const { videoContainerRef, remoteUsers, status, error: agoraError } =
-    useAgoraPlayer(session.channelId, session.isLive);
-
-  // Likes persistés (sous-collection), compteur en agrégation ponctuelle (P0)
-  const { liked, count: likeCount, toggle: toggleLike } =
-    useLiveLike(session.id, session.likeCount ?? 0, authUser);
-
-  const [activeProduct, setActiveProduct] = useState(session.products?.[0] ?? null);
-  const [detailProduct, setDetailProduct] = useState(null);
-  const [messages,      setMessages]      = useState([]);
-  const [inputMsg,      setInputMsg]      = useState('');
-  const [orderProduct,  setOrderProduct]  = useState(null);
-  const [authPrompt,    setAuthPrompt]    = useState(false);
-  const [showReportSheet, setShowReportSheet] = useState(false);
-  const chatRef  = useRef(null);
-
-  // ── Commentaires Firestore partagés avec le vendeur ──────────────────────
-  // ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 3) : cette
-  // requête n'avait AUCUNE limite — chaque nouvel arrivant sur un live
-  // long téléchargeait tout l'historique des commentaires, et chaque
-  // nouveau message fan-out un read vers CHAQUE spectateur connecté
-  // simultanément. Ajout de orderBy('timestamp','desc') +
-  // limit(LIVE_CHAT_LIMIT) : ne synchronise plus que les derniers messages.
-  useEffect(() => {
-    if (!session.channelId) return;
-    const unsub = onSnapshot(
-      query(
-        collection(db, 'live_comments'),
-        where('channelId', '==', session.channelId),
-        orderBy('timestamp', 'desc'),
-        limit(LIVE_CHAT_LIMIT)
-      ),
-      snap => {
-        const docs = snap.docs.map(d => {
-          const data = d.data();
-          return {
-            id:   d.id,
-            user: data.sender ?? '?',
-            text: data.text   ?? '',
-            lang: data.lang   ?? 'fr',
-            ts:   data.timestamp?.toMillis?.() ?? 0,
-          };
-        });
-        docs.sort((a, b) => a.ts - b.ts);
-        setMessages(docs);
-      },
-      err => console.warn('⚠️ live_comments listener:', err)
-    );
-    return unsub;
-  }, [session.channelId]);
-
-  useEffect(() => {
-    chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages]);
-
-  const handleOrder = (product) => {
-    if (!authReady) return;
-    if (!authUser) { setAuthPrompt(true); } else { setOrderProduct(product); }
-  };
-
-  const handleLike = () => {
-    if (!authReady) return;
-    if (!authUser) { setAuthPrompt(true); return; }
-    toggleLike();
-  };
-
-  const handleReport = () => {
-    if (!authReady) return;
-    if (!authUser) { setAuthPrompt(true); return; }
-    setShowReportSheet(true);
-  };
-
-  const sendMessage = async () => {
-    const text = inputMsg.trim().slice(0, 300);
-    if (!text || !session.channelId) return;
-    if (!authReady) return;
-    if (!authUser) { setAuthPrompt(true); return; }
-
-    let senderName;
-    try {
-      let idTokenResult = await authUser.getIdTokenResult();
-      senderName = idTokenResult.claims.name;
-      if (!senderName) {
-        const fallbackName = authUser.displayName
-          || authUser.email?.split('@')[0]
-          || `Spectateur_${authUser.uid.slice(0, 6)}`;
-        await updateProfile(authUser, { displayName: fallbackName });
-        idTokenResult = await authUser.getIdTokenResult(true);
-        senderName = idTokenResult.claims.name;
-      }
-    } catch (e) {
-      console.warn('⚠️ getIdTokenResult/updateProfile:', e);
-    }
-    if (!senderName) {
-      alert("Impossible d'envoyer le commentaire : profil incomplet. Réessayez dans quelques secondes.");
-      return;
-    }
-
-    setInputMsg('');
-    try {
-      const ref = doc(collection(db, 'live_comments'));
-      await setDoc(ref, {
-        commentId: ref.id,
-        userId:    authUser.uid,
-        sender:    senderName,
-        text,
-        timestamp: serverTimestamp(),
-        channelId: session.channelId,
-        lang: 'fr',
-      });
-    } catch (e) {
-      console.warn('⚠️ sendMessage (spectateur):', e.code ?? e.message ?? e);
-    }
-  };
-
-  const initial  = (session.sellerName || 'V')[0].toUpperCase();
-  const products = session.products ?? [];
-  const hasVideo = status === 'live' && remoteUsers.length > 0;
-
-  const offlineLabel = {
-    'fetching-token': 'Authentification...',
-    'connecting':     'Connexion au live...',
-    'live':           'En attente du vendeur...',
-    'error':          'Erreur : ' + (agoraError ?? 'inconnue'),
-    'offline':        'Ce live est terminé',
-    'idle':           '...',
-  }[status] ?? '...';
-
-  const sellerId = session.sellerId ?? session.userId ?? '';
-
-  return (
-    <div className={styles.playerPage}>
-
-      <div ref={videoContainerRef} className={styles.agoraVideo}/>
-
-      {!hasVideo && (
-        <div className={styles.playerBg}>
-          <div className={styles.offlineCover}>
-            {products[0]?.image && <img src={products[0].image} alt="" className={styles.offlineImg}/>}
-            <div className={styles.offlineOverlay}/>
-            <div className={styles.offlineLabel}>{offlineLabel}</div>
-          </div>
+      {tapIcon && (
+        <div className={styles.tapFlash}>
+          {tapIcon === 'pause'
+            ? <svg width="52" height="52" viewBox="0 0 24 24" fill="rgba(255,255,255,0.9)"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+            : <svg width="52" height="52" viewBox="0 0 24 24" fill="rgba(255,255,255,0.9)"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          }
         </div>
       )}
 
-      <div className={styles.playerGradTop}/>
-      <div className={styles.playerGradBottom}/>
-
-      <div className={styles.playerHeader}>
-        <div className={styles.playerHost}>
-          <div className={styles.playerAvatar}>{initial}</div>
-          <div>
-            <div className={styles.playerHostName}>{session.sellerName || 'Vendeur'}</div>
-            <div className={styles.playerViewers}><IconEye/> {session.viewerCount ?? 0} spectateurs</div>
-          </div>
-          <button className={styles.followBtn}>Suivre</button>
+      {/* Top bar */}
+      <div className={styles.topBar}>
+        <a href="/" className={styles.topLogo}>Fri<span>Tok</span></a>
+        <div className={styles.topTabs}>
+          <span>Abonnements</span>
+          <span className={styles.topTabActive}>Pour toi</span>
+          <span>Live</span>
         </div>
-        <div className={styles.playerHeaderRight}>
-          {session.isLive
-            ? <span className={styles.liveIndicator}>LIVE</span>
-            : <span className={styles.replayLabel}>TERMINÉ</span>}
-          <button className={styles.closeBtn} onClick={handleReport} aria-label="Signaler ce live" title="Signaler ce live">
+        <div className={styles.topBarRight}>
+          <button className={styles.muteBtn}
+            onClick={e => { e.stopPropagation(); setMuted(m => !m); }}>
+            {muted
+              ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+              : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+            }
+          </button>
+          <button className={styles.muteBtn} onClick={handleReport} aria-label="Signaler cette vidéo" title="Signaler cette vidéo">
             <IconFlag/>
           </button>
-          <button className={styles.closeBtn} onClick={onClose}><IconClose/></button>
         </div>
       </div>
 
-      <div className={styles.playerActions}>
-        <button className={styles.playerActionBtn} onClick={handleLike}>
-          <IconHeart filled={liked}/>
-          <span className={liked ? styles.countLiked : styles.countWhite}>{likeCount > 0 ? likeCount : ''}</span>
-        </button>
-        <button className={styles.playerActionBtn}>
-          <IconGift/>
-          <span className={styles.countGold}>{session.giftCount > 0 ? session.giftCount : ''}</span>
-        </button>
-        <button className={styles.playerActionBtn}>
-          <IconShare/>
-        </button>
-
-        <CoHostButton session={session} authUser={authUser} />
-      </div>
-
-      <div className={styles.chatArea} ref={chatRef}>
-        {messages.map(m => <ChatBubble key={m.id} msg={m}/>)}
-      </div>
-      <div className={styles.chatInput}>
-        <input className={styles.chatField}
-          placeholder="Écrire un commentaire…"
-          value={inputMsg}
-          onChange={e => setInputMsg(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && sendMessage()}/>
-        <button className={styles.chatSend} onClick={sendMessage}>↑</button>
-      </div>
-
-      {products.length > 0 && (
-        <div className={styles.productCarousel}>
-          <div className={styles.carouselLabel}>Produits ({products.length})</div>
-          <div className={styles.carouselTrack}>
-            {products.map((p, i) => {
-              const isActive = activeProduct?.productId === p.productId;
-              return (
-                <div
-                  key={p.productId ?? i}
-                  className={isActive ? styles.carouselItemActive : styles.carouselItem}
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => { setActiveProduct(p); setDetailProduct(p); }}
-                >
-                  <div className={styles.carouselImgWrap}>
-                    <img src={p.image} alt={p.name} className={styles.carouselImg}
-                      onError={e2 => { e2.currentTarget.style.display = 'none'; }}/>
-                    {isActive && <div className={styles.carouselActiveDot}/>}
-                  </div>
-                  <span className={styles.carouselName}>{p.name}</span>
-                  <span className={styles.carouselPrice}>{Number(p.price).toLocaleString('fr-FR')} F</span>
-                  <button
-                    className={styles.carouselOrderBtn}
-                    onClick={e => { e.stopPropagation(); handleOrder(p); }}
-                  >
-                    Commander
-                  </button>
-                </div>
-              );
-            })}
+      {/* Actions droite */}
+      <div className={styles.actions}>
+        <div className={styles.avatarWrap}>
+          <div
+            className={styles.avatar}
+            onClick={handleOpenProfile}
+            role="button"
+            aria-label="Voir le profil"
+          >
+            {initials}
           </div>
+          {!isSelf && (
+            <div
+              className={following ? styles.followDotActive : styles.followDot}
+              onClick={handleFollow}
+              role="button"
+              aria-label={following ? 'Ne plus suivre' : 'Suivre'}
+            >
+              {following ? '✓' : '+'}
+            </div>
+          )}
         </div>
-      )}
 
-      {detailProduct && (
-        <ProductSheet
-          product={detailProduct}
-          onClose={() => setDetailProduct(null)}
-          onOrder={p => { setDetailProduct(null); handleOrder(p); }}
-        />
-      )}
+        {/* LIKE */}
+        <button className={styles.actionBtn} onClick={handleLike}>
+          <IconHeart filled={liked}/>
+          <span className={liked ? styles.countLiked : styles.count}>
+            {likeCount > 0 ? likeCount : ''}
+          </span>
+        </button>
 
+        {/* COMMENTAIRES */}
+        <button className={styles.actionBtn} onClick={handleComment}>
+          <IconComment/>
+          <span className={styles.count}>{commentCount > 0 ? commentCount : ''}</span>
+        </button>
+
+        {/* COMMANDER */}
+        <button className={`${styles.actionBtn} ${styles.cartBtn}`} onClick={handleOrder}>
+          <IconCart/>
+          <span className={styles.countGold}>Shop</span>
+        </button>
+
+        {/* PARTAGER */}
+        <button className={styles.actionBtn} onClick={e => e.stopPropagation()}>
+          <IconShare/>
+          <span className={styles.count}>{item.views > 0 ? item.views : ''}</span>
+        </button>
+      </div>
+
+      {/* Bas : auteur + tags + mini-card produit */}
+      <div className={styles.bottomInfo}>
+        <p className={styles.username}>{item.title}</p>
+        <p className={styles.tags}>{tags}</p>
+        {item.product && (
+          <button className={styles.productCard} onClick={handleOrder}>
+            <img
+              src={item.product.thumbnail || item.product.image}
+              alt={item.product.name}
+              className={styles.productThumb}
+              onError={e => { e.currentTarget.style.display = 'none'; }}
+            />
+            <div className={styles.productMeta}>
+              <span className={styles.productName}>{item.product.name}</span>
+              <span className={styles.productPrice}>
+                {Number(item.product.price).toLocaleString('fr-FR')} XOF
+              </span>
+            </div>
+            <span className={styles.productCta}>Commander</span>
+          </button>
+        )}
+      </div>
+
+      {/* Modal connexion requise */}
       {authPrompt && <AuthRequiredModal onClose={() => setAuthPrompt(false)}/>}
-      {showReportSheet && (
-        <ReportSheet
-          session={session}
+
+      {/* Modal commentaires */}
+      {showComments && (
+        <CommentsModal
+          videoId={item.id}
           authUser={authUser}
-          onClose={() => setShowReportSheet(false)}
+          onClose={() => setShowComments(false)}
+          onAuthRequired={() => setAuthPrompt(true)}
+          onSent={bumpCommentCount}
         />
       )}
+
+      {/* Modal commande */}
       {orderProduct && (
         <OrderModal
           product={orderProduct}
@@ -1475,47 +1246,16 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
           onClose={() => setOrderProduct(null)}
         />
       )}
-    </div>
-  );
-}
 
-/* ══════════════════════════════════════════════════════════
-   LIVE CARD
-══════════════════════════════════════════════════════════ */
-const GRADIENTS = [
-  'linear-gradient(135deg,#1e3a5f,#0d1b2a)',
-  'linear-gradient(135deg,#3d1a4f,#1a0d2e)',
-  'linear-gradient(135deg,#4f2d0d,#2e1a0d)',
-  'linear-gradient(135deg,#0d3a2e,#0a1e1a)',
-  'linear-gradient(135deg,#3a1a1a,#1a0d0d)',
-];
-
-function LiveCard({ session, onSelect }) {
-  const firstProduct = session.products?.[0];
-  const initial  = (session.sellerName || 'L')[0].toUpperCase();
-  const gradient = GRADIENTS[(session.channelId?.charCodeAt(5) ?? 0) % GRADIENTS.length];
-  return (
-    <div className={styles.liveCard} onClick={() => onSelect(session)}>
-      <div className={styles.liveThumb} style={{ background: gradient }}>
-        {firstProduct?.image && (
-          <img src={firstProduct.image} alt="" className={styles.liveThumbImg}
-            onError={e => { e.currentTarget.style.display = 'none'; }}/>
-        )}
-        {session.isLive
-          ? <span className={styles.liveBadge}>LIVE</span>
-          : <span className={styles.replayBadge}>REPLAY</span>}
-        <span className={styles.viewerBadge}><IconEye/> {session.viewerCount ?? 0}</span>
-      </div>
-      <div className={styles.liveInfo}>
-        <div className={styles.liveAvatar}>{initial}</div>
-        <div className={styles.liveMeta}>
-          <div className={styles.liveSellerName}>{session.sellerName || 'Vendeur'}</div>
-          <div className={styles.liveProductCount}>
-            {session.products?.length ?? 0} produit{session.products?.length !== 1 ? 's' : ''}
-          </div>
-        </div>
-        <div className={styles.liveLikes}><IconHeart filled={false}/><span>{session.likeCount ?? 0}</span></div>
-      </div>
+      {/* Modal signalement */}
+      {showReport && (
+        <ReportSheet
+          videoId={item.id}
+          sellerId={sellerId}
+          authUser={authUser}
+          onClose={() => setShowReport(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1525,41 +1265,53 @@ function LiveCard({ session, onSelect }) {
 ══════════════════════════════════════════════════════════ */
 function Skeleton() {
   return (
-    <div className={styles.skeletonGrid}>
-      {[1,2,3,4].map(i => (
-        <div key={i} className={styles.skeletonCard}>
-          <div className={styles.skeletonThumb}/>
-          <div className={styles.skeletonInfo}>
-            <div className={styles.skeletonLine} style={{ width: '40%' }}/>
-            <div className={styles.skeletonLine} style={{ width: '65%' }}/>
-          </div>
-        </div>
-      ))}
+    <div className={styles.skeleton}>
+      <div className={styles.skeletonPulse}/>
+      <div className={styles.skeletonText}>
+        <div className={styles.skeletonLine} style={{ width: '35%' }}/>
+        <div className={styles.skeletonLine} style={{ width: '60%' }}/>
+        <div className={styles.skeletonLine} style={{ width: '85%', height: '52px', borderRadius: '12px' }}/>
+      </div>
     </div>
   );
 }
 
 /* ══════════════════════════════════════════════════════════
-   PAGE /live
-   ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 4) :
-   live_sessions n'a plus de requête onSnapshot illimitée sur TOUTE la
-   collection. La requête temps réel est désormais bornée à
-   LIVE_PAGE_SIZE ; un bouton "Charger plus" pagine le reste via une
-   lecture ponctuelle (getDocs + startAfter), volontairement pas en
-   onSnapshot pour ne pas ouvrir un listener permanent par page.
-   lastDocRef retient le dernier QueryDocumentSnapshot chargé.
+   PAGE /demo
 ══════════════════════════════════════════════════════════ */
-export default function LivePage() {
-  const [sessions,    setSessions]    = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState(null);
-  const [selected,    setSelected]    = useState(null);
-  const [filter,      setFilter]      = useState('all');
-  const [authUser,    setAuthUser]    = useState(null);
-  const [authReady,   setAuthReady]   = useState(false);
+export default function DemoPage() {
+  const [playlist,  setPlaylist]  = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState(null);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const feedRef = useRef(null);
+
+  // Deep link ?video={id} — voir handleOpenProfile côté VideoSlide et
+  // useProductVideo côté live.js, qui construisent ce lien depuis la
+  // fiche produit d'un live. NOTE : useSearchParams() en composant client
+  // demande normalement un <Suspense> englobant pour ne pas désactiver le
+  // rendu statique de la page côté Next.js — sans incidence fonctionnelle
+  // ici (page déjà 100% client, données chargées à l'exécution), juste un
+  // avertissement de build possible selon la config Next.js du projet.
+  const searchParams  = useSearchParams();
+  const targetVideoId = searchParams.get('video');
+  const deepLinkDoneRef  = useRef(false);
+  const deepLinkFetchRef = useRef(false);
+
+  // ⚠️ P0 — pagination (voir analyse-scalabilite-fritok.md, point 4) :
+  // video_playlist n'est plus chargée en une fois sans limite. cursorSnap
+  // retient le dernier document Firestore chargé pour startAfter().
+  const [cursorSnap,  setCursorSnap]  = useState(null);
   const [hasMore,     setHasMore]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const lastDocRef = useRef(null);
+
+  const [authUser,  setAuthUser]  = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+
+  // État son GLOBAL, partagé par toutes les slides. Une fois activé
+  // (clic sur l'icône), il reste activé pour la vidéo suivante au scroll.
+  const [muted, setMuted] = useState(true);
+
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => {
@@ -1569,122 +1321,226 @@ export default function LivePage() {
     return unsub;
   }, []);
 
+  // Historique des vidéos déjà vues (Firestore si connecté, localStorage sinon)
+  const { seenIdsRef, seenReady, markSeen } = useSeenVideos(authUser, authReady);
+
+  // Liste réordonnée : vidéos non-vues d'abord, vidéos déjà vues repoussées
+  // en fin de liste (jamais filtrées — juste dépriorisées, comme TikTok).
+  // Dépend seulement du chargement initial (playlist, seenReady) : seenIdsRef
+  // étant une ref, les marquages "vu" en direct pendant le scroll ne
+  // déclenchent volontairement PAS de nouveau tri (pas de saut dans le feed).
+  const orderedPlaylist = useMemo(() => {
+    if (!seenReady || playlist.length === 0) return playlist;
+    const unseen = [];
+    const seen   = [];
+    for (const item of playlist) {
+      (seenIdsRef.current.has(item.id) ? seen : unseen).push(item);
+    }
+    return [...unseen, ...seen];
+  }, [playlist, seenReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Résolution du deep link ?video={id} (ex. depuis la fiche produit d'un
+  // live — voir useProductVideo dans live.js). Deux cas :
+  //   1) la vidéo ciblée est déjà dans la page chargée → on scrolle
+  //      directement dessus (setActiveIdx, l'effet de scroll existant
+  //      s'occupe du reste) ;
+  //   2) elle n'y est pas (cas courant, une seule page de PAGE_SIZE est
+  //      chargée au départ) → on va la chercher ponctuellement par ID
+  //      (un seul getDoc, pas de requête sur toute la collection) et on
+  //      l'insère en tête de playlist pour qu'elle entre dans la fenêtre
+  //      de rendu virtualisée dès que activeIdx pointe dessus.
   useEffect(() => {
-    const q = query(collection(db, 'live_sessions'), orderBy('startedAt', 'desc'), limit(LIVE_PAGE_SIZE));
-    const unsub = onSnapshot(q,
-      snap => {
-        setSessions(snap.docs.map(d => ({
+    if (!targetVideoId || deepLinkDoneRef.current || orderedPlaylist.length === 0) return;
+
+    const idx = orderedPlaylist.findIndex(v => v.id === targetVideoId);
+    if (idx !== -1) {
+      deepLinkDoneRef.current = true;
+      setActiveIdx(idx);
+      return;
+    }
+
+    if (deepLinkFetchRef.current) return; // déjà tenté, vidéo introuvable
+    deepLinkFetchRef.current = true;
+
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'video_playlist', targetVideoId));
+        if (!snap.exists()) return;
+        const video = {
+          id: snap.id,
+          ...snap.data(),
+          createdAt: snap.data().createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
+        };
+        setPlaylist(prev => prev.some(v => v.id === video.id) ? prev : [video, ...prev]);
+        // deepLinkDoneRef reste false ici : le prochain passage de cet
+        // effet (déclenché par le changement de orderedPlaylist une fois
+        // le nouvel élément inséré) trouvera l'index et complètera le
+        // scroll.
+      } catch (e) {
+        console.warn('⚠️ Deep link vidéo introuvable:', e.code ?? e.message ?? e);
+      }
+    })();
+  }, [targetVideoId, orderedPlaylist]);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        // ⚠️ P0 — CORRIGÉ : plus de getDocs() sans limite sur toute la
+        // collection video_playlist (voir point 4 de l'analyse). Première
+        // page bornée à PAGE_SIZE ; le reste se charge via loadMore()
+        // quand l'utilisateur approche de la fin de la liste chargée.
+        const q    = query(collection(db, 'video_playlist'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        const snap = await getDocs(q);
+        const videos = snap.docs.map(d => ({
           id: d.id,
           ...d.data(),
-          startedAt: d.data().startedAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
-        })));
-        lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
-        setHasMore(snap.docs.length === LIVE_PAGE_SIZE);
+          createdAt: d.data().createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
+        }));
+        setPlaylist(videos);
+        setCursorSnap(snap.docs[snap.docs.length - 1] ?? null);
+        setHasMore(snap.docs.length === PAGE_SIZE);
+      } catch (err) {
+        console.error('Firestore:', err);
+        setError('Impossible de charger les vidéos.');
+      } finally {
         setLoading(false);
-      },
-      err => { console.error(err); setError('Impossible de charger les lives.'); setLoading(false); }
-    );
-    return () => unsub();
+      }
+    }
+    load();
   }, []);
 
-  const loadMoreSessions = async () => {
-    if (!hasMore || loadingMore || !lastDocRef.current) return;
+  // Page suivante de video_playlist — même requête que le chargement
+  // initial, avec startAfter(cursorSnap). Appelée quand l'utilisateur
+  // approche de la fin des vidéos déjà chargées (voir useEffect plus bas).
+  const loadMore = useCallback(async () => {
+    if (!hasMore || loadingMore || !cursorSnap) return;
     setLoadingMore(true);
     try {
       const q = query(
-        collection(db, 'live_sessions'),
-        orderBy('startedAt', 'desc'),
-        startAfter(lastDocRef.current),
-        limit(LIVE_PAGE_SIZE)
+        collection(db, 'video_playlist'),
+        orderBy('createdAt', 'desc'),
+        startAfter(cursorSnap),
+        limit(PAGE_SIZE)
       );
       const snap = await getDocs(q);
-      const more = snap.docs.map(d => ({
+      const videos = snap.docs.map(d => ({
         id: d.id,
         ...d.data(),
-        startedAt: d.data().startedAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
+        createdAt: d.data().createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
       }));
-      setSessions(prev => [...prev, ...more]);
-      lastDocRef.current = snap.docs[snap.docs.length - 1] ?? lastDocRef.current;
-      setHasMore(snap.docs.length === LIVE_PAGE_SIZE);
-    } catch (e) {
-      console.warn('⚠️ loadMoreSessions:', e);
+      setPlaylist(prev => [...prev, ...videos]);
+      setCursorSnap(snap.docs[snap.docs.length - 1] ?? cursorSnap);
+      setHasMore(snap.docs.length === PAGE_SIZE);
+    } catch (err) {
+      console.error('Firestore (page suivante):', err);
     } finally {
       setLoadingMore(false);
     }
-  };
+  }, [hasMore, loadingMore, cursorSnap]);
 
-  if (selected) {
-    return (
-      <LivePlayer
-        session={selected}
-        authUser={authUser}
-        authReady={authReady}
-        onClose={() => setSelected(null)}
-      />
+  // Déclenche le chargement de la page suivante quand il ne reste plus que
+  // quelques vidéos non chargées devant l'utilisateur.
+  useEffect(() => {
+    if (orderedPlaylist.length === 0) return;
+    if (orderedPlaylist.length - activeIdx <= 5) loadMore();
+  }, [activeIdx, orderedPlaylist.length, loadMore]);
+
+  useEffect(() => {
+    if (!feedRef.current || orderedPlaylist.length === 0) return;
+    const slides = feedRef.current.querySelectorAll('[data-slide]');
+    const observer = new IntersectionObserver(
+      entries => {
+        entries.forEach(e => {
+          if (e.isIntersecting && e.intersectionRatio >= 0.55)
+            setActiveIdx(Number(e.target.dataset.slide));
+        });
+      },
+      { threshold: 0.55 }
     );
-  }
+    slides.forEach(el => observer.observe(el));
+    return () => observer.disconnect();
+  }, [orderedPlaylist]);
 
-  const liveCount   = sessions.filter(s => s.isLive).length;
-  const replayCount = sessions.filter(s => !s.isLive).length;
-  const filtered    = sessions.filter(s => {
-    if (filter === 'live')   return s.isLive === true;
-    if (filter === 'replay') return s.isLive === false;
-    return true;
-  });
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === 'ArrowDown') setActiveIdx(i => Math.min(i + 1, orderedPlaylist.length - 1));
+      if (e.key === 'ArrowUp')   setActiveIdx(i => Math.max(i - 1, 0));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [orderedPlaylist.length]);
+
+  useEffect(() => {
+    const slides = feedRef.current?.querySelectorAll('[data-slide]');
+    slides?.[activeIdx]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [activeIdx]);
+
+  if (loading) return <div className={styles.page}><Skeleton/></div>;
+
+  if (error) return (
+    <div className={styles.page}>
+      <div className={styles.errorBox}>
+        <p>{error}</p>
+        <a href="/" className={styles.errorBack}>← Retour</a>
+      </div>
+    </div>
+  );
+
+  if (orderedPlaylist.length === 0) return (
+    <div className={styles.page}>
+      <div className={styles.errorBox}>
+        <p>Aucune vidéo disponible.</p>
+        <a href="/" className={styles.errorBack}>← Retour</a>
+      </div>
+    </div>
+  );
 
   return (
     <div className={styles.page}>
-      <nav className={styles.nav}>
-        <a href="/" className={styles.navLogo}>Fri<span>Tok</span></a>
-        <span className={styles.navTitle}>Lives</span>
-        <a href="/demo" className={styles.navLink}>Vidéos</a>
-      </nav>
-      <div className={styles.content}>
-        <div className={styles.filters}>
-          {[
-            { key: 'all',    label: 'Tout (' + sessions.length + ')' },
-            { key: 'live',   label: 'En direct (' + liveCount + ')' },
-            { key: 'replay', label: 'Replays (' + replayCount + ')' },
-          ].map(f => (
-            <button key={f.key}
-              className={filter === f.key ? styles.filterActive : styles.filterBtn}
-              onClick={() => setFilter(f.key)}>
-              {f.label}
-            </button>
-          ))}
-        </div>
-        {loading && <Skeleton/>}
-        {error && (
-          <div className={styles.errorBox}>
-            <p>{error}</p><a href="/" className={styles.errorBack}>Retour</a>
-          </div>
-        )}
-        {!loading && !error && filtered.length === 0 && (
-          <div className={styles.emptyBox}><p>Aucun live pour ce filtre.</p></div>
-        )}
-        {!loading && !error && filtered.length > 0 && (
-          <>
-            <div className={styles.grid}>
-              {filtered.map(s => <LiveCard key={s.id} session={s} onSelect={setSelected}/>)}
+      <div ref={feedRef} className={styles.feed}>
+        {orderedPlaylist.map((item, i) => {
+          // ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 1) :
+          // avant, CHAQUE vidéo de la playlist montait un <VideoSlide>, donc
+          // 3 à 5 listeners Firestore par vidéo — même pour les vidéos
+          // jamais scrollées. Avec ne serait-ce que quelques centaines de
+          // vidéos, un seul utilisateur ouvrait déjà 1000+ listeners.
+          // Ici, seule une fenêtre de RENDER_WINDOW slides autour de la
+          // vidéo active monte réellement <VideoSlide> (et donc ses hooks/
+          // listeners) ; les autres restent un simple div vide de la même
+          // taille, ce qui préserve le scroll-snap et le calcul de
+          // activeIdx (IntersectionObserver sur data-slide) à l'identique.
+          const shouldRender = Math.abs(i - activeIdx) <= RENDER_WINDOW;
+          return (
+            <div key={item.id} data-slide={i} className={styles.slideWrapper}>
+              {shouldRender ? (
+                <VideoSlide
+                  item={item}
+                  isActive={i === activeIdx}
+                  authUser={authUser}
+                  authReady={authReady}
+                  muted={muted}
+                  setMuted={setMuted}
+                  markSeen={markSeen}
+                />
+              ) : (
+                <div className={styles.slidePlaceholder}/>
+              )}
             </div>
-            {hasMore && filter === 'all' && (
-              <button
-                onClick={loadMoreSessions}
-                disabled={loadingMore}
-                style={{
-                  display: 'block', margin: '20px auto', padding: '12px 32px',
-                  borderRadius: 12, border: '1.5px solid rgba(255,255,255,0.15)',
-                  background: 'rgba(255,255,255,0.06)', color: '#fff',
-                  fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '0.85rem',
-                  cursor: loadingMore ? 'not-allowed' : 'pointer', opacity: loadingMore ? 0.6 : 1,
-                }}
-              >
-                {loadingMore ? 'Chargement…' : 'Charger plus'}
-              </button>
-            )}
-          </>
-        )}
+          );
+        })}
       </div>
+
+      <div className={styles.dots}>
+        {orderedPlaylist.map((_, i) => (
+          <button key={i}
+            className={`${styles.dot} ${i === activeIdx ? styles.dotActive : ''}`}
+            onClick={() => setActiveIdx(i)}
+            aria-label={'Vidéo ' + (i + 1)}
+          />
+        ))}
+      </div>
+
+      <div className={styles.counter}>{activeIdx + 1} / {orderedPlaylist.length}</div>
     </div>
   );
 }
