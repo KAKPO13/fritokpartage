@@ -17,7 +17,7 @@ import PushManager from '../components/PushManager';
 import PublierColisBanner from '../components/PublierColisBanner';
 import CommandeBanner from '../components/commandes/CommandeBanner'; // ← 🆕 CTA "Mes commandes" → /mes-commandes
 import KkiapayBanner from '../components/KkiapayBanner'; // ← 🆕 CTA "Recharger mon wallet" (Mobile Money via KkiaPay)
-import CarrieresBanner from '../components/CarrieresBanner'; // ← 🆕 CTA "Rejoignez Made in Benin Live" → /carrieres
+import CarrieresBanner from '../components/Carrieresbanner'; // ← 🆕 CTA "Rejoignez Made in Benin Live" → /carrieres
 
 
 
