@@ -17,6 +17,7 @@ import PushManager from '../components/PushManager';
 import PublierColisBanner from '../components/PublierColisBanner';
 import CommandeBanner from '../components/commandes/CommandeBanner'; // ← 🆕 CTA "Mes commandes" → /mes-commandes
 import KkiapayBanner from '../components/KkiapayBanner'; // ← 🆕 CTA "Recharger mon wallet" (Mobile Money via KkiaPay)
+import CarrieresBanner from '../components/CarrieresBanner'; // ← 🆕 CTA "Rejoignez Made in Benin Live" → /carrieres
 
 
 
@@ -39,6 +40,7 @@ export default function Home() {
         <PublierColisBanner />   {/* 🆕 CTA "Publier un colis" → /colis/nouveau */}
         <CommandeBanner />       {/* 🆕 CTA "Mes commandes" → /mes-commandes */}
         <LiveBanner />      {/* ← 🆕 CTA "Vendez en direct" → /live */}
+        <CarrieresBanner />      {/* 🆕 CTA "Rejoignez Made in Benin Live" → /carrieres */}
         <DeliveryMap />
         <TrustBand />
         <CtaBottom />
