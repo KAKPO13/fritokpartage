@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   collection, getDocs, orderBy, query, limit, startAfter,
@@ -1279,7 +1279,7 @@ function Skeleton() {
 /* ══════════════════════════════════════════════════════════
    PAGE /demo
 ══════════════════════════════════════════════════════════ */
-export default function DemoPage() {
+function DemoPageInner() {
   const [playlist,  setPlaylist]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
@@ -1542,5 +1542,25 @@ export default function DemoPage() {
 
       <div className={styles.counter}>{activeIdx + 1} / {orderedPlaylist.length}</div>
     </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   EXPORT — Suspense obligatoire autour de useSearchParams()
+   ── CORRIGÉ ──
+   useSearchParams() (utilisé pour le deep link ?video={id}, voir
+   DemoPageInner) doit être englobé par un <Suspense> en Next.js App
+   Router, sinon le build de prérendu échoue avec :
+     "useSearchParams() should be wrapped in a suspense boundary"
+   Ce n'est pas juste un avertissement — sans ce wrapper, `next build`
+   sort en erreur et bloque tout le déploiement. Le fallback reste
+   minimal (fond noir identique à la page, pas de flash blanc) le
+   temps que le contenu client s'hydrate.
+══════════════════════════════════════════════════════════ */
+export default function DemoPage() {
+  return (
+    <Suspense fallback={<div className={styles.page}/>}>
+      <DemoPageInner/>
+    </Suspense>
   );
 }
