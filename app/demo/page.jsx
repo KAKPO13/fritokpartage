@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   collection, getDocs, orderBy, query, limit, startAfter,
-  addDoc, serverTimestamp, doc,
+  addDoc, serverTimestamp, doc, getDoc,
   setDoc, deleteDoc, onSnapshot, getCountFromServer,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -1286,6 +1286,18 @@ export default function DemoPage() {
   const [activeIdx, setActiveIdx] = useState(0);
   const feedRef = useRef(null);
 
+  // Deep link ?video={id} — voir handleOpenProfile côté VideoSlide et
+  // useProductVideo côté live.js, qui construisent ce lien depuis la
+  // fiche produit d'un live. NOTE : useSearchParams() en composant client
+  // demande normalement un <Suspense> englobant pour ne pas désactiver le
+  // rendu statique de la page côté Next.js — sans incidence fonctionnelle
+  // ici (page déjà 100% client, données chargées à l'exécution), juste un
+  // avertissement de build possible selon la config Next.js du projet.
+  const searchParams  = useSearchParams();
+  const targetVideoId = searchParams.get('video');
+  const deepLinkDoneRef  = useRef(false);
+  const deepLinkFetchRef = useRef(false);
+
   // ⚠️ P0 — pagination (voir analyse-scalabilite-fritok.md, point 4) :
   // video_playlist n'est plus chargée en une fois sans limite. cursorSnap
   // retient le dernier document Firestore chargé pour startAfter().
@@ -1299,6 +1311,7 @@ export default function DemoPage() {
   // État son GLOBAL, partagé par toutes les slides. Une fois activé
   // (clic sur l'icône), il reste activé pour la vidéo suivante au scroll.
   const [muted, setMuted] = useState(true);
+
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => {
@@ -1325,6 +1338,49 @@ export default function DemoPage() {
     }
     return [...unseen, ...seen];
   }, [playlist, seenReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Résolution du deep link ?video={id} (ex. depuis la fiche produit d'un
+  // live — voir useProductVideo dans live.js). Deux cas :
+  //   1) la vidéo ciblée est déjà dans la page chargée → on scrolle
+  //      directement dessus (setActiveIdx, l'effet de scroll existant
+  //      s'occupe du reste) ;
+  //   2) elle n'y est pas (cas courant, une seule page de PAGE_SIZE est
+  //      chargée au départ) → on va la chercher ponctuellement par ID
+  //      (un seul getDoc, pas de requête sur toute la collection) et on
+  //      l'insère en tête de playlist pour qu'elle entre dans la fenêtre
+  //      de rendu virtualisée dès que activeIdx pointe dessus.
+  useEffect(() => {
+    if (!targetVideoId || deepLinkDoneRef.current || orderedPlaylist.length === 0) return;
+
+    const idx = orderedPlaylist.findIndex(v => v.id === targetVideoId);
+    if (idx !== -1) {
+      deepLinkDoneRef.current = true;
+      setActiveIdx(idx);
+      return;
+    }
+
+    if (deepLinkFetchRef.current) return; // déjà tenté, vidéo introuvable
+    deepLinkFetchRef.current = true;
+
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'video_playlist', targetVideoId));
+        if (!snap.exists()) return;
+        const video = {
+          id: snap.id,
+          ...snap.data(),
+          createdAt: snap.data().createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
+        };
+        setPlaylist(prev => prev.some(v => v.id === video.id) ? prev : [video, ...prev]);
+        // deepLinkDoneRef reste false ici : le prochain passage de cet
+        // effet (déclenché par le changement de orderedPlaylist une fois
+        // le nouvel élément inséré) trouvera l'index et complètera le
+        // scroll.
+      } catch (e) {
+        console.warn('⚠️ Deep link vidéo introuvable:', e.code ?? e.message ?? e);
+      }
+    })();
+  }, [targetVideoId, orderedPlaylist]);
 
   useEffect(() => {
     async function load() {
