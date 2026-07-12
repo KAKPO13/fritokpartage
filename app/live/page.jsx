@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   collection, query, orderBy, where, limit, startAfter,
   onSnapshot, doc, updateDoc, getDocs, getDoc,
@@ -974,34 +973,15 @@ function ReportSheet({ session, authUser, onClose }) {
    capture partagée — plutôt que de renoncer à l'aperçu.
 ══════════════════════════════════════════════════════════ */
 function useProductVideo(product) {
-  const [videoUrl,   setVideoUrl]   = useState(product?.videoUrl || null);
-  const [poster,     setPoster]     = useState(product?.thumbnail || null);
-  // ⚠️ Jamais initialisé depuis product.videoId directement — voir plus
-  // bas pourquoi ce champ ne peut pas être utilisé sans vérification.
-  const [videoDocId, setVideoDocId] = useState(null);
-  const [loading,    setLoading]    = useState(!!(product?.videoId || product?.productId));
+  const [videoUrl, setVideoUrl] = useState(product?.videoUrl || null);
+  const [poster,   setPoster]   = useState(product?.thumbnail || null);
+  const [loading,  setLoading]  = useState(!product?.videoUrl && !!(product?.videoId || product?.productId));
 
   useEffect(() => {
     setVideoUrl(product?.videoUrl || null);
     setPoster(product?.thumbnail || null);
-    setVideoDocId(null);
 
-    // ── CORRIGÉ ──
-    // Avant : `if (product?.videoUrl) { setLoading(false); return; }` ici
-    // court-circuitait TOUTE résolution dès que videoUrl était déjà connu
-    // (cas courant : product.videoUrl est directement présent sur l'objet
-    // product de live_sessions). Résultat : videoDocId restait sur la
-    // valeur brute product.videoId, JAMAIS vérifiée contre un vrai
-    // document Firestore — et product.videoId (champ dénormalisé côté
-    // live_sessions) n'est pas garanti d'être égal à l'ID réel du
-    // document video_playlist. Le lien /demo?video={id} pointait donc
-    // souvent vers un ID inexistant, et /demo retombait silencieusement
-    // sur la première vidéo du feed.
-    //
-    // Maintenant : on tente TOUJOURS de résoudre un ID via une requête
-    // Firestore réelle (dont .id est PAR DÉFINITION le véritable ID),
-    // même quand videoUrl est déjà utilisable pour la lecture — seule la
-    // lecture peut se permettre un raccourci, jamais la navigation.
+    if (product?.videoUrl) { setLoading(false); return; }
     if (!product?.videoId && !product?.productId) { setLoading(false); return; }
 
     let cancelled = false;
@@ -1021,36 +1001,27 @@ function useProductVideo(product) {
     };
 
     (async () => {
-      let resolvedId = null;
       try {
-        // 1) Par videoId — si le champ correspond réellement à l'ID du
-        // document, ce getDoc réussit et snap.id (== product.videoId ici,
-        // mais retourné PAR Firestore, donc fiable) devient l'ID de nav.
+        // 1) Par videoId — accès direct le plus économe si disponible.
         if (product.videoId) {
           const snap = await getDoc(doc(db, 'video_playlist', product.videoId));
-          if (!cancelled && snap.exists()) {
-            applyMedia(snap.data());
-            resolvedId = snap.id;
-          }
+          if (!cancelled && snap.exists() && applyMedia(snap.data())) { setLoading(false); return; }
         }
-        // 2) Repli par productId — si le videoId fourni ne correspondait
-        // à aucun document (champ erroné ou absent), on retrouve le
-        // document par une requête sur product.productId (présent de
-        // façon fiable, déjà utilisé par OrderModal), et on prend l'ID
-        // RÉEL du document trouvé (qs.docs[0].id), jamais un champ brut.
-        if (!cancelled && !resolvedId && product.productId) {
+        // 2) Repli par productId — le tableau live_sessions.products[] ne
+        // contient pas toujours videoId, mais productId y est toujours
+        // présent (déjà utilisé par OrderModal). Requête sur le champ
+        // imbriqué product.productId, indexée automatiquement par
+        // Firestore (pas d'index composite manuel nécessaire pour une
+        // seule égalité, même sur un champ de map).
+        if (!cancelled && product.productId) {
           const q = query(
             collection(db, 'video_playlist'),
             where('product.productId', '==', product.productId),
             limit(1)
           );
           const qs = await getDocs(q);
-          if (!cancelled && !qs.empty) {
-            applyMedia(qs.docs[0].data());
-            resolvedId = qs.docs[0].id;
-          }
+          if (!cancelled && !qs.empty) applyMedia(qs.docs[0].data());
         }
-        if (!cancelled) setVideoDocId(resolvedId);
       } catch (e) {
         console.warn('⚠️ useProductVideo:', e.code ?? e.message ?? e);
       } finally {
@@ -1061,7 +1032,7 @@ function useProductVideo(product) {
     return () => { cancelled = true; };
   }, [product?.videoId, product?.productId, product?.videoUrl, product?.thumbnail]);
 
-  return { videoUrl, poster, videoDocId, loading };
+  return { videoUrl, poster, loading };
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1069,9 +1040,9 @@ function useProductVideo(product) {
    Lecture muette, en boucle, déclenchée au tap — poster = thumbnail
    du produit pour un affichage instantané avant lecture.
 ══════════════════════════════════════════════════════════ */
-function ProductVideoPreview({ videoUrl, poster, videoDocId }) {
+function ProductVideoPreview({ videoUrl, poster, expanded, onToggleExpand }) {
   const videoRef = useRef(null);
-  const router = useRouter();
+  const [muted, setMuted] = useState(true);
 
   // Lecture automatique dès l'affichage — `muted` + `playsInline` sont
   // requis par les navigateurs pour autoriser l'autoplay sans geste
@@ -1084,20 +1055,37 @@ function ProductVideoPreview({ videoUrl, poster, videoDocId }) {
     v.play().catch(() => {}); // ignore silencieusement (ex. onglet en arrière-plan)
   }, [videoUrl]);
 
+  // Écrit directement .muted sur l'élément plutôt que de compter
+  // uniquement sur la prop JSX `muted` — certains navigateurs
+  // n'appliquent pas de façon fiable les changements de cette prop sur
+  // un <video> déjà monté et en lecture (particularité connue de
+  // l'attribut muted, distinct des autres attributs HTML standards).
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v) v.muted = muted;
+  }, [muted]);
+
   if (!videoUrl) return null;
 
-  const openInDemo = () => {
-    router.push(videoDocId ? `/demo?video=${videoDocId}` : '/demo');
+  const toggleMuted = (e) => {
+    e.stopPropagation(); // ne doit pas aussi agrandir/réduire la vidéo
+    setMuted(m => !m);
   };
 
   return (
     <div
-      onClick={openInDemo}
+      onClick={onToggleExpand}
       role="button"
-      aria-label="Voir la vidéo complète dans le feed"
+      aria-label={expanded ? 'Réduire la vidéo' : 'Agrandir la vidéo'}
       style={{
-        position: 'relative', width: 110, aspectRatio: '9 / 14', flexShrink: 0,
+        position: 'relative',
+        width: expanded ? '100%' : 110,
+        maxWidth: expanded ? 280 : 110,
+        aspectRatio: '9 / 14',
+        margin: expanded ? '0 auto' : 0,
+        flexShrink: 0,
         borderRadius: 12, overflow: 'hidden', background: '#000', cursor: 'pointer',
+        transition: 'width .2s ease, max-width .2s ease',
       }}
     >
       <video
@@ -1107,24 +1095,38 @@ function ProductVideoPreview({ videoUrl, poster, videoDocId }) {
         muted loop playsInline autoPlay
         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
       />
-      {/* Icône "ouvrir" en coin — la vidéo joue déjà, ce badge signale
-          juste que le tap mène vers le feed complet, pas un play/pause. */}
-      <div style={{
-        position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: '50%',
-        background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-          <polyline points="15 3 21 3 21 9"/>
-          <line x1="10" y1="14" x2="21" y2="3"/>
-        </svg>
-      </div>
-      <span style={{
-        position: 'absolute', bottom: 6, left: 6, fontSize: 9, fontWeight: 700, color: '#fff',
-        background: 'rgba(0,0,0,0.55)', padding: '2px 6px', borderRadius: 6,
-      }}>
-        Vidéo produit
-      </span>
+
+      {/* Bouton son — indépendant du clic sur la vidéo (agrandir/réduire) */}
+      <button
+        onClick={toggleMuted}
+        aria-label={muted ? 'Activer le son' : 'Couper le son'}
+        style={{
+          position: 'absolute', top: 8, right: 8, width: 30, height: 30, borderRadius: '50%',
+          background: 'rgba(0,0,0,0.6)', border: 'none', cursor: 'pointer', zIndex: 2,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        {muted ? (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+          </svg>
+        )}
+      </button>
+
+      {!expanded && (
+        <span style={{
+          position: 'absolute', bottom: 6, left: 6, fontSize: 9, fontWeight: 700, color: '#fff',
+          background: 'rgba(0,0,0,0.55)', padding: '2px 6px', borderRadius: 6,
+        }}>
+          Vidéo produit
+        </span>
+      )}
     </div>
   );
 }
@@ -1142,7 +1144,8 @@ function ProductVideoPreview({ videoUrl, poster, videoDocId }) {
    Firestore supplémentaire n'est nécessaire pour l'ouvrir.
 ══════════════════════════════════════════════════════════ */
 function ProductSheet({ product, onClose, onOrder }) {
-  const { videoUrl, poster, videoDocId, loading: videoLoading } = useProductVideo(product);
+  const { videoUrl, poster, loading: videoLoading } = useProductVideo(product);
+  const [videoExpanded, setVideoExpanded] = useState(false);
 
   if (!product) return null;
 
@@ -1178,9 +1181,17 @@ function ProductSheet({ product, onClose, onOrder }) {
 
           {/* Miniature vidéo produit */}
           {(videoUrl || videoLoading) && (
-            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+            <div style={{
+              display: 'flex', gap: 12, alignItems: 'flex-start',
+              flexDirection: videoExpanded ? 'column' : 'row',
+            }}>
               {videoUrl ? (
-                <ProductVideoPreview videoUrl={videoUrl} poster={poster} videoDocId={videoDocId}/>
+                <ProductVideoPreview
+                  videoUrl={videoUrl}
+                  poster={poster}
+                  expanded={videoExpanded}
+                  onToggleExpand={() => setVideoExpanded(e => !e)}
+                />
               ) : (
                 <div style={{
                   width: 110, aspectRatio: '9 / 14', flexShrink: 0, borderRadius: 12,
@@ -1189,12 +1200,14 @@ function ProductSheet({ product, onClose, onOrder }) {
                   <Spinner/>
                 </div>
               )}
-              <p style={{
-                flex: 1, fontSize: 12.5, color: 'rgba(255,255,255,0.5)',
-                lineHeight: 1.6, margin: '4px 0 0',
-              }}>
-                Voyez le produit en situation. Touchez la vidéo pour l'ouvrir en entier dans le feed.
-              </p>
+              {!videoExpanded && (
+                <p style={{
+                  flex: 1, fontSize: 12.5, color: 'rgba(255,255,255,0.5)',
+                  lineHeight: 1.6, margin: '4px 0 0',
+                }}>
+                  Voyez le produit en situation. Touchez la vidéo pour l'agrandir, l'icône 🔊 pour le son.
+                </p>
+              )}
             </div>
           )}
 
