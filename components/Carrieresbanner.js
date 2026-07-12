@@ -1,61 +1,115 @@
-'use client';
+// components/CarrieresBanner.jsx
+// -----------------------------------------------------------------------------
+// Bannière CTA homepage — met en avant le recrutement du programme
+// "Made in Benin Live" (hôtes/hôtesses, community manager, créateurs ambassadeurs).
+// Suit le même pattern que KkiapayBanner / PublierColisBanner / CommandeBanner :
+// composant autonome, styles inline, design tokens Made in Benin Live.
+// -----------------------------------------------------------------------------
 
 import Link from 'next/link';
-import { Radio, ArrowRight, Sparkles } from 'lucide-react';
 
-/**
- * CarrieresBanner
- * Bandeau CTA "Rejoignez Made in Benin Live" à insérer sur la page d'accueil.
- * Reprend le gabarit visuel des autres bannières (KkiapayBanner, LiveBanner, ...) :
- * fond plein, icône dans un badge, titre + description, CTA à droite.
- */
+const D = {
+  bg: '#F2F1EC', surface: '#FFFFFF', navy: '#1B2A4A', navyDeep: '#0F1B32',
+  gold: '#B8860B', goldLight: '#D9B45C', text1: '#FFFFFF', text2: 'rgba(255,255,255,0.85)',
+  text3: 'rgba(255,255,255,0.7)', border: 'rgba(255,255,255,0.3)',
+};
+
+const OPEN_ROLES = ['Hôte / Hôtesse Live', 'Community Manager', 'Créateur Ambassadeur'];
+
 export default function CarrieresBanner() {
   return (
-    <section className="relative overflow-hidden bg-[#1B2A4A] py-10 sm:py-12">
-      {/* motif discret en fond, cohérent avec l'identité Made in Benin Live */}
+    <section
+      style={{
+        background: `linear-gradient(135deg, ${D.navy}, ${D.navyDeep})`,
+        borderRadius: 24,
+        margin: '32px auto',
+        maxWidth: 1100,
+        padding: '40px 32px',
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 24,
+      }}
+    >
+      <div style={{ flex: '1 1 320px', minWidth: 260 }}>
+        <div
+          style={{
+            display: 'inline-block',
+            background: 'rgba(255,255,255,0.12)',
+            color: D.goldLight,
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 1.2,
+            padding: '5px 12px',
+            borderRadius: 999,
+            marginBottom: 14,
+          }}
+        >
+          🎙️ RECRUTEMENT — MADE IN BENIN LIVE
+        </div>
+
+        <h2 style={{ color: D.text1, fontSize: 28, fontWeight: 800, margin: '0 0 10px', lineHeight: 1.25 }}>
+          Devenez le visage du Made in Benin, en direct
+        </h2>
+
+        <p style={{ color: D.text2, fontSize: 15, lineHeight: 1.6, margin: '0 0 18px', maxWidth: 460 }}>
+          FriTok recrute pour animer les ventes en direct des usines de la GDIZ. Aucune
+          expérience obligatoire — formation assurée, fixe + commission sur vos ventes.
+        </p>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 22 }}>
+          {OPEN_ROLES.map((role) => (
+            <span
+              key={role}
+              style={{
+                background: 'rgba(255,255,255,0.1)',
+                color: D.text1,
+                fontSize: 12,
+                fontWeight: 600,
+                padding: '6px 12px',
+                borderRadius: 999,
+                border: `1px solid ${D.border}`,
+              }}
+            >
+              {role}
+            </span>
+          ))}
+        </div>
+
+        <Link
+          href="/carrieres"
+          style={{
+            display: 'inline-block',
+            background: D.gold,
+            color: D.navy,
+            fontWeight: 700,
+            fontSize: 15,
+            padding: '13px 28px',
+            borderRadius: 14,
+            textDecoration: 'none',
+          }}
+        >
+          📡 Voir les postes ouverts
+        </Link>
+      </div>
+
+      {/* Illustration légère — remplaçable par une vraie image plus tard */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-[0.06]"
         style={{
-          backgroundImage:
-            'repeating-linear-gradient(135deg, #F2F1EC 0px, #F2F1EC 1px, transparent 1px, transparent 14px)',
+          flex: '0 0 auto',
+          width: 140,
+          height: 140,
+          borderRadius: 28,
+          background: 'rgba(255,255,255,0.08)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 56,
         }}
-      />
-
-      <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
-          <div className="flex items-start gap-4">
-            <span className="mt-1 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[#B8860B]">
-              <Radio className="h-5 w-5 text-[#1B2A4A]" strokeWidth={2} />
-            </span>
-
-            <div>
-              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[#D9B45C]">
-                <Sparkles className="h-3.5 w-3.5" strokeWidth={2.5} />
-                Recrutement · Made in Benin Live
-              </p>
-              <h3 className="mt-1.5 text-xl font-semibold leading-snug text-white sm:text-2xl">
-                Devenez le visage du Made in&nbsp;Benin, en direct
-              </h3>
-              <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-white/70">
-                FriTok recrute des hôtes et hôtesses live, des créateurs ambassadeurs et des
-                community managers pour animer les ventes en direct des usines de la GDIZ.
-                Aucune expérience obligatoire — formation assurée, fixe&nbsp;+&nbsp;commission.
-              </p>
-            </div>
-          </div>
-
-          <Link
-            href="/carrieres"
-            className="group inline-flex flex-shrink-0 items-center gap-2 rounded-full bg-[#B8860B] px-5 py-3 text-sm font-semibold text-[#1B2A4A] transition-colors hover:bg-[#D9B45C]"
-          >
-            Voir les postes ouverts
-            <ArrowRight
-              className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-              strokeWidth={2.5}
-            />
-          </Link>
-        </div>
+      >
+        🎥🇧🇯
       </div>
     </section>
   );
