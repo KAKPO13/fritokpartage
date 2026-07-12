@@ -976,15 +976,32 @@ function ReportSheet({ session, authUser, onClose }) {
 function useProductVideo(product) {
   const [videoUrl,   setVideoUrl]   = useState(product?.videoUrl || null);
   const [poster,     setPoster]     = useState(product?.thumbnail || null);
-  const [videoDocId, setVideoDocId] = useState(product?.videoId || null);
-  const [loading,    setLoading]    = useState(!product?.videoUrl && !!(product?.videoId || product?.productId));
+  // ⚠️ Jamais initialisé depuis product.videoId directement — voir plus
+  // bas pourquoi ce champ ne peut pas être utilisé sans vérification.
+  const [videoDocId, setVideoDocId] = useState(null);
+  const [loading,    setLoading]    = useState(!!(product?.videoId || product?.productId));
 
   useEffect(() => {
     setVideoUrl(product?.videoUrl || null);
     setPoster(product?.thumbnail || null);
-    setVideoDocId(product?.videoId || null);
+    setVideoDocId(null);
 
-    if (product?.videoUrl) { setLoading(false); return; }
+    // ── CORRIGÉ ──
+    // Avant : `if (product?.videoUrl) { setLoading(false); return; }` ici
+    // court-circuitait TOUTE résolution dès que videoUrl était déjà connu
+    // (cas courant : product.videoUrl est directement présent sur l'objet
+    // product de live_sessions). Résultat : videoDocId restait sur la
+    // valeur brute product.videoId, JAMAIS vérifiée contre un vrai
+    // document Firestore — et product.videoId (champ dénormalisé côté
+    // live_sessions) n'est pas garanti d'être égal à l'ID réel du
+    // document video_playlist. Le lien /demo?video={id} pointait donc
+    // souvent vers un ID inexistant, et /demo retombait silencieusement
+    // sur la première vidéo du feed.
+    //
+    // Maintenant : on tente TOUJOURS de résoudre un ID via une requête
+    // Firestore réelle (dont .id est PAR DÉFINITION le véritable ID),
+    // même quand videoUrl est déjà utilisable pour la lecture — seule la
+    // lecture peut se permettre un raccourci, jamais la navigation.
     if (!product?.videoId && !product?.productId) { setLoading(false); return; }
 
     let cancelled = false;
@@ -995,38 +1012,45 @@ function useProductVideo(product) {
     // formes coexistent selon l'ancienneté du document (voir
     // firestore.rules : les nouveaux docs imposent videoUrl à la racine,
     // les plus anciens ne l'avaient que dans product.videoUrl).
-    const applyDoc = (id, data) => {
+    const applyMedia = (data) => {
       if (!data) return false;
       const url = data.videoUrl || data.product?.videoUrl || null;
-      if (!url) return false;
-      setVideoUrl(url);
+      if (url) setVideoUrl(prev => prev || url);
       setPoster(prev => prev || data.thumbnail || data.product?.thumbnail || null);
-      setVideoDocId(id);
-      return true;
+      return !!url;
     };
 
     (async () => {
+      let resolvedId = null;
       try {
-        // 1) Par videoId — accès direct le plus économe si disponible.
+        // 1) Par videoId — si le champ correspond réellement à l'ID du
+        // document, ce getDoc réussit et snap.id (== product.videoId ici,
+        // mais retourné PAR Firestore, donc fiable) devient l'ID de nav.
         if (product.videoId) {
           const snap = await getDoc(doc(db, 'video_playlist', product.videoId));
-          if (!cancelled && snap.exists() && applyDoc(snap.id, snap.data())) { setLoading(false); return; }
+          if (!cancelled && snap.exists()) {
+            applyMedia(snap.data());
+            resolvedId = snap.id;
+          }
         }
-        // 2) Repli par productId — le tableau live_sessions.products[] ne
-        // contient pas toujours videoId, mais productId y est toujours
-        // présent (déjà utilisé par OrderModal). Requête sur le champ
-        // imbriqué product.productId, indexé automatiquement par
-        // Firestore (pas besoin d'index composite manuel pour une seule
-        // égalité, même sur un champ de map).
-        if (!cancelled && product.productId) {
+        // 2) Repli par productId — si le videoId fourni ne correspondait
+        // à aucun document (champ erroné ou absent), on retrouve le
+        // document par une requête sur product.productId (présent de
+        // façon fiable, déjà utilisé par OrderModal), et on prend l'ID
+        // RÉEL du document trouvé (qs.docs[0].id), jamais un champ brut.
+        if (!cancelled && !resolvedId && product.productId) {
           const q = query(
             collection(db, 'video_playlist'),
             where('product.productId', '==', product.productId),
             limit(1)
           );
           const qs = await getDocs(q);
-          if (!cancelled && !qs.empty) applyDoc(qs.docs[0].id, qs.docs[0].data());
+          if (!cancelled && !qs.empty) {
+            applyMedia(qs.docs[0].data());
+            resolvedId = qs.docs[0].id;
+          }
         }
+        if (!cancelled) setVideoDocId(resolvedId);
       } catch (e) {
         console.warn('⚠️ useProductVideo:', e.code ?? e.message ?? e);
       } finally {
