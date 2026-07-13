@@ -13,7 +13,7 @@
 // Corrigé ici : leave ne décrémente que si le viewer n'était pas déjà en
 // pause.
 
-const { db, json, admin, requireAuth } = require('./_avatarShared');
+const { db, json, admin, requireAuth } = require('./_avatarShared.cjs');
 
 const ACTIONS = ['join', 'leave', 'pause', 'resume', 'heartbeat', 'like', 'comment', 'reaction', 'click'];
 const MAX_COMMENT_LEN = 300;

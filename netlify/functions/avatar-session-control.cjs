@@ -6,7 +6,7 @@
 // trois opérations partagent la même vérification de propriété
 // (session.sellerId === uid du token), donc pas de gain à les séparer.
 
-const { db, json, admin, requireAuth } = require('./_avatarShared');
+const { db, json, admin, requireAuth } = require('./_avatarShared.cjs');
 
 const ACTIONS = ['updateCurrentProduct', 'startLiveNow', 'stopSession'];
 

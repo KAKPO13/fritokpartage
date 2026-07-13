@@ -7,7 +7,7 @@
 // ici côté serveur (miroir de la règle Firestore sur video_playlist), pour
 // fermer la même faille "paywall UI only".
 
-const { db, json, admin, requireAuth, requireActiveSellerSubscription } = require('./_avatarShared');
+const { db, json, admin, requireAuth, requireActiveSellerSubscription } = require('./_avatarShared.cjs');
 
 const MAX_PRODUCTS = 20;
 const MAX_NAME_LEN = 100;
