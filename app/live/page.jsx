@@ -382,6 +382,7 @@ function CoHostButton({ session, authUser }) {
   const [errorMsg, setErrorMsg] = useState(null);
 
   const unsubDocRef    = useRef(null);
+  const unsubTokenRef  = useRef(null); // écoute du token privé (voir _listenForToken)
   const agoraClientRef = useRef(null);
   const tracksRef      = useRef({ audio: null, video: null });
   const localDivRef    = useRef(null);
@@ -399,6 +400,7 @@ function CoHostButton({ session, authUser }) {
     return () => {
       isMountedRef.current = false;
       unsubDocRef.current?.();
+      unsubTokenRef.current?.();
       _releaseCoHostAgora();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -533,15 +535,28 @@ function CoHostButton({ session, authUser }) {
 
       unsubDocRef.current = onSnapshot(
         doc(db, 'live_sessions', channelId, 'co_hosts', uid),
-        async (snap) => {
+        (snap) => {
           if (!snap.exists()) {
             if (isMountedRef.current) setStatus('idle');
             return;
           }
           const d = snap.data();
-          if (d.status === 'active' && d.token && d.agoraUid) {
+          // ── CORRIGÉ ──
+          // Le token Agora n'est PLUS écrit sur ce document co_hosts (voir
+          // GoLive.jsx, en-tête : "token Agora → lu dans
+          // /notifications/{uid}/items/cohost_token_{channelId}" — changement
+          // volontaire côté serveur pour ne jamais exposer un token Agora sur
+          // un document que d'autres viewers peuvent potentiellement lister).
+          // d.token/d.agoraUid ne sont donc plus jamais présents ici : la
+          // condition précédente (`d.status === 'active' && d.token &&
+          // d.agoraUid`) ne devenait jamais vraie, et le co-host restait
+          // bloqué sur "Connexion..." malgré l'acceptation côté vendeur.
+          // On passe maintenant setStatus('joining') dès l'acceptation, et on
+          // va chercher le token dans la notification privée dédiée.
+          if (d.status === 'active') {
             unsubDocRef.current?.();
-            await _joinAsCoHost(d.token, d.agoraUid);
+            if (isMountedRef.current) setStatus('joining');
+            _listenForToken();
           } else if (d.status === 'declined') {
             unsubDocRef.current?.();
             if (isMountedRef.current) setStatus('declined');
@@ -564,13 +579,45 @@ function CoHostButton({ session, authUser }) {
     }
   };
 
+  // Écoute la notification privée contenant le token Agora, livrée par le
+  // serveur (secureCall('accept-cohost', ...) dans GoLive.jsx) une fois le
+  // vendeur ayant accepté. Chemin et présence de cette notification décrits
+  // dans l'en-tête de GoLive.jsx. En onSnapshot (pas une lecture ponctuelle)
+  // car l'écriture du statut 'active' sur co_hosts et celle de cette
+  // notification sont deux opérations serveur distinctes qui peuvent ne pas
+  // arriver dans le même instant — écouter évite une course perdue si la
+  // notification arrive juste après notre premier essai de lecture.
+  function _listenForToken() {
+    const notifRef = doc(db, 'notifications', uid, 'items', `cohost_token_${channelId}`);
+    unsubTokenRef.current = onSnapshot(
+      notifRef,
+      async (snap) => {
+        if (!snap.exists()) return;
+        const nd = snap.data();
+        if (nd.agoraToken && nd.agoraUid != null) {
+          unsubTokenRef.current?.();
+          await _joinAsCoHost(nd.agoraToken, nd.agoraUid);
+        }
+      },
+      (err) => {
+        console.warn('cohost token listener:', err);
+        if (isMountedRef.current) {
+          setErrorMsg('Token de connexion introuvable.');
+          setStatus('idle');
+        }
+      }
+    );
+  }
+
   const cancelRequest = async () => {
     unsubDocRef.current?.();
+    unsubTokenRef.current?.();
     await deleteDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid)).catch(() => {});
     if (isMountedRef.current) setStatus('idle');
   };
 
   const leaveStage = async () => {
+    unsubTokenRef.current?.();
     try {
       await updateDoc(doc(db, 'live_sessions', channelId, 'co_hosts', uid), {
         status: 'left', leftAt: serverTimestamp(),
@@ -1614,7 +1661,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
                     className={styles.carouselOrderBtn}
                     onClick={e => { e.stopPropagation(); handleOrder(p); }}
                   >
-                    Acheter
+                    Commander
                   </button>
                 </div>
               );
