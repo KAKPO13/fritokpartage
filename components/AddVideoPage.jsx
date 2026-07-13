@@ -1,7 +1,7 @@
 'use client';
 import { useState, useRef, useEffect } from "react";
 import { db, auth } from "@/lib/firebaseClient";
-import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
 import SubscriptionGuard from "@/components/SubscriptionGuard";
 
@@ -18,11 +18,37 @@ function uuidv4() {
 }
 
 // ─── Keywords ──────────────────────────────────────────────
+// ⚠️ FIX PERMISSION : la règle Firestore video_playlist.create exige
+// keywords.size() <= 10 (voir firestore.rules). L'ancienne version ne
+// bornait rien : une description de 2-3 phrases dépasse presque toujours
+// 10 mots uniques, donc la publication échouait en permission-denied
+// pour tout vendeur qui remplissait normalement le formulaire.
+//
+// Garder ce MAX_KEYWORDS synchronisé avec firestore.rules, comme
+// FRAIS_MAX / TOTAL_MAX le sont déjà avec AjouterColisPage.jsx.
+const MAX_KEYWORDS = 10;
+
+// Mots vides retirés pour ne pas gâcher les 10 emplacements disponibles
+// avec des mots sans valeur de recherche.
+const STOPWORDS = new Set([
+  "le", "la", "les", "de", "des", "du", "un", "une", "et", "en", "pour",
+  "avec", "dans", "sur", "au", "aux", "ce", "ces", "cette", "son", "sa",
+  "ses", "est", "sont", "que", "qui", "plus", "tout", "toute", "tous",
+  "toutes", "l", "d",
+]);
+
 function generateKeywords(title, name, description) {
-  const text = `${title} ${name} ${description}`;
-  return [...new Set(
-    text.toLowerCase().replace(/[^\w\s]/g, "").split(/\s+/).filter(Boolean)
-  )];
+  // Le titre et le nom du produit sont concaténés AVANT la description :
+  // comme on tronque à MAX_KEYWORDS ensuite, ça priorise naturellement
+  // les mots les plus pertinents pour la recherche (titre/produit) sur
+  // les mots de la description, plus longue et moins ciblée.
+  const words = `${title} ${name} ${description}`
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w));
+
+  return [...new Set(words)].slice(0, MAX_KEYWORDS);
 }
 
 // ─── Upload direct vers le worker Cloudflare ───────────────
@@ -369,19 +395,26 @@ function AddVideoContent() {
   const imageInput = useRef(null);
 
   // ── Auth Firebase ─────────────────────────────────────────
+  // ⚠️ FIX PERMISSION : cette page est réservée aux vendeurs abonnés
+  // (SubscriptionGuard + règle hasActiveSubscription() dans firestore.rules,
+  // qui fait un get() sur /users/{uid}). L'ancienne version connectait en
+  // ANONYME tout visiteur non authentifié (signInAnonymously) — un uid
+  // anonyme n'a pas de document /users/{uid}, donc hasActiveSubscription()
+  // échoue systématiquement et la publication finit en permission-denied,
+  // avec un toast "Erreur : inconnue" qui masque le vrai problème
+  // (l'utilisateur n'est en fait pas connecté).
+  //
+  // Comportement aligné sur AjouterColisPage.jsx : redirection vers
+  // /connexion plutôt que création d'une session anonyme. Ajustez le
+  // chemin de la page ("/publish" ci-dessous) s'il diffère dans le routeur.
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (u) {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u && !u.isAnonymous) {
         setUser(u);
+        setAuthReady(true);
       } else {
-        try {
-          const cred = await signInAnonymously(auth);
-          setUser(cred.user);
-        } catch {
-          showToast("Connexion impossible", true);
-        }
+        window.location.href = "/connexion?next=/publish";
       }
-      setAuthReady(true);
     });
     return unsub;
   }, []);
