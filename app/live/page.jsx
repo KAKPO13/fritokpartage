@@ -1661,7 +1661,7 @@ function LivePlayer({ session, authUser, authReady, onClose }) {
                     className={styles.carouselOrderBtn}
                     onClick={e => { e.stopPropagation(); handleOrder(p); }}
                   >
-                    Commander
+                    Acheter
                   </button>
                 </div>
               );
