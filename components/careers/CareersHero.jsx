@@ -1,63 +1,167 @@
-import { Radio, GraduationCap, Wallet, MapPin } from 'lucide-react';
+// components/careers/CareersHero.js
+// -----------------------------------------------------------------------------
+// Section héro de la page /carrieres. Styles inline, tokens de design
+// identiques à CarrieresBanner.jsx pour cohérence visuelle sur tout le
+// programme Made in Benin Live.
+// -----------------------------------------------------------------------------
 
-const badges = [
-  { icon: GraduationCap, label: 'Formation assurée, aucune expérience obligatoire' },
-  { icon: Wallet, label: 'Fixe + commission sur les ventes en direct' },
-  { icon: MapPin, label: 'Zone Industrielle de Glo-Djigbé, Bénin' },
+// ─── Design tokens — identiques à CarrieresBanner.jsx ───────────────────────
+const D = {
+  navy:      "#1B2A4A",
+  navyDeep:  "#0F1B32",
+  gold:      "#B8860B",
+  goldLight: "#D9B45C",
+  goldDim:   "rgba(217,180,92,0.14)",
+  white:     "#FFFFFF",
+  text2:     "rgba(255,255,255,0.85)",
+  text3:     "rgba(255,255,255,0.7)",
+  border:    "rgba(255,255,255,0.25)",
+};
+
+const BADGES = [
+  { icon: "🎓", label: "Formation assurée, aucune expérience obligatoire" },
+  { icon: "💰", label: "Fixe + commission sur les ventes en direct" },
+  { icon: "📍", label: "Zone Industrielle de Glo-Djigbé, Bénin" },
 ];
+
+function Badge({ icon, label }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        background: "rgba(255,255,255,0.08)",
+        border: `1px solid ${D.border}`,
+        borderRadius: 999,
+        padding: "9px 16px",
+        color: D.text2,
+        fontSize: 13,
+        fontWeight: 600,
+      }}
+    >
+      <span style={{ fontSize: 15 }}>{icon}</span>
+      {label}
+    </span>
+  );
+}
 
 export default function CareersHero() {
   return (
-    <section className="relative overflow-hidden bg-[#1B2A4A]">
+    <section
+      style={{
+        position: "relative",
+        background: `linear-gradient(135deg, ${D.navy}, ${D.navyDeep})`,
+        padding: "76px 24px 88px",
+        overflow: "hidden",
+      }}
+    >
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-[0.07]"
         style={{
+          position: "absolute",
+          inset: 0,
+          opacity: 0.07,
           backgroundImage:
-            'repeating-linear-gradient(135deg, #F2F1EC 0px, #F2F1EC 1px, transparent 1px, transparent 14px)',
+            "repeating-linear-gradient(135deg, #F2F1EC 0px, #F2F1EC 1px, transparent 1px, transparent 14px)",
         }}
       />
 
-      <div className="relative mx-auto max-w-5xl px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
-        <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-[#D9B45C]">
-          <Radio className="h-3.5 w-3.5" strokeWidth={2.5} />
-          Recrutement · Made in Benin Live
-        </span>
+      <div style={{ position: "relative", maxWidth: 760, margin: "0 auto" }}>
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            background: D.goldDim,
+            borderRadius: 999,
+            padding: "7px 16px",
+            marginBottom: 24,
+          }}
+        >
+          <span style={{ fontSize: 14 }}>🎙️</span>
+          <span
+            style={{
+              color: D.goldLight,
+              fontSize: 12,
+              fontWeight: 800,
+              letterSpacing: 1.2,
+              textTransform: "uppercase",
+            }}
+          >
+            Recrutement · Made in Benin Live
+          </span>
+        </div>
 
-        <h1 className="mt-6 max-w-3xl text-4xl font-semibold leading-[1.1] text-white sm:text-5xl lg:text-6xl">
+        <h1
+          style={{
+            color: D.white,
+            fontSize: 44,
+            fontWeight: 800,
+            lineHeight: 1.12,
+            margin: "0 0 20px",
+            letterSpacing: -0.5,
+          }}
+        >
           Devenez le visage du Made in&nbsp;Benin, en direct.
         </h1>
 
-        <p className="mt-6 max-w-2xl text-lg leading-relaxed text-white/75">
+        <p
+          style={{
+            color: D.text2,
+            fontSize: 17,
+            lineHeight: 1.65,
+            margin: "0 0 32px",
+            maxWidth: 620,
+          }}
+        >
           Made in Benin Live est le programme de live commerce de FriTok avec la GDIZ. Nous
-          recrutons les hôtes et hôtesses, créateurs et créatrices, et l'équipe qui feront vivre
-          en direct les usines de Glo-Djigbé — pour le Bénin, puis pour l'Afrique de l'Ouest.
+          recrutons les hôtes et hôtesses, créateurs et créatrices, et l&apos;équipe qui feront
+          vivre en direct les usines de Glo-Djigbé — pour le Bénin, puis pour l&apos;Afrique de
+          l&apos;Ouest.
         </p>
 
-        <div className="mt-10 flex flex-wrap gap-3">
-          {badges.map(({ icon: Icon, label }) => (
-            <span
-              key={label}
-              className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/85"
-            >
-              <Icon className="h-4 w-4 text-[#D9B45C]" strokeWidth={2} />
-              {label}
-            </span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 36 }}>
+          {BADGES.map((b) => (
+            <Badge key={b.label} icon={b.icon} label={b.label} />
           ))}
         </div>
 
-        <div className="mt-10 flex flex-wrap items-center gap-4">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
           <a
             href="#postes"
-            className="inline-flex items-center gap-2 rounded-full bg-[#B8860B] px-6 py-3.5 text-sm font-semibold text-[#1B2A4A] transition-colors hover:bg-[#D9B45C]"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: D.gold,
+              color: D.navy,
+              fontWeight: 700,
+              fontSize: 15,
+              padding: "15px 28px",
+              borderRadius: 999,
+              textDecoration: "none",
+            }}
           >
-            Voir les postes ouverts
+            📡 Voir les postes ouverts
           </a>
           <a
             href="#ambassadeurs"
-            className="inline-flex items-center gap-2 rounded-full border border-white/20 px-6 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-white/10"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: "transparent",
+              color: D.white,
+              fontWeight: 700,
+              fontSize: 15,
+              padding: "15px 28px",
+              borderRadius: 999,
+              border: `1.5px solid ${D.border}`,
+              textDecoration: "none",
+            }}
           >
-            Devenir créateur ambassadeur
+            🤝 Devenir créateur ambassadeur
           </a>
         </div>
       </div>
