@@ -38,6 +38,14 @@
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Petit spinner utilisé dans les boutons (modal de commande, localisation) */
+.spinnerSm {
+  display: inline-block;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3); border-top-color: #fff;
+  animation: spin .7s linear infinite;
+}
+
 .videoLayer { position: absolute; inset: 0; }
 
 /* ── Gradients ────────────────────────────── */
@@ -185,11 +193,23 @@
   box-shadow: 0 0 16px var(--orange-glow);
 }
 .miniThumb {
+  position: relative;
   width: 56px; height: 56px; border-radius: 10px; overflow: hidden; flex-shrink: 0;
   background: rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center;
   color: var(--text-muted);
 }
 .miniThumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Vidéo produit en boucle (mini-carte) — remplace l'image statique quand
+   une vidéo produit est disponible (même logique que ProductVideoPreview
+   dans live.js). */
+.miniVideo {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.miniMediaLoading {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+}
+
 .miniInfo { flex: 1; min-width: 0; }
 .miniName {
   color: var(--text1); font-size: 12px; font-weight: 700; margin: 0 0 3px;
@@ -228,6 +248,21 @@
   color: var(--text-muted);
 }
 .zoomImage { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+/* Vidéo produit en boucle (vue zoom) */
+.zoomVideo {
+  width: 100%; height: 100%; object-fit: contain; display: block;
+}
+.zoomMediaLoading {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+}
+.mediaMuteBtn {
+  position: absolute; top: 12px; right: 12px; z-index: 2;
+  width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center;
+}
+
 .zoomNav {
   position: absolute; top: 50%; transform: translateY(-50%);
   width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
@@ -292,3 +327,148 @@
   white-space: nowrap;
 }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* ══════════════════════════════════════════════════════════
+   MODAL DE COMMANDE (create-colis) — même parcours que
+   OrderModal dans live.js, restylé aux tokens Citrus Orange.
+══════════════════════════════════════════════════════════ */
+.modalBackdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(8, 4, 0, 0.72);
+  display: flex; align-items: flex-end; justify-content: center;
+  animation: fadeIn .2s ease-out;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modalSheet {
+  position: relative;
+  width: 100%; max-width: 480px; max-height: 92vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 22px 22px 0 0;
+  box-shadow: 0 -8px 32px rgba(255, 107, 0, 0.12);
+  animation: sheetUp .28s cubic-bezier(.2,.9,.3,1);
+}
+@keyframes sheetUp { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.modalHandle {
+  width: 40px; height: 4px; border-radius: 2px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 10px auto 4px;
+}
+
+.modalHeader {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 10px 20px 4px;
+}
+.modalTitle { color: var(--text1); font-size: 16px; font-weight: 800; margin: 0 0 2px; }
+.modalSub { color: var(--text-muted); font-size: 12.5px; margin: 0; }
+.modalClose {
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; cursor: pointer;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid var(--glass-border);
+  color: var(--text1); display: flex; align-items: center; justify-content: center;
+}
+
+.authBadge {
+  display: flex; align-items: center; gap: 8px;
+  margin: 6px 20px 0; padding: 9px 12px; border-radius: 12px;
+  background: rgba(52, 199, 89, 0.1); border: 1px solid rgba(52, 199, 89, 0.35);
+  color: var(--text1); font-size: 12.5px;
+}
+
+.modalBody { padding: 14px 20px 26px; display: flex; flex-direction: column; }
+
+.recapCard {
+  display: flex; gap: 12px; align-items: center;
+  padding: 10px; border-radius: 14px; margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--glass-border);
+}
+.recapImg { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; flex-shrink: 0; }
+.recapInfo { min-width: 0; }
+.recapName {
+  color: var(--text1); font-size: 13.5px; font-weight: 700; margin: 0 0 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.recapPrice { color: var(--zest); font-size: 13px; font-weight: 800; margin: 0; }
+
+.fieldLabel {
+  color: var(--text-muted); font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin: 14px 0 8px;
+}
+
+.toggleRow { display: flex; gap: 8px; }
+.toggleOpt, .toggleSel {
+  flex: 1; padding: 10px 12px; border-radius: 12px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  text-align: left;
+}
+.toggleOpt { background: rgba(255, 255, 255, 0.04); border: 1px solid var(--glass-border); }
+.toggleSel {
+  background: rgba(255, 107, 0, 0.14); border: 1.5px solid var(--orange);
+  box-shadow: 0 0 10px var(--orange-glow);
+}
+.toggleLabel { color: var(--text1); font-size: 13px; font-weight: 700; }
+.toggleSub { color: var(--text-muted); font-size: 11px; }
+
+.formInput {
+  width: 100%; padding: 12px 14px; border-radius: 12px;
+  background: var(--input-bg); border: 1px solid var(--glass-border);
+  color: var(--text1); font-size: 14px; font-family: inherit;
+  outline: none;
+}
+.formInput::placeholder { color: var(--text-muted); }
+.formTextarea { resize: vertical; min-height: 56px; }
+.inputErr { border-color: var(--red); }
+.errMsg { color: var(--red); font-size: 11.5px; margin: 5px 0 0; }
+
+.fraisCard {
+  margin-top: 14px; padding: 12px 14px; border-radius: 14px;
+  background: rgba(255, 183, 0, 0.06); border: 1px solid rgba(255, 183, 0, 0.25);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.fraisRow {
+  display: flex; align-items: center; justify-content: space-between;
+  color: var(--text-muted); font-size: 12.5px;
+}
+.fraisRow span:last-child { color: var(--text1); font-weight: 600; }
+.fraisDivider { height: 1px; background: var(--glass-border); margin: 2px 0; }
+.fraisTotal span { color: var(--zest) !important; font-weight: 800 !important; font-size: 14px; }
+
+.locBtn {
+  margin-top: 14px; width: 100%; padding: 12px 14px; border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05); border: 1px dashed var(--glass-border);
+  color: var(--text-muted); font-size: 13px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+}
+.locOk {
+  background: rgba(52, 199, 89, 0.1); border: 1px solid rgba(52, 199, 89, 0.4);
+  color: var(--success);
+}
+
+.confirmBtn {
+  margin-top: 20px; width: 100%; height: 52px; border: none; border-radius: 16px;
+  background: linear-gradient(135deg, var(--orange), var(--orange-hot));
+  color: #fff; font-size: 15px; font-weight: 800; cursor: pointer;
+  box-shadow: 0 6px 20px var(--orange-glow);
+  display: flex; align-items: center; justify-content: center;
+}
+.confirmBtn:disabled { opacity: .6; cursor: not-allowed; }
+
+/* ── Étape QR (confirmation de commande) ──── */
+.qrStep { align-items: center; text-align: center; }
+.qrHint { color: var(--text-muted); font-size: 12.5px; margin: 0 0 16px; }
+.qrWrap {
+  padding: 14px; border-radius: 16px; background: #fff; margin-bottom: 16px;
+}
+.qrImg { width: 100%; max-width: 200px; display: block; }
+.cidCard {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 9px 14px; border-radius: 12px; margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border);
+  color: var(--text1); font-size: 12.5px;
+}
+.cidLabel { color: var(--text-muted); }
+.cidValue { font-weight: 800; letter-spacing: 0.02em; }
+.gpsTag { color: var(--text-muted); font-size: 11px; margin: 0 0 12px; }

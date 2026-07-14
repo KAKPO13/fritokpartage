@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   doc, collection, query, orderBy, limit, onSnapshot,
+  getDoc, getDocs, where,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
+import QRCode from 'qrcode';
 import { db, auth } from '@/lib/firebaseClient';
 import { productFromMap } from './product';
 import AvatarVideoPlayer from './AvatarVideoPlayer';
@@ -14,7 +16,6 @@ import {
   pauseAvatarSession, resumeAvatarSession,
   likeAvatarSession, commentAvatarSession, reactAvatarSession,
 } from '../../lib/avatarSessionApi';
-import { addToPanier } from '../../lib/panierApi';
 
 // ⚠️ IMPORTANT — voir firestore.rules, section `/live_avatar_sessions/{sessionId}` :
 // le document de session ET TOUTES ses sous-collections (viewers, likes,
@@ -31,6 +32,111 @@ import { addToPanier } from '../../lib/panierApi';
 // LIVE_CHAT_LIMIT dans live.js : jamais d'onSnapshot non borné sur une
 // sous-collection qui peut grossir indéfiniment pendant un live.
 const COMMENT_LIMIT = 20;
+
+/* ══════════════════════════════════════════════════════════
+   PAYS / VILLES / TARIFS DE LIVRAISON
+   ── Dupliqué depuis live.js volontairement, comme le reste des
+   composants partagés entre /demo, /live et /liveAvatar dans ce
+   projet (voir la note en tête de live.js pour le détail).
+   ⚠️ TARIFS non-CI = PLACEHOLDERS, à remplacer par tes vrais barèmes
+   avant mise en production sur ces marchés.
+══════════════════════════════════════════════════════════ */
+const COUNTRIES = {
+  CI: {
+    label: "Côte d'Ivoire",
+    currency: 'XOF',
+    hub: 'Abidjan',
+    villes: [
+      'Abidjan', 'Bouaké', 'Daloa', 'Korhogo', 'Yamoussoukro', 'San-Pédro',
+      'Man', 'Divo', 'Gagnoa', 'Abengourou', 'Soubré', 'Odienné', 'Duekoué',
+      'Bondoukou', 'Mankono', 'Séguéla', 'Touba', 'Ferkessédougou', 'Katiola',
+      'Agboville', 'Adzopé', 'Tiassalé', 'Lakota', 'Issia', 'Sassandra',
+    ],
+    tarifs: {
+      'Abidjan': { 'Abidjan': 1500, 'Bouaké': 2500, default: 3000 },
+      'Bouaké': { 'Bouaké': 1500, 'Abidjan': 2500, default: 3500 },
+      default: { default: 3000 },
+    },
+    fallback: 8000,
+  },
+  SN: {
+    label: 'Sénégal',
+    currency: 'XOF',
+    hub: 'Dakar',
+    villes: ['Dakar', 'Thiès', 'Rufisque', 'Mbour', 'Saint-Louis', 'Kaolack', 'Ziguinchor', 'Touba', 'Diourbel', 'Louga', 'Tambacounda', 'Kolda'],
+    tarifs: { 'Dakar': { 'Dakar': 1500, 'Thiès': 2500, default: 3000 }, default: { default: 3500 } },
+    fallback: 8000,
+  },
+  GH: {
+    label: 'Ghana',
+    currency: 'GHS',
+    hub: 'Accra',
+    villes: ['Accra', 'Kumasi', 'Tamale', 'Sekondi-Takoradi', 'Ashaiman', 'Sunyani', 'Cape Coast', 'Obuasi', 'Teshie', 'Tema'],
+    tarifs: {
+      'Accra': { 'Accra': 20, 'Kumasi': 35, default: 40 },
+      'Kumasi': { 'Kumasi': 20, 'Accra': 35, default: 40 },
+      default: { default: 45 },
+    },
+    fallback: 100,
+  },
+  NG: {
+    label: 'Nigeria',
+    currency: 'NGN',
+    hub: 'Lagos',
+    villes: ['Lagos', 'Abuja', 'Kano', 'Ibadan', 'Port Harcourt', 'Benin City', 'Kaduna', 'Enugu', 'Aba', 'Onitsha'],
+    tarifs: {
+      'Lagos': { 'Lagos': 1000, 'Abuja': 2500, default: 3000 },
+      'Abuja': { 'Abuja': 1000, 'Lagos': 2500, default: 3000 },
+      default: { default: 3500 },
+    },
+    fallback: 6000,
+  },
+  BJ: {
+    label: 'Bénin',
+    currency: 'XOF',
+    hub: 'Cotonou',
+    villes: ['Cotonou', 'Porto-Novo', 'Parakou', 'Djougou', 'Bohicon', 'Kandi', 'Ouidah', 'Abomey', 'Natitingou', 'Lokossa'],
+    tarifs: { 'Cotonou': { 'Cotonou': 1000, 'Porto-Novo': 2000, default: 2500 }, default: { default: 3000 } },
+    fallback: 8000,
+  },
+  TG: {
+    label: 'Togo',
+    currency: 'XOF',
+    hub: 'Lomé',
+    villes: ['Lomé', 'Sokodé', 'Kara', 'Kpalimé', 'Atakpamé', 'Dapaong', 'Tsévié', 'Aného', 'Bassar', 'Notsé'],
+    tarifs: { 'Lomé': { 'Lomé': 1000, 'Sokodé': 2500, default: 3000 }, default: { default: 3500 } },
+    fallback: 8000,
+  },
+  BF: {
+    label: 'Burkina Faso',
+    currency: 'XOF',
+    hub: 'Ouagadougou',
+    villes: ['Ouagadougou', 'Bobo-Dioulasso', 'Koudougou', 'Banfora', 'Ouahigouya', 'Kaya', 'Tenkodogo', "Fada N'Gourma", 'Dédougou', 'Gaoua'],
+    tarifs: {
+      'Ouagadougou': { 'Ouagadougou': 1000, 'Bobo-Dioulasso': 2500, default: 3000 },
+      'Bobo-Dioulasso': { 'Bobo-Dioulasso': 1000, 'Ouagadougou': 2500, default: 3000 },
+      default: { default: 3500 },
+    },
+    fallback: 8000,
+  },
+};
+
+const DEFAULT_COUNTRY = 'CI';
+const CURRENCY_SUFFIX = { XOF: 'XOF', GHS: 'GH₵', NGN: '₦' };
+
+function getFrais(countryCode, villeVendeur, villeClient, typeLivr) {
+  const country = COUNTRIES[countryCode] ?? COUNTRIES[DEFAULT_COUNTRY];
+  const table = country.tarifs;
+  const base = (table[villeVendeur] ?? table.default)[villeClient]
+    ?? (table[villeVendeur] ?? table.default).default
+    ?? country.fallback;
+  return typeLivr === 'groupee' ? Math.round(base * 0.8) : base;
+}
+
+const fmtColis = (n, countryCode = DEFAULT_COUNTRY) => {
+  const currency = COUNTRIES[countryCode]?.currency ?? 'XOF';
+  return Number(n).toLocaleString('fr-FR') + ' ' + (CURRENCY_SUFFIX[currency] ?? currency);
+};
 
 /* ─────────────────────────────────────────────
    Icônes (mêmes conventions que live.js : SVG inline, pas de lib d'icônes)
@@ -98,8 +204,50 @@ function IconImageOff() {
     </svg>
   );
 }
+function IconVolumeOff() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
+    </svg>
+  );
+}
+function IconVolumeOn() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+    </svg>
+  );
+}
+function IconPin() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  );
+}
+function IconCopy() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+    </svg>
+  );
+}
+function IconUserCheck() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+      <circle cx="8.5" cy="7" r="4" />
+      <polyline points="17 11 19 13 23 9" />
+    </svg>
+  );
+}
 
 const fmtCount = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+function Spinner() { return <span className={styles.spinnerSm} />; }
 
 /* ─────────────────────────────────────────────
    Toast (même pattern que live.js)
@@ -116,13 +264,68 @@ function useToast() {
   return [msg, show];
 }
 
-/* ─────────────────────────────────────────────
-   UltraLivePage
-───────────────────────────────────────────── */
-// `viewerId` est conservé pour compatibilité d'API avec l'appelant, mais
-// n'est plus utilisé pour les écritures : avatar-viewer-track dérive
-// désormais le uid réel du token Firebase envoyé en Authorization, pas
-// d'une valeur fournie par le client.
+/* ══════════════════════════════════════════════════════════
+   HOOK : résolution de la vidéo produit (façon live.js
+   useProductVideo). Le produit d'une session avatar peut ne
+   contenir qu'une image (imageUrl) — s'il expose déjà videoUrl on
+   l'utilise directement, sinon on va la chercher une seule fois
+   (getDoc/getDocs, jamais de listener) dans video_playlist via
+   videoId, puis en repli via product.productId.
+══════════════════════════════════════════════════════════ */
+function useProductVideo(product) {
+  const [videoUrl, setVideoUrl] = useState(product?.videoUrl || null);
+  const [poster, setPoster] = useState(product?.imageUrl || null);
+  const [loading, setLoading] = useState(!product?.videoUrl && !!(product?.videoId || product?.productId));
+
+  useEffect(() => {
+    setVideoUrl(product?.videoUrl || null);
+    setPoster(product?.imageUrl || null);
+
+    if (product?.videoUrl) { setLoading(false); return; }
+    if (!product?.videoId && !product?.productId) { setLoading(false); return; }
+
+    let cancelled = false;
+    setLoading(true);
+
+    const applyMedia = (data) => {
+      if (!data) return false;
+      const url = data.videoUrl || data.product?.videoUrl || null;
+      if (url) setVideoUrl((prev) => prev || url);
+      setPoster((prev) => prev || data.thumbnail || data.product?.thumbnail || null);
+      return !!url;
+    };
+
+    (async () => {
+      try {
+        if (product.videoId) {
+          const snap = await getDoc(doc(db, 'video_playlist', product.videoId));
+          if (!cancelled && snap.exists() && applyMedia(snap.data())) { setLoading(false); return; }
+        }
+        if (!cancelled && product.productId) {
+          const q = query(
+            collection(db, 'video_playlist'),
+            where('product.productId', '==', product.productId),
+            limit(1)
+          );
+          const qs = await getDocs(q);
+          if (!cancelled && !qs.empty) applyMedia(qs.docs[0].data());
+        }
+      } catch (e) {
+        console.warn('⚠️ useProductVideo:', e.code ?? e.message ?? e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [product?.videoId, product?.productId, product?.videoUrl, product?.imageUrl]);
+
+  return { videoUrl, poster, loading };
+}
+
+/**
+ * MultiLiveFeedPage — port de `MultiLiveFeedPage` (Flutter).
+ */
 export default function UltraLivePage({ sessionId, viewerId, isActive }) {
   const sessionRef = doc(db, 'live_avatar_sessions', sessionId);
 
@@ -135,6 +338,7 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
   const [likeLocked, setLikeLocked] = useState(false);
   const [activeProductIndex, setActiveProductIndex] = useState(0);
   const [zoomIndex, setZoomIndex] = useState(null); // index dans products, ou null
+  const [orderProduct, setOrderProduct] = useState(null); // produit en cours de commande (create-colis)
   const [currency, setCurrency] = useState('XOF');
   const [toastMsg, showToast] = useToast();
 
@@ -274,21 +478,22 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
     }
   };
 
-  // Ajout au panier via la Netlify Function `add-to-panier` (Admin SDK) —
-  // voir netlify/functions/add-to-panier.js et lib/panierApi.js. `panier`
-  // n'a pas de règle Firestore d'écriture cliente, donc plus d'`addDoc`
-  // direct ici.
-  const buyProduct = async (product) => {
-    if (!auth.currentUser) {
-      showToast('Connexion requise pour acheter');
+  // ── Commander (livraison) ─────────────────────────────────────
+  // ⚠️ CHANGÉ — remplace l'ancien ajout au panier (`addToPanier` via la
+  // Netlify Function `add-to-panier`). Sur ce flux live, "Acheter" ouvre
+  // désormais directement le même parcours de commande avec livraison que
+  // /live (voir OrderModal dans live.js) : le formulaire collecte
+  // destinataire/adresse/ville, puis la commande est créée côté serveur
+  // par la Netlify Function `create-colis.js` (Admin SDK — aucune écriture
+  // Firestore cliente sur `commandes`, cohérent avec les règles ouvertes
+  // en lecture / fermées en écriture décrites dans live.js). Le panier
+  // (`panier` / add-to-panier) n'est plus utilisé sur ce composant.
+  const openOrder = (product) => {
+    if (!authUser) {
+      showToast('Connexion requise pour commander');
       return;
     }
-    try {
-      await addToPanier(product);
-      showToast(`${product.name} ajouté au panier 🛍️`);
-    } catch (e) {
-      showToast(e.message || "Erreur lors de l'ajout au panier");
-    }
+    setOrderProduct(product);
   };
 
   if (authUser === undefined) {
@@ -381,7 +586,7 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
           currency={currency}
           convertPrice={convertPrice}
           onSelect={setActiveProductIndex}
-          onBuy={buyProduct}
+          onBuy={openOrder}
           onShare={(p) => shareLive(sellerId, p.productId)}
           onZoom={(i) => setZoomIndex(i)}
         />
@@ -409,8 +614,18 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
           currency={currency}
           convertPrice={convertPrice}
           onClose={() => setZoomIndex(null)}
-          onBuy={buyProduct}
+          onBuy={openOrder}
           onShare={(p) => shareLive(sellerId, p.productId)}
+        />
+      )}
+
+      {/* ── Commande avec livraison (create-colis) ────────────── */}
+      {orderProduct && (
+        <ColisOrderModal
+          product={orderProduct}
+          sellerId={sellerId}
+          authUser={authUser}
+          onClose={() => setOrderProduct(null)}
         />
       )}
 
@@ -481,6 +696,62 @@ function FloatingHeart({ right }) {
   );
 }
 
+/* ══════════════════════════════════════════════════════════
+   MÉDIA PRODUIT — vidéo en boucle si disponible, sinon image
+   (façon ProductVideoPreview de live.js). Utilisé à la fois dans
+   la mini-carte de la bande produits et dans la vue zoom.
+══════════════════════════════════════════════════════════ */
+function ProductMedia({ product, size = 'mini', muted, onToggleMuted }) {
+  const { videoUrl, poster, loading } = useProductVideo(product);
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.play().catch(() => {}); // ignore silencieusement (ex. onglet en arrière-plan)
+  }, [videoUrl]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v) v.muted = muted;
+  }, [muted]);
+
+  if (videoUrl) {
+    return (
+      <>
+        <video
+          ref={videoRef}
+          src={videoUrl}
+          poster={poster || product.imageUrl}
+          muted loop playsInline autoPlay
+          className={size === 'zoom' ? styles.zoomVideo : styles.miniVideo}
+        />
+        {size === 'zoom' && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleMuted?.(); }}
+            className={styles.mediaMuteBtn}
+            aria-label={muted ? 'Activer le son' : 'Couper le son'}
+          >
+            {muted ? <IconVolumeOff /> : <IconVolumeOn />}
+          </button>
+        )}
+      </>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className={size === 'zoom' ? styles.zoomMediaLoading : styles.miniMediaLoading}>
+        <Spinner />
+      </div>
+    );
+  }
+
+  return product.imageUrl
+    ? <img src={product.imageUrl} alt={product.name} />
+    : <IconImageOff />;
+}
+
 /* ─────────────────────────────────────────────
    Bande produits horizontale
 ───────────────────────────────────────────── */
@@ -511,11 +782,7 @@ function MiniProductCard({ product, isActive, currency, convertPrice, onSelect, 
       onClick={onSelect}
     >
       <div className={styles.miniThumb} onClick={(e) => { e.stopPropagation(); onZoom(); }}>
-        {product.imageUrl ? (
-          <img src={product.imageUrl} alt={product.name} />
-        ) : (
-          <IconImageOff />
-        )}
+        <ProductMedia product={product} size="mini" muted />
       </div>
       <div className={styles.miniInfo}>
         <p className={styles.miniName}>{product.name}</p>
@@ -543,6 +810,7 @@ function MiniProductCard({ product, isActive, currency, convertPrice, onSelect, 
 ───────────────────────────────────────────── */
 function ProductZoomViewer({ products, startIndex, currency, convertPrice, onClose, onBuy, onShare }) {
   const [index, setIndex] = useState(startIndex);
+  const [muted, setMuted] = useState(true);
   const product = products[index];
 
   const goPrev = () => setIndex((i) => (i - 1 + products.length) % products.length);
@@ -551,11 +819,12 @@ function ProductZoomViewer({ products, startIndex, currency, convertPrice, onClo
   return (
     <div className={styles.zoomOverlay} onClick={(e) => e.stopPropagation()}>
       <div className={styles.zoomImageWrap}>
-        {product.imageUrl ? (
-          <img src={product.imageUrl} alt={product.name} className={styles.zoomImage} />
-        ) : (
-          <IconImageOff />
-        )}
+        <ProductMedia
+          product={product}
+          size="zoom"
+          muted={muted}
+          onToggleMuted={() => setMuted((m) => !m)}
+        />
         {products.length > 1 && (
           <>
             <button className={`${styles.zoomNav} ${styles.zoomNavLeft}`} onClick={goPrev}>
@@ -589,6 +858,243 @@ function ProductZoomViewer({ products, startIndex, currency, convertPrice, onClo
       <button className={styles.zoomBuyBtn} onClick={() => onBuy(product)}>
         Acheter · {convertPrice(product.price).toFixed(0)} {currency}
       </button>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   MODAL COMMANDE AVEC LIVRAISON — create-colis
+   Même parcours que OrderModal dans live.js (destinataire, pays,
+   ville, adresse GPS, type/mode de livraison), restylé aux tokens
+   Citrus Orange de ce fichier. Écrit uniquement via la Netlify
+   Function `create-colis.js` (Admin SDK) — aucune écriture
+   Firestore cliente.
+══════════════════════════════════════════════════════════ */
+function ColisOrderModal({ product, sellerId, authUser, onClose }) {
+  const [step, setStep] = useState('form');
+  const [nomDest, setNomDest] = useState(
+    authUser?.displayName || authUser?.email?.split('@')[0] || ''
+  );
+  const [telephone, setTelephone] = useState(authUser?.phoneNumber ?? '');
+  const [adresse, setAdresse] = useState('');
+  const [pays, setPays] = useState(DEFAULT_COUNTRY);
+  const [villeClient, setVilleClient] = useState('');
+  const [typeLivr, setTypeLivr] = useState('solo');
+  const [modePaiem, setModePaiem] = useState('livraison');
+  const [locLoading, setLocLoading] = useState(false);
+  const [gpsCoords, setGpsCoords] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [commandeId, setCommandeId] = useState(null);
+  const [qrImgUrl, setQrImgUrl] = useState(null);
+  const [serverTotal, setServerTotal] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  const country = COUNTRIES[pays] ?? COUNTRIES[DEFAULT_COUNTRY];
+  const prix = Number(product?.price ?? 0);
+  const fraisXof = villeClient ? getFrais(pays, country.hub, villeClient, typeLivr) : 0;
+  const totalXof = prix + fraisXof;
+
+  const handlePaysChange = (nextPays) => {
+    setPays(nextPays);
+    setVilleClient('');
+  };
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
+
+  const localiser = () => {
+    setLocLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => { setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); showToast('Position capturée !'); setLocLoading(false); },
+      err => { showToast('GPS refusé : ' + err.message); setLocLoading(false); },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const validate = () => {
+    const e = {};
+    if (!nomDest.trim()) e.nomDest = 'Nom obligatoire';
+    const digits = telephone.replace(/\D/g, '');
+    if (!digits || digits.length < 8) e.telephone = 'Numéro invalide (min 8 chiffres)';
+    if (!adresse.trim()) e.adresse = 'Adresse obligatoire';
+    if (!villeClient) e.ville = 'Choisissez une ville';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const confirmer = async () => {
+    if (!validate()) return;
+    if (!authUser) { showToast('Vous devez être connecté.'); return; }
+    setSubmitting(true);
+    try {
+      const idToken = await authUser.getIdToken();
+
+      const res = await fetch('/.netlify/functions/create-colis', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          sellerId,
+          nomDestinataire: nomDest.trim(),
+          telDestinataire: telephone.trim(),
+          pays,
+          villeDepart: country.hub,
+          villeDestination: villeClient,
+          adresseLivraison: adresse.trim(),
+          descriptionColis: product?.name ?? '',
+          fraisLivraison: fraisXof,
+          modePaiement: modePaiem === 'immediat' ? 'enLigne' : 'aLaLivraison',
+          typeLivraison: typeLivr,
+          photoUrl: product?.imageUrl ?? '',
+          articles: [{
+            nom: product?.name ?? '',
+            prix,
+            refArticle: product?.productId ?? '',
+          }],
+          gpsCoords,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Échec de la commande');
+
+      const dataUrl = await QRCode.toDataURL(data.qrPayload, {
+        width: 220,
+        margin: 1,
+        color: { dark: '#000000', light: '#ffffff' },
+      });
+
+      setCommandeId(data.commandeId);
+      setServerTotal({ fraisXof: data.fraisXof, totalXof: data.totalXof });
+      setQrImgUrl(dataUrl);
+      setStep('qr');
+    } catch (e) { showToast('Erreur : ' + e.message); }
+    finally { setSubmitting(false); }
+  };
+
+  if (!product) return null;
+
+  return (
+    <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modalSheet}>
+        <div className={styles.modalHandle} />
+        <div className={styles.modalHeader}>
+          <div>
+            <p className={styles.modalTitle}>{step === 'qr' ? 'Commande confirmée' : 'Commander avec livraison'}</p>
+            <p className={styles.modalSub}>{product?.name ?? ''}</p>
+          </div>
+          <button className={styles.modalClose} onClick={onClose}><IconClose /></button>
+        </div>
+        {step === 'form' && authUser && (
+          <div className={styles.authBadge}><IconUserCheck /><span>Connecté : <strong>{authUser.email}</strong></span></div>
+        )}
+        {step === 'form' && (
+          <div className={styles.modalBody}>
+            <div className={styles.recapCard}>
+              {product?.imageUrl && <img className={styles.recapImg} src={product.imageUrl} alt="" />}
+              <div className={styles.recapInfo}>
+                <p className={styles.recapName}>{product?.name}</p>
+                <p className={styles.recapPrice}>{fmtColis(prix, pays)}</p>
+              </div>
+            </div>
+            <p className={styles.fieldLabel}>TYPE DE LIVRAISON</p>
+            <div className={styles.toggleRow}>
+              <button className={typeLivr === 'solo' ? styles.toggleSel : styles.toggleOpt} onClick={() => setTypeLivr('solo')}>
+                <span className={styles.toggleLabel}>Solo</span>
+                <span className={styles.toggleSub}>Livreur dédié</span>
+              </button>
+              <button className={typeLivr === 'groupee' ? styles.toggleSel : styles.toggleOpt} onClick={() => setTypeLivr('groupee')}>
+                <span className={styles.toggleLabel}>Groupée</span>
+                <span className={styles.toggleSub}>Tournée partagée</span>
+              </button>
+            </div>
+            <p className={styles.fieldLabel}>MODE DE PAIEMENT</p>
+            <div className={styles.toggleRow}>
+              <button className={modePaiem === 'livraison' ? styles.toggleSel : styles.toggleOpt} onClick={() => setModePaiem('livraison')}>
+                <span className={styles.toggleLabel}>À la livraison</span>
+                <span className={styles.toggleSub}>Cash</span>
+              </button>
+              <button className={modePaiem === 'immediat' ? styles.toggleSel : styles.toggleOpt} onClick={() => setModePaiem('immediat')}>
+                <span className={styles.toggleLabel}>En ligne</span>
+                <span className={styles.toggleSub}>Paiement sécurisé</span>
+              </button>
+            </div>
+            <p className={styles.fieldLabel}>NOM DU DESTINATAIRE</p>
+            <input className={`${styles.formInput}${errors.nomDest ? ' ' + styles.inputErr : ''}`}
+              type="text" placeholder="Nom complet"
+              value={nomDest} onChange={e => setNomDest(e.target.value)} />
+            {errors.nomDest && <p className={styles.errMsg}>{errors.nomDest}</p>}
+            <p className={styles.fieldLabel}>TÉLÉPHONE DE CONTACT</p>
+            <input className={`${styles.formInput}${errors.telephone ? ' ' + styles.inputErr : ''}`}
+              type="tel" placeholder="07 XX XX XX XX"
+              value={telephone} onChange={e => setTelephone(e.target.value)} />
+            {errors.telephone && <p className={styles.errMsg}>{errors.telephone}</p>}
+            <p className={styles.fieldLabel}>PAYS DE LIVRAISON</p>
+            <select className={styles.formInput}
+              value={pays} onChange={e => handlePaysChange(e.target.value)}>
+              {Object.entries(COUNTRIES).map(([code, c]) => (
+                <option key={code} value={code}>{c.label}</option>
+              ))}
+            </select>
+            <p className={styles.fieldLabel}>VILLE DE LIVRAISON</p>
+            <select className={`${styles.formInput}${errors.ville ? ' ' + styles.inputErr : ''}`}
+              value={villeClient} onChange={e => setVilleClient(e.target.value)}>
+              <option value="">Sélectionnez votre ville…</option>
+              {country.villes.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            {errors.ville && <p className={styles.errMsg}>{errors.ville}</p>}
+            {villeClient && (
+              <div className={styles.fraisCard}>
+                <div className={styles.fraisRow}><span>Article</span><span>{fmtColis(prix, pays)}</span></div>
+                <div className={styles.fraisRow}><span>Livraison{typeLivr === 'groupee' ? ' (-20%)' : ''}</span><span>{fmtColis(fraisXof, pays)}</span></div>
+                <div className={styles.fraisDivider} />
+                <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total (estimé)</span><span>{fmtColis(totalXof, pays)}</span></div>
+              </div>
+            )}
+            <p className={styles.fieldLabel}>ADRESSE DE LIVRAISON</p>
+            <textarea className={`${styles.formInput} ${styles.formTextarea}${errors.adresse ? ' ' + styles.inputErr : ''}`}
+              placeholder="Quartier, rue, point de repère…"
+              value={adresse} onChange={e => setAdresse(e.target.value)} rows={2} />
+            {errors.adresse && <p className={styles.errMsg}>{errors.adresse}</p>}
+            <button className={`${styles.locBtn}${gpsCoords ? ' ' + styles.locOk : ''}`}
+              onClick={localiser} disabled={locLoading}>
+              {locLoading ? <Spinner /> : gpsCoords
+                ? `${gpsCoords.lat.toFixed(4)}, ${gpsCoords.lng.toFixed(4)}`
+                : <><IconPin /> Localiser mon adresse</>}
+            </button>
+            <button className={styles.confirmBtn} onClick={confirmer} disabled={submitting}>
+              {submitting ? <Spinner /> : modePaiem === 'immediat' ? `Payer ${fmtColis(totalXof, pays)}` : 'Commander — payer à la livraison'}
+            </button>
+          </div>
+        )}
+        {step === 'qr' && commandeId && (
+          <div className={`${styles.modalBody} ${styles.qrStep}`}>
+            <p className={styles.qrHint}>Le livreur scannera ce code pour récupérer votre commande</p>
+            <div className={styles.qrWrap}>
+              {qrImgUrl && <img className={styles.qrImg} src={qrImgUrl} alt="QR commande" />}
+            </div>
+            <div className={styles.cidCard} onClick={() => { navigator.clipboard?.writeText(commandeId); showToast('ID copié !'); }}>
+              <span className={styles.cidLabel}>Commande #</span>
+              <span className={styles.cidValue}>{commandeId}</span>
+              <IconCopy />
+            </div>
+            {gpsCoords && <p className={styles.gpsTag}>{gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}</p>}
+            <div className={styles.fraisCard} style={{ width: '100%' }}>
+              <div className={styles.fraisRow}><span>{product?.name}</span><span>{fmtColis(prix, pays)}</span></div>
+              <div className={styles.fraisRow}><span>Livraison {villeClient}</span><span>{fmtColis(serverTotal?.fraisXof ?? fraisXof, pays)}</span></div>
+              <div className={styles.fraisDivider} />
+              <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{fmtColis(serverTotal?.totalXof ?? totalXof, pays)}</span></div>
+              <div className={styles.fraisRow} style={{ opacity: 0.65, fontSize: '.75rem', marginTop: 6 }}>
+                <span>Paiement</span><span>{modePaiem === 'immediat' ? 'En ligne' : 'À la livraison'}</span>
+              </div>
+            </div>
+            <button className={styles.confirmBtn} onClick={onClose}>Fermer</button>
+          </div>
+        )}
+        {toast && <div className={styles.toast}>{toast}</div>}
+      </div>
     </div>
   );
 }
