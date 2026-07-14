@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../lib/firebaseClient';
+import { auth } from '@/lib/firebaseClient';
 import MultiLiveFeedPage from '../../components/Multilivefeedpage/MultiLiveFeedPage';
 
 // ─────────────────────────────────────────────
