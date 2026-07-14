@@ -6,7 +6,7 @@ import {
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../lib/firebaseClient';
-import UltraLivePage from './UltraLivePage';
+import UltraLivePage from './../UltraLivePage';
 import styles from './multiLiveFeed.module.css';
 
 // ⚠️ Voir firestore.rules, `/live_avatar_sessions/{sessionId}` :
