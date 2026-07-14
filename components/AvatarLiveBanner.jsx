@@ -13,7 +13,7 @@ import Link from 'next/link';
 // Palette Citrus Orange : bg #FFF8EE, orange #FF6B00, zest #FFB700.
 // ─────────────────────────────────────────────
 
-const AVATAR_LIVE_HREF = '/live-avatars/Multilivefeedpage';
+const AVATAR_LIVE_HREF = '/live-avatars';
 
 const DEMO_LIVES = [
   { name: 'Ama Cosmétiques', tag: 'Beauté · Abidjan', viewers: '1.2k', seed: 'A' },
