@@ -5,10 +5,10 @@ import {
   doc, collection, query, orderBy, limit, onSnapshot,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { db, auth } from '../lib/firebaseClient';
-import { productFromMap } from './../product';
-import AvatarVideoPlayer from './../AvatarVideoPlayer';
-import styles from './../ultraLive.module.css';
+import { db, auth } from '@/lib/firebaseClient';
+import { productFromMap } from './product';
+import AvatarVideoPlayer from './AvatarVideoPlayer';
+import styles from './ultraLive.module.css';
 import {
   joinAvatarSession, leaveAvatarSession,
   pauseAvatarSession, resumeAvatarSession,

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../lib/firebaseClient';
-import MultiLiveFeedPage from './../MultiLiveFeedPage';
+import MultiLiveFeedPage from '../../components/Multilivefeedpage/MultiLiveFeedPage';
 
 // ─────────────────────────────────────────────
 // Point d'entrée de la route /live-avatars/Multilivefeedpage.
