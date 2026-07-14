@@ -11,8 +11,8 @@
 // le document rental pour tracabilite/support client.
 // -----------------------------------------------------------------------------
 
-import { createTranstetEntry } from '../_transtet.js';
-import { ESCROW_UID } from '../_constants.js';
+import constants from '../_constants.cjs';
+const { ESCROW_UID } = constants;
 
 export async function finalizeRentalPayment({ db, admin, pending, paymentRef, transactionId, provider }) {
   // 1. Trouver le document powerBanks

@@ -11,8 +11,9 @@
 
 const admin = require('firebase-admin');
 const { createTranstetEntry } = require('./_transtet');
-const { ok, err, handleOptions, isAllowedOrigin } = require('./_cors');
-const { ESCROW_UID } = require('./_constants');
+const { ok, err, handleOptions, isAllowedOrigin } = require('./_cors.cjs');
+import constants from '../_constants.cjs';
+const { ESCROW_UID } = constants;
 
 if (!admin.apps.length) {
   admin.initializeApp({
