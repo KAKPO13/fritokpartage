@@ -16,9 +16,9 @@ import Link from 'next/link';
 const AVATAR_LIVE_HREF = '/live-avatars';
 
 const DEMO_LIVES = [
-  { name: 'SùSù Textile', tag: 'Linge · Cotonou', viewers: '1.2k', seed: 'A' },
-  { name: 'Kofi Sneakers', tag: 'Mode · Cocody', viewers: '860', seed: 'K' },
-  { name: 'Chez Fatou', tag: 'Épicerie · Yopougon', viewers: '540', seed: 'F' },
+  { name: 'SùSù Textile', tag: 'Linge · Cotonou', viewers: '1.2k', seed: 'S' },
+  { name: 'Couloir de Adjamé', tag: 'Mode · Abidja', viewers: '860', seed: 'C' },
+  { name: 'Assigamè', tag: 'Épicerie · Lomé', viewers: '540', seed: 'F' },
 ];
 
 export default function AvatarLiveBanner() {
