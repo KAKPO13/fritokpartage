@@ -5,7 +5,7 @@ import {
   doc, collection, query, orderBy, limit, onSnapshot,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { db, auth } from '../lib/firebaseClient';
+import { db, auth } from '@/lib/firebaseClient';
 import { productFromMap } from './product';
 import AvatarVideoPlayer from './AvatarVideoPlayer';
 import styles from './ultraLive.module.css';
@@ -13,8 +13,8 @@ import {
   joinAvatarSession, leaveAvatarSession,
   pauseAvatarSession, resumeAvatarSession,
   likeAvatarSession, commentAvatarSession, reactAvatarSession,
-} from '../lib/avatarSessionApi';
-import { addToPanier } from '../lib/panierApi';
+} from '@/lib/avatarSessionApi';
+import { addToPanier } from '@/lib/panierApi';
 
 // ⚠️ IMPORTANT — voir firestore.rules, section `/live_avatar_sessions/{sessionId}` :
 // le document de session ET TOUTES ses sous-collections (viewers, likes,
