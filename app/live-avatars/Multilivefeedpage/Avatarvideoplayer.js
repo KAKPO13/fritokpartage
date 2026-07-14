@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import styles from './ultraLive.module.css';
+import styles from './../ultraLive.module.css';
 
 /**
  * AvatarVideoPlayer — port of the Flutter `AvatarVideoPlayer`.

@@ -1,0 +1,294 @@
+/* ─────────────────────────────────────────────
+   Design tokens — Citrus Orange · fond sombre live
+   (mêmes valeurs que la classe _C du fichier Dart)
+───────────────────────────────────────────── */
+.page {
+  --bg: #0f0a00;
+  --glass: rgba(26, 13, 0, 0.8);
+  --glass-border: rgba(255, 107, 0, 0.2);
+  --orange: #ff6b00;
+  --orange-hot: #ff8c00;
+  --orange-glow: rgba(255, 107, 0, 0.4);
+  --zest: #ffb700;
+  --text1: #fff0dc;
+  --text-muted: rgba(204, 144, 96, 0.67);
+  --success: #34c759;
+  --red: #ff4520;
+  --input-bg: rgba(21, 8, 0, 0.8);
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text1);
+  font-family: inherit;
+}
+
+/* ── Video layer ─────────────────────────── */
+.videoWrap { position: absolute; inset: 0; background: #000; overflow: hidden; }
+.videoEl { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .25s ease; }
+.videoCenter { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.videoErrorText { color: #fff; font-size: 14px; }
+.videoSpinner {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 3px solid rgba(255, 107, 0, 0.25); border-top-color: var(--orange);
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.videoLayer { position: absolute; inset: 0; }
+
+/* ── Gradients ────────────────────────────── */
+.gradTop {
+  position: absolute; top: 0; left: 0; right: 0; height: 160px; pointer-events: none;
+  background: linear-gradient(to bottom, rgba(21, 8, 0, .75), transparent);
+}
+.gradBottom {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 380px; pointer-events: none;
+  background: linear-gradient(to top, rgba(21, 8, 0, .75), transparent);
+}
+
+/* ── Header HUD ───────────────────────────── */
+.header {
+  position: absolute; z-index: 5;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: 16px; right: 16px;
+  display: flex; align-items: center; gap: 8px;
+}
+.spacer { flex: 1; }
+
+.liveBadge {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px; border-radius: 10px;
+  background: rgba(255, 107, 0, 0.15);
+  border: 1px solid rgba(255, 107, 0, 0.5);
+  box-shadow: 0 0 10px var(--orange-glow);
+  color: var(--orange); font-size: 11px; font-weight: 900; letter-spacing: 1.6px;
+}
+.liveDot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--orange);
+  box-shadow: 0 0 6px var(--orange-glow);
+  animation: pulse 0.8s ease-in-out infinite alternate;
+}
+@keyframes pulse { from { opacity: .25; } to { opacity: 1; } }
+
+.statChip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 10px; border-radius: 10px;
+  background: rgba(0, 0, 0, 0.5); border: 1px solid var(--glass-border);
+  color: var(--text1); font-size: 12px; font-weight: 700;
+}
+.statChip svg { color: var(--orange); flex-shrink: 0; }
+
+.glassBtn {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5); border: 1px solid var(--glass-border);
+  color: var(--orange); display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+
+/* ── Chat ─────────────────────────────────── */
+.chatArea {
+  position: absolute; z-index: 4;
+  left: 12px; right: 72px; bottom: 210px;
+  display: flex; flex-direction: column-reverse;
+  gap: 6px; max-height: 220px; overflow: hidden;
+  pointer-events: none;
+}
+.chatBubble {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 10px; border-radius: 14px;
+  background: rgba(0, 0, 0, 0.48); border: 1px solid rgba(255, 107, 0, 0.1);
+  animation: chatIn .3s ease-out;
+  width: fit-content; max-width: 100%;
+}
+@keyframes chatIn { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: translateX(0); } }
+.chatAvatar {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(255, 107, 0, 0.8); color: #fff;
+  font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center;
+}
+.chatUser { color: rgba(255, 107, 0, 0.9); font-size: 12px; font-weight: 700; }
+.chatText { color: var(--text1); font-size: 13px; word-break: break-word; }
+
+/* ── Action rail ──────────────────────────── */
+.actionRail {
+  position: absolute; z-index: 5;
+  right: 12px; bottom: 220px;
+  display: flex; flex-direction: column; align-items: center; gap: 22px;
+}
+.railItem {
+  background: none; border: none; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.railIconWrap {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45); border: 1px solid;
+  display: flex; align-items: center; justify-content: center;
+}
+.railLabel { color: var(--text-muted); font-size: 10px; font-weight: 600; }
+
+/* ── Floating hearts ──────────────────────── */
+.floatingHeart {
+  position: absolute; z-index: 6; bottom: 200px;
+  color: var(--orange);
+  animation: floatHeart 1.8s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes floatHeart {
+  0%   { transform: translateY(0) translateX(0) scale(.6); opacity: 1; }
+  100% { transform: translateY(-200px) translateX(8px) scale(1); opacity: 0; }
+}
+
+/* ── Comment input ────────────────────────── */
+.commentInputWrap {
+  position: absolute; z-index: 5;
+  left: 12px; right: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px 4px 14px; border-radius: 30px;
+  background: var(--input-bg); border: 1px solid var(--glass-border);
+  box-shadow: 0 0 12px rgba(255, 107, 0, .12);
+}
+.commentField {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text1); font-size: 14px; padding: 10px 0;
+}
+.commentField::placeholder { color: var(--text-muted); }
+.commentSend {
+  width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
+  background: linear-gradient(135deg, var(--orange), var(--orange-hot));
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 8px var(--orange-glow);
+}
+
+/* ── Product strip ────────────────────────── */
+.productStrip {
+  position: absolute; z-index: 4;
+  left: 0; right: 0; bottom: 72px; height: 124px;
+  display: flex; gap: 10px; overflow-x: auto;
+  padding: 10px 12px;
+  background: linear-gradient(to bottom, transparent, rgba(15, 10, 0, .75));
+  scrollbar-width: none;
+}
+.productStrip::-webkit-scrollbar { display: none; }
+
+.miniCard, .miniCardActive {
+  flex: 0 0 auto; width: 190px; padding: 9px; border-radius: 16px;
+  display: flex; gap: 9px; align-items: flex-start; cursor: pointer;
+}
+.miniCard { background: rgba(0, 0, 0, 0.65); border: 1px solid var(--glass-border); }
+.miniCardActive {
+  background: rgba(0, 0, 0, 0.88); border: 1.5px solid var(--orange);
+  box-shadow: 0 0 16px var(--orange-glow);
+}
+.miniThumb {
+  width: 56px; height: 56px; border-radius: 10px; overflow: hidden; flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+}
+.miniThumb img { width: 100%; height: 100%; object-fit: cover; }
+.miniInfo { flex: 1; min-width: 0; }
+.miniName {
+  color: var(--text1); font-size: 12px; font-weight: 700; margin: 0 0 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.miniPrice, .miniPriceActive { font-size: 12px; font-weight: 800; margin: 0 0 6px; }
+.miniPrice { color: var(--zest); }
+.miniPriceActive { color: var(--orange); }
+.miniActions { display: flex; gap: 6px; }
+.miniBuy, .miniBuyActive {
+  flex: 1; height: 28px; border: none; border-radius: 8px; cursor: pointer;
+  font-size: 11px; font-weight: 700;
+}
+.miniBuy { background: rgba(255, 255, 255, 0.12); color: var(--text-muted); }
+.miniBuyActive {
+  color: #fff; background: linear-gradient(135deg, var(--orange), var(--orange-hot));
+  box-shadow: 0 0 8px var(--orange-glow);
+}
+.miniShare {
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; cursor: pointer;
+  background: rgba(255, 255, 255, 0.1); border: 1px solid var(--glass-border);
+  color: var(--text-muted); display: flex; align-items: center; justify-content: center;
+}
+
+/* ── Zoom viewer ───────────────────────────── */
+.zoomOverlay {
+  position: absolute; inset: 0; z-index: 20;
+  background: rgba(16, 6, 0, 0.97);
+  display: flex; flex-direction: column;
+  animation: zoomIn .25s ease-out;
+}
+@keyframes zoomIn { from { opacity: 0; } to { opacity: 1; } }
+.zoomImageWrap {
+  position: relative; flex: 1;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+}
+.zoomImage { max-width: 100%; max-height: 100%; object-fit: contain; }
+.zoomNav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
+  background: rgba(255, 255, 255, 0.1); border: 1px solid var(--glass-border);
+  color: var(--text1); display: flex; align-items: center; justify-content: center;
+}
+.zoomNavLeft { left: 12px; }
+.zoomNavRight { right: 12px; }
+
+.zoomTopBar {
+  position: absolute; z-index: 2;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: 16px; right: 16px;
+  display: flex; align-items: center; gap: 8px;
+}
+.zoomName { flex: 1; color: var(--text1); font-size: 16px; font-weight: 700; }
+.zoomIconBtn {
+  width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
+  background: rgba(255, 255, 255, 0.1); border: 1px solid var(--glass-border);
+  color: var(--text1); display: flex; align-items: center; justify-content: center;
+}
+
+.zoomDots {
+  position: absolute; bottom: 140px; left: 0; right: 0; z-index: 2;
+  display: flex; justify-content: center; gap: 6px;
+}
+.zoomDot, .zoomDotActive { height: 5px; border-radius: 3px; transition: width .2s ease; }
+.zoomDot { width: 5px; background: rgba(255, 255, 255, 0.3); }
+.zoomDotActive { width: 16px; background: var(--orange); box-shadow: 0 0 6px var(--orange-glow); }
+
+.zoomBuyBtn {
+  position: absolute; z-index: 2; bottom: 44px; left: 20px; right: 20px; height: 56px;
+  border: none; border-radius: 16px; cursor: pointer;
+  background: linear-gradient(135deg, var(--orange), var(--orange-hot));
+  color: #fff; font-size: 16px; font-weight: 800; letter-spacing: -.2px;
+  box-shadow: 0 6px 22px var(--orange-glow);
+}
+
+/* ── Loader / ended states ────────────────── */
+.loaderScreen, .endedScreen {
+  position: absolute; inset: 0; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+}
+.endedIconWrap {
+  width: 70px; height: 70px; border-radius: 50%;
+  background: rgba(255, 107, 0, 0.1); border: 1.5px solid rgba(255, 107, 0, 0.4);
+  box-shadow: 0 0 20px var(--orange-glow);
+  display: flex; align-items: center; justify-content: center; color: var(--orange);
+  margin-bottom: 8px;
+}
+.endedTitle { color: var(--text1); font-size: 18px; font-weight: 700; letter-spacing: -.3px; margin: 0; }
+.endedSub { color: var(--text-muted); font-size: 13px; margin: 0; }
+
+/* ── Toast ─────────────────────────────────── */
+.toast {
+  position: absolute; z-index: 30;
+  left: 50%; bottom: 100px; transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85); color: #fff;
+  padding: 10px 18px; border-radius: 14px; font-size: 13px; font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
+  animation: toastIn .25s ease-out;
+  white-space: nowrap;
+}
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }

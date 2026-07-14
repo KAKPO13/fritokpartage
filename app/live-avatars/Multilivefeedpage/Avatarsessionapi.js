@@ -1,4 +1,4 @@
-import { auth } from './firebaseClient';
+import { auth } from '../../lib/firebaseClient';
 
 /**
  * avatarSessionApi — tout accès en écriture à `live_avatar_sessions` (doc

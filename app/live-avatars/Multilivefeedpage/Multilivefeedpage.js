@@ -7,7 +7,7 @@ import {
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../lib/firebaseClient';
 import UltraLivePage from './../UltraLivePage';
-import styles from './multiLiveFeed.module.css';
+import styles from './../multiLiveFeed.module.css';
 
 // ⚠️ Voir firestore.rules, `/live_avatar_sessions/{sessionId}` :
 // `allow read: if isAuth()`. La requête temps réel ci-dessous a donc
