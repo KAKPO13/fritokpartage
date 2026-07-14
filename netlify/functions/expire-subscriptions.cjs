@@ -1,26 +1,23 @@
-// netlify/functions/expireSubscriptions.js
+// netlify/functions/expire-subscriptions.js
 //
-// Fonction planifiée (Netlify Scheduled Functions — cron). À exécuter
-// toutes les 15-30 min. Repasse subscription.status à 'expired' (et
-// retire le custom claim subscriptionActive) pour tout vendeur dont
-// subscription.currentPeriodEnd est dépassé — que ce soit un trial ou
-// un abonnement payant actif.
+// Fonction planifiée (Netlify Scheduled Functions — cron). Repasse
+// subscription.status à 'expired' (et retire le custom claim
+// subscriptionActive) pour tout vendeur dont subscription.currentPeriodEnd
+// est dépassé — que ce soit un trial ou un abonnement payant actif.
 //
 // Configuration (netlify.toml) :
-//   [functions."expireSubscriptions"]
-//     schedule = "*/15 * * * *"
+//   [functions."expire-subscriptions"]
+//     schedule = "0 2 * * *"
 
 const { Timestamp, FieldValue } = require('firebase-admin/firestore');
-const { getAdminDb, getAdminAuth } = require('./_shared/firebaseAdmin');
+const { adminDb: db, adminAuth } = require('./_shared/firebaseAdmin.js');
 
 const BATCH_SIZE = 200;
 
 exports.handler = async () => {
-  const db = getAdminDb();
-  const adminAuth = getAdminAuth();
   const now = Timestamp.now();
 
-  // Nécessite un index composite (status IN [...] + currentPeriodEnd <
+  // Nécessite un index composite (status IN [...] + currentPeriodEnd 
   // now) — Firestore fournira le lien de création directement dans les
   // logs si l'index manque au premier déploiement.
   const expiredSnap = await db
@@ -61,7 +58,7 @@ exports.handler = async () => {
 
       processed++;
     } catch (e) {
-      console.error('expireSubscriptions failed for', uid, e);
+      console.error('expire-subscriptions failed for', uid, e);
       failed++;
     }
   }
