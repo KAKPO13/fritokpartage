@@ -18,6 +18,7 @@ import PublierColisBanner from '../components/PublierColisBanner';
 import CommandeBanner from '../components/commandes/CommandeBanner'; // ← 🆕 CTA "Mes commandes" → /mes-commandes
 import KkiapayBanner from '../components/KkiapayBanner'; // ← 🆕 CTA "Recharger mon wallet" (Mobile Money via KkiaPay)
 import CarrieresBanner from '../components/CarrieresBanner'; // ← 🆕 CTA "Rejoignez Made in Benin Live" → /carrieres
+import AvatarLiveBanner from '../components/AvatarLiveBanner';
 
 
 
@@ -35,6 +36,7 @@ export default function Home() {
         <Stats />
         <Features />
         <LiveGrid />
+        <AvatarLiveBanner />   {/* 🆕 CTA "Lives avatar IA" → /live-avatars/Multilivefeedpage */}
         <PublishBanner />
         <KkiapayBanner />        {/* 🆕 CTA "Recharger mon wallet" → /wallet/topup */}
         <PublierColisBanner />   {/* 🆕 CTA "Publier un colis" → /colis/nouveau */}
