@@ -38,14 +38,6 @@
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Petit spinner utilisé dans les boutons (modal de commande, localisation) */
-.spinnerSm {
-  display: inline-block;
-  width: 16px; height: 16px; border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.3); border-top-color: #fff;
-  animation: spin .7s linear infinite;
-}
-
 .videoLayer { position: absolute; inset: 0; }
 
 /* ── Gradients ────────────────────────────── */
@@ -193,23 +185,11 @@
   box-shadow: 0 0 16px var(--orange-glow);
 }
 .miniThumb {
-  position: relative;
   width: 56px; height: 56px; border-radius: 10px; overflow: hidden; flex-shrink: 0;
   background: rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center;
   color: var(--text-muted);
 }
 .miniThumb img { width: 100%; height: 100%; object-fit: cover; }
-
-/* Vidéo produit en boucle (mini-carte) — remplace l'image statique quand
-   une vidéo produit est disponible (même logique que ProductVideoPreview
-   dans live.js). */
-.miniVideo {
-  width: 100%; height: 100%; object-fit: cover; display: block;
-}
-.miniMediaLoading {
-  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-}
-
 .miniInfo { flex: 1; min-width: 0; }
 .miniName {
   color: var(--text1); font-size: 12px; font-weight: 700; margin: 0 0 3px;
@@ -248,21 +228,6 @@
   color: var(--text-muted);
 }
 .zoomImage { max-width: 100%; max-height: 100%; object-fit: contain; }
-
-/* Vidéo produit en boucle (vue zoom) */
-.zoomVideo {
-  width: 100%; height: 100%; object-fit: contain; display: block;
-}
-.zoomMediaLoading {
-  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-}
-.mediaMuteBtn {
-  position: absolute; top: 12px; right: 12px; z-index: 2;
-  width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex; align-items: center; justify-content: center;
-}
-
 .zoomNav {
   position: absolute; top: 50%; transform: translateY(-50%);
   width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
@@ -328,147 +293,183 @@
 }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
-/* ══════════════════════════════════════════════════════════
-   MODAL DE COMMANDE (create-colis) — même parcours que
-   OrderModal dans live.js, restylé aux tokens Citrus Orange.
-══════════════════════════════════════════════════════════ */
+/* ─────────────────────────────────────────────────────────────
+   Média produit (mini-carte / zoom) — vidéo en boucle ou image
+───────────────────────────────────────────────────────────── */
+.miniVideo, .zoomVideo {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.zoomVideo { object-fit: contain; }
+
+.miniMediaLoading, .zoomMediaLoading {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.06); color: var(--text-muted, rgba(204,144,96,.67));
+}
+
+.mediaMuteBtn {
+  position: absolute; z-index: 3; bottom: 12px; right: 12px;
+  width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Petit spinner inline (boutons, états de chargement compacts) */
+.spinnerSm {
+  display: inline-block; width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: #fff;
+  animation: spin .7s linear infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Bottom sheet modal — commande avec livraison (ColisOrderModal)
+   Mêmes tokens Citrus Orange que le reste du fichier.
+───────────────────────────────────────────────────────────── */
 .modalBackdrop {
-  position: fixed; inset: 0; z-index: 50;
-  background: rgba(8, 4, 0, 0.72);
+  position: fixed; inset: 0; z-index: 40;
+  background: rgba(0, 0, 0, 0.6);
   display: flex; align-items: flex-end; justify-content: center;
   animation: fadeIn .2s ease-out;
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 .modalSheet {
-  position: relative;
-  width: 100%; max-width: 480px; max-height: 92vh;
+  width: 100%; max-width: 480px; max-height: 88dvh;
   overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--glass-border);
+  background: #150800;
+  border: 1px solid rgba(255, 107, 0, 0.2);
+  border-bottom: none;
   border-radius: 22px 22px 0 0;
-  box-shadow: 0 -8px 32px rgba(255, 107, 0, 0.12);
-  animation: sheetUp .28s cubic-bezier(.2,.9,.3,1);
+  padding: 10px 20px calc(env(safe-area-inset-bottom, 0px) + 20px);
+  animation: sheetUp .28s cubic-bezier(.2, .8, .2, 1);
 }
-@keyframes sheetUp { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
 .modalHandle {
-  width: 40px; height: 4px; border-radius: 2px;
-  background: rgba(255, 255, 255, 0.2);
-  margin: 10px auto 4px;
+  width: 40px; height: 4px; border-radius: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  margin: 6px auto 14px;
 }
 
 .modalHeader {
   display: flex; align-items: flex-start; justify-content: space-between;
-  padding: 10px 20px 4px;
+  gap: 12px; margin-bottom: 14px;
 }
-.modalTitle { color: var(--text1); font-size: 16px; font-weight: 800; margin: 0 0 2px; }
-.modalSub { color: var(--text-muted); font-size: 12.5px; margin: 0; }
+.modalTitle { margin: 0; font-size: 17px; font-weight: 700; color: #fff0dc; }
+.modalSub { margin: 4px 0 0; font-size: 13px; color: rgba(204, 144, 96, 0.75); }
 .modalClose {
-  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; cursor: pointer;
-  background: rgba(255, 255, 255, 0.08); border: 1px solid var(--glass-border);
-  color: var(--text1); display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(255, 255, 255, 0.08); color: #fff0dc;
+  display: flex; align-items: center; justify-content: center;
 }
+
+.modalBody { display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; }
 
 .authBadge {
   display: flex; align-items: center; gap: 8px;
-  margin: 6px 20px 0; padding: 9px 12px; border-radius: 12px;
-  background: rgba(52, 199, 89, 0.1); border: 1px solid rgba(52, 199, 89, 0.35);
-  color: var(--text1); font-size: 12.5px;
+  padding: 10px 12px; border-radius: 12px; margin-bottom: 14px;
+  background: rgba(52, 199, 89, 0.1); border: 1px solid rgba(52, 199, 89, 0.3);
+  color: #fff0dc; font-size: 13px;
 }
 
-.modalBody { padding: 14px 20px 26px; display: flex; flex-direction: column; }
-
 .recapCard {
-  display: flex; gap: 12px; align-items: center;
-  padding: 10px; border-radius: 14px; margin-bottom: 16px;
-  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--glass-border);
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px; border-radius: 14px; margin-bottom: 18px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 107, 0, 0.15);
 }
 .recapImg { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; flex-shrink: 0; }
 .recapInfo { min-width: 0; }
 .recapName {
-  color: var(--text1); font-size: 13.5px; font-weight: 700; margin: 0 0 3px;
+  margin: 0 0 4px; font-size: 14px; font-weight: 700; color: #fff0dc;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.recapPrice { color: var(--zest); font-size: 13px; font-weight: 800; margin: 0; }
+.recapPrice { margin: 0; font-size: 14px; font-weight: 800; color: #ffb700; }
 
 .fieldLabel {
-  color: var(--text-muted); font-size: 10.5px; font-weight: 700;
-  letter-spacing: 0.08em; text-transform: uppercase;
-  margin: 14px 0 8px;
+  margin: 14px 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  color: rgba(204, 144, 96, 0.75);
 }
 
-.toggleRow { display: flex; gap: 8px; }
+.toggleRow { display: flex; gap: 10px; }
 .toggleOpt, .toggleSel {
-  flex: 1; padding: 10px 12px; border-radius: 12px; cursor: pointer;
-  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-  text-align: left;
+  flex: 1; text-align: left; cursor: pointer;
+  padding: 12px 14px; border-radius: 12px;
+  display: flex; flex-direction: column; gap: 2px;
 }
-.toggleOpt { background: rgba(255, 255, 255, 0.04); border: 1px solid var(--glass-border); }
+.toggleOpt {
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1);
+}
 .toggleSel {
-  background: rgba(255, 107, 0, 0.14); border: 1.5px solid var(--orange);
-  box-shadow: 0 0 10px var(--orange-glow);
+  background: rgba(255, 107, 0, 0.14); border: 1px solid rgba(255, 107, 0, 0.55);
+  box-shadow: 0 0 12px rgba(255, 107, 0, 0.25);
 }
-.toggleLabel { color: var(--text1); font-size: 13px; font-weight: 700; }
-.toggleSub { color: var(--text-muted); font-size: 11px; }
+.toggleLabel { font-size: 13px; font-weight: 700; color: #fff0dc; }
+.toggleSub { font-size: 11px; color: rgba(204, 144, 96, 0.7); }
 
+/* Champs de formulaire — c'est ICI que le rendu "grisé/désactivé"
+   venait : sans ces règles, input/select/textarea retombent sur le
+   style natif du navigateur, illisible sur fond sombre. */
 .formInput {
-  width: 100%; padding: 12px 14px; border-radius: 12px;
-  background: var(--input-bg); border: 1px solid var(--glass-border);
-  color: var(--text1); font-size: 14px; font-family: inherit;
+  width: 100%;
+  padding: 13px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff0dc;
+  font-size: 14px;
+  font-family: inherit;
   outline: none;
+  transition: border-color .15s ease, background .15s ease;
 }
-.formInput::placeholder { color: var(--text-muted); }
-.formTextarea { resize: vertical; min-height: 56px; }
-.inputErr { border-color: var(--red); }
-.errMsg { color: var(--red); font-size: 11.5px; margin: 5px 0 0; }
+.formInput::placeholder { color: rgba(255, 240, 220, 0.35); }
+.formInput:focus {
+  border-color: #ff6b00;
+  background: rgba(255, 107, 0, 0.06);
+}
+.formInput option { background: #150800; color: #fff0dc; }
+.formTextarea { resize: vertical; min-height: 64px; }
+.inputErr { border-color: #ff4520 !important; }
+.errMsg { margin: 6px 0 0; font-size: 12px; color: #ff8a70; }
 
 .fraisCard {
-  margin-top: 14px; padding: 12px 14px; border-radius: 14px;
-  background: rgba(255, 183, 0, 0.06); border: 1px solid rgba(255, 183, 0, 0.25);
-  display: flex; flex-direction: column; gap: 6px;
+  margin-top: 14px; padding: 14px; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 107, 0, 0.15);
+  display: flex; flex-direction: column; gap: 8px;
 }
-.fraisRow {
-  display: flex; align-items: center; justify-content: space-between;
-  color: var(--text-muted); font-size: 12.5px;
-}
-.fraisRow span:last-child { color: var(--text1); font-weight: 600; }
-.fraisDivider { height: 1px; background: var(--glass-border); margin: 2px 0; }
-.fraisTotal span { color: var(--zest) !important; font-weight: 800 !important; font-size: 14px; }
+.fraisRow { display: flex; justify-content: space-between; font-size: 13px; color: rgba(255, 240, 220, 0.8); }
+.fraisDivider { height: 1px; background: rgba(255, 255, 255, 0.08); }
+.fraisTotal { font-size: 14px; font-weight: 800; color: #fff0dc; }
 
 .locBtn {
-  margin-top: 14px; width: 100%; padding: 12px 14px; border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05); border: 1px dashed var(--glass-border);
-  color: var(--text-muted); font-size: 13px; font-weight: 600; cursor: pointer;
-  display: flex; align-items: center; justify-content: center; gap: 7px;
+  margin-top: 16px; width: 100%; padding: 13px; border-radius: 12px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.05); border: 1px dashed rgba(255, 107, 0, 0.4);
+  color: rgba(255, 240, 220, 0.8); font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
 }
-.locOk {
-  background: rgba(52, 199, 89, 0.1); border: 1px solid rgba(52, 199, 89, 0.4);
-  color: var(--success);
-}
+.locOk { border-style: solid; border-color: #34c759; color: #34c759; }
 
 .confirmBtn {
-  margin-top: 20px; width: 100%; height: 52px; border: none; border-radius: 16px;
-  background: linear-gradient(135deg, var(--orange), var(--orange-hot));
-  color: #fff; font-size: 15px; font-weight: 800; cursor: pointer;
-  box-shadow: 0 6px 20px var(--orange-glow);
+  margin-top: 18px; width: 100%; padding: 15px; border: none; border-radius: 14px; cursor: pointer;
+  background: linear-gradient(135deg, #ff6b00, #ff8c00);
+  color: #fff; font-size: 15px; font-weight: 800;
+  box-shadow: 0 8px 24px rgba(255, 107, 0, 0.4);
   display: flex; align-items: center; justify-content: center;
 }
-.confirmBtn:disabled { opacity: .6; cursor: not-allowed; }
+.confirmBtn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-/* ── Étape QR (confirmation de commande) ──── */
+/* Étape QR */
 .qrStep { align-items: center; text-align: center; }
-.qrHint { color: var(--text-muted); font-size: 12.5px; margin: 0 0 16px; }
+.qrHint { font-size: 13px; color: rgba(204, 144, 96, 0.75); margin: 0 0 16px; }
 .qrWrap {
   padding: 14px; border-radius: 16px; background: #fff; margin-bottom: 16px;
 }
-.qrImg { width: 100%; max-width: 200px; display: block; }
+.qrImg { display: block; width: 180px; height: 180px; }
 .cidCard {
   display: flex; align-items: center; gap: 8px; cursor: pointer;
-  padding: 9px 14px; border-radius: 12px; margin-bottom: 8px;
-  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border);
-  color: var(--text1); font-size: 12.5px;
+  padding: 10px 14px; border-radius: 10px; margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 107, 0, 0.2);
+  color: #fff0dc; font-size: 13px;
 }
-.cidLabel { color: var(--text-muted); }
-.cidValue { font-weight: 800; letter-spacing: 0.02em; }
-.gpsTag { color: var(--text-muted); font-size: 11px; margin: 0 0 12px; }
+.cidLabel { color: rgba(204, 144, 96, 0.75); }
+.cidValue { font-weight: 700; }
+.gpsTag { font-size: 11px; color: rgba(204, 144, 96, 0.6); margin: -8px 0 16px; }

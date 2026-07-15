@@ -17,30 +17,8 @@ import {
   likeAvatarSession, commentAvatarSession, reactAvatarSession,
 } from '../../lib/avatarSessionApi';
 
-// ⚠️ IMPORTANT — voir firestore.rules, section `/live_avatar_sessions/{sessionId}` :
-// le document de session ET TOUTES ses sous-collections (viewers, likes,
-// comments, reactions, clicks) sont `allow create, update, delete: if false`
-// pour le client. Toute écriture passe désormais par la Netlify Function
-// `avatar-viewer-track` (Admin SDK, qui n'est pas soumis aux security
-// rules) — voir `lib/avatarSessionApi.js`. Le client ne fait plus que de
-// la LECTURE temps réel ici (onSnapshot), et cette lecture elle-même
-// exige `isAuth()` : ce composant a donc besoin d'un utilisateur Firebase
-// authentifié (anonyme ou non) pour fonctionner, y compris juste pour
-// regarder le live.
-
-// Nombre de commentaires synchronisés en temps réel — même logique que
-// LIVE_CHAT_LIMIT dans live.js : jamais d'onSnapshot non borné sur une
-// sous-collection qui peut grossir indéfiniment pendant un live.
 const COMMENT_LIMIT = 20;
 
-/* ══════════════════════════════════════════════════════════
-   PAYS / VILLES / TARIFS DE LIVRAISON
-   ── Dupliqué depuis live.js volontairement, comme le reste des
-   composants partagés entre /demo, /live et /liveAvatar dans ce
-   projet (voir la note en tête de live.js pour le détail).
-   ⚠️ TARIFS non-CI = PLACEHOLDERS, à remplacer par tes vrais barèmes
-   avant mise en production sur ces marchés.
-══════════════════════════════════════════════════════════ */
 const COUNTRIES = {
   CI: {
     label: "Côte d'Ivoire",
@@ -138,9 +116,6 @@ const fmtColis = (n, countryCode = DEFAULT_COUNTRY) => {
   return Number(n).toLocaleString('fr-FR') + ' ' + (CURRENCY_SUFFIX[currency] ?? currency);
 };
 
-/* ─────────────────────────────────────────────
-   Icônes (mêmes conventions que live.js : SVG inline, pas de lib d'icônes)
-───────────────────────────────────────────── */
 function IconEye() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -249,9 +224,6 @@ function IconUserCheck() {
 const fmtCount = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 function Spinner() { return <span className={styles.spinnerSm} />; }
 
-/* ─────────────────────────────────────────────
-   Toast (même pattern que live.js)
-───────────────────────────────────────────── */
 function useToast() {
   const [msg, setMsg] = useState(null);
   const timerRef = useRef(null);
@@ -264,14 +236,6 @@ function useToast() {
   return [msg, show];
 }
 
-/* ══════════════════════════════════════════════════════════
-   HOOK : résolution de la vidéo produit (façon live.js
-   useProductVideo). Le produit d'une session avatar peut ne
-   contenir qu'une image (imageUrl) — s'il expose déjà videoUrl on
-   l'utilise directement, sinon on va la chercher une seule fois
-   (getDoc/getDocs, jamais de listener) dans video_playlist via
-   videoId, puis en repli via product.productId.
-══════════════════════════════════════════════════════════ */
 function useProductVideo(product) {
   const [videoUrl, setVideoUrl] = useState(product?.videoUrl || null);
   const [poster, setPoster] = useState(product?.imageUrl || null);
@@ -323,13 +287,9 @@ function useProductVideo(product) {
   return { videoUrl, poster, loading };
 }
 
-/**
- * MultiLiveFeedPage — port de `MultiLiveFeedPage` (Flutter).
- */
 export default function UltraLivePage({ sessionId, viewerId, isActive }) {
   const sessionRef = doc(db, 'live_avatar_sessions', sessionId);
 
-  // undefined = en cours de résolution, null = pas connecté, objet = connecté
   const [authUser, setAuthUser] = useState(undefined);
   const [sessionData, setSessionData] = useState(null);
   const [comments, setComments] = useState([]);
@@ -337,21 +297,19 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
   const [hearts, setHearts] = useState([]);
   const [likeLocked, setLikeLocked] = useState(false);
   const [activeProductIndex, setActiveProductIndex] = useState(0);
-  const [zoomIndex, setZoomIndex] = useState(null); // index dans products, ou null
-  const [orderProduct, setOrderProduct] = useState(null); // produit en cours de commande (create-colis)
+  const [zoomIndex, setZoomIndex] = useState(null);
+  const [orderProduct, setOrderProduct] = useState(null);
   const [currency, setCurrency] = useState('XOF');
   const [toastMsg, showToast] = useToast();
 
-  const exchangeRates = { XOF: 1 }; // même point d'extension que le _exchangeRates Dart
+  const exchangeRates = { XOF: 1 };
   const convertPrice = (price) => Number(price) * (exchangeRates[currency] ?? 1);
 
-  // ── Auth : `read: isAuth()` s'applique à toute la collection ──
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => setAuthUser(user));
     return unsub;
   }, []);
 
-  // ── Écoute du document de session (nécessite authUser) ────────
   useEffect(() => {
     if (!authUser) return;
     const unsub = onSnapshot(sessionRef, (snap) => {
@@ -361,9 +319,6 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, authUser]);
 
-  // ── Rejoint / quitte la session via la Netlify Function
-  //    avatar-viewer-track — plus aucune écriture Firestore directe ici
-  //    (voir note plus haut).
   useEffect(() => {
     if (!authUser) return;
     let joined = false;
@@ -378,8 +333,6 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, authUser]);
 
-  // ── Pause/reprise : pilotée par `isActive`, comme le
-  //    _onPause/_onResume Flutter au changement d'onglet.
   useEffect(() => {
     if (!authUser) return;
     const call = isActive ? resumeAvatarSession : pauseAvatarSession;
@@ -387,8 +340,6 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive, authUser]);
 
-  // ── Commentaires : derniers COMMENT_LIMIT, temps réel (lecture
-  //    seule — l'écriture passe par commentAvatarSession ci-dessous) ─
   useEffect(() => {
     if (!authUser) return;
     const q = query(
@@ -406,11 +357,6 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
   const currentProducts = (sessionData?.products ?? []).map(productFromMap);
   const activeProductId = currentProducts[activeProductIndex]?.productId ?? null;
 
-  // ── Like : anti-spam 500ms + cœur flottant, comme _sendLike.
-  //    L'incrément du compteur `likes` est fait côté serveur par
-  //    avatar-viewer-track (le doc de session est verrouillé en écriture
-  //    pour le client) — on ne fait plus qu'appeler l'action et espérer
-  //    la mise à jour temps réel via le listener de session ci-dessus.
   const sendLike = () => {
     if (likeLocked || !authUser) return;
     setLikeLocked(true);
@@ -439,19 +385,11 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
     });
   };
 
-  // NOTE : le schéma de avatar-viewer-track documenté dans firestore.rules
-  // ne liste pas d'action dédiée "gift" (seulement join/leave/pause/
-  // resume/heartbeat/like/comment/reaction/click) — les cadeaux sont donc
-  // envoyés ici comme une "reaction" taguée par son emoji. Si les cadeaux
-  // doivent être comptés/affichés séparément des réactions côté vendeur,
-  // il faut ajouter une action `gift` (et éventuellement une sous-
-  // collection dédiée) côté Netlify Function plutôt que de les confondre.
   const sendGift = (gift) => {
     if (!authUser) return;
     reactAvatarSession(sessionId, gift).catch((e) => console.warn('⚠️ sendGift:', e.message));
   };
 
-  // ── Partage — même URL Next.js /liveAvatar + mêmes UTM que le Dart ─
   const shareLive = (sellerId, productId) => {
     const params = new URLSearchParams({
       sessionId,
@@ -478,16 +416,6 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
     }
   };
 
-  // ── Commander (livraison) ─────────────────────────────────────
-  // ⚠️ CHANGÉ — remplace l'ancien ajout au panier (`addToPanier` via la
-  // Netlify Function `add-to-panier`). Sur ce flux live, "Acheter" ouvre
-  // désormais directement le même parcours de commande avec livraison que
-  // /live (voir OrderModal dans live.js) : le formulaire collecte
-  // destinataire/adresse/ville, puis la commande est créée côté serveur
-  // par la Netlify Function `create-colis.js` (Admin SDK — aucune écriture
-  // Firestore cliente sur `commandes`, cohérent avec les règles ouvertes
-  // en lecture / fermées en écriture décrites dans live.js). Le panier
-  // (`panier` / add-to-panier) n'est plus utilisé sur ce composant.
   const openOrder = (product) => {
     if (!authUser) {
       showToast('Connexion requise pour commander');
@@ -542,7 +470,6 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
 
   return (
     <div className={styles.page} onClick={() => document.activeElement?.blur?.()}>
-      {/* ── Vidéo plein écran ─────────────────── */}
       <div className={styles.videoLayer}>
         <AvatarVideoPlayer videoUrl={videoUrl} isActive={isActive} />
       </div>
@@ -550,7 +477,6 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
       <div className={styles.gradTop} />
       <div className={styles.gradBottom} />
 
-      {/* ── Header HUD ────────────────────────── */}
       <div className={styles.header}>
         <LiveBadge />
         <div className={styles.spacer} />
@@ -559,26 +485,22 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
         <GlassBtn icon={<IconShare />} onClick={() => shareLive(sellerId, activeProductId)} />
       </div>
 
-      {/* ── Chat ──────────────────────────────── */}
       <div className={styles.chatArea}>
         {[...comments].reverse().map((c) => (
           <ChatBubble key={c.id} user={c.viewerId ?? 'user'} text={c.text ?? ''} />
         ))}
       </div>
 
-      {/* ── Action rail ───────────────────────── */}
       <div className={styles.actionRail}>
         <RailItem icon={<IconHeart filled />} label="J'aime" color="#FF6B9D" onClick={sendLike} />
         <RailItem icon={<IconShare />} label="Partager" color="#FFF0DC" onClick={() => shareLive(sellerId, activeProductId)} />
         <RailItem icon={<IconGift />} label="Cadeau" color="#FFB700" onClick={() => sendGift('🎁')} />
       </div>
 
-      {/* ── Cœurs flottants ───────────────────── */}
       {hearts.map((h) => (
         <FloatingHeart key={h.id} right={h.right} />
       ))}
 
-      {/* ── Bande produits ────────────────────── */}
       {currentProducts.length > 0 && (
         <ProductStrip
           products={currentProducts}
@@ -592,7 +514,6 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
         />
       )}
 
-      {/* ── Saisie commentaire ────────────────── */}
       <div className={styles.commentInputWrap} onClick={(e) => e.stopPropagation()}>
         <input
           className={styles.commentField}
@@ -606,7 +527,6 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
         </button>
       </div>
 
-      {/* ── Zoom produit ──────────────────────── */}
       {zoomIndex !== null && (
         <ProductZoomViewer
           products={currentProducts}
@@ -619,7 +539,6 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
         />
       )}
 
-      {/* ── Commande avec livraison (create-colis) ────────────── */}
       {orderProduct && (
         <ColisOrderModal
           product={orderProduct}
@@ -634,9 +553,6 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
   );
 }
 
-/* ─────────────────────────────────────────────
-   Sous-composants
-───────────────────────────────────────────── */
 function LiveBadge() {
   return (
     <div className={styles.liveBadge}>
@@ -696,11 +612,6 @@ function FloatingHeart({ right }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════════
-   MÉDIA PRODUIT — vidéo en boucle si disponible, sinon image
-   (façon ProductVideoPreview de live.js). Utilisé à la fois dans
-   la mini-carte de la bande produits et dans la vue zoom.
-══════════════════════════════════════════════════════════ */
 function ProductMedia({ product, size = 'mini', muted, onToggleMuted }) {
   const { videoUrl, poster, loading } = useProductVideo(product);
   const videoRef = useRef(null);
@@ -708,7 +619,7 @@ function ProductMedia({ product, size = 'mini', muted, onToggleMuted }) {
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    v.play().catch(() => {}); // ignore silencieusement (ex. onglet en arrière-plan)
+    v.play().catch(() => {});
   }, [videoUrl]);
 
   useEffect(() => {
@@ -752,9 +663,6 @@ function ProductMedia({ product, size = 'mini', muted, onToggleMuted }) {
     : <IconImageOff />;
 }
 
-/* ─────────────────────────────────────────────
-   Bande produits horizontale
-───────────────────────────────────────────── */
 function ProductStrip({ products, activeIndex, currency, convertPrice, onSelect, onBuy, onShare, onZoom }) {
   return (
     <div className={styles.productStrip} onClick={(e) => e.stopPropagation()}>
@@ -805,9 +713,6 @@ function MiniProductCard({ product, isActive, currency, convertPrice, onSelect, 
   );
 }
 
-/* ─────────────────────────────────────────────
-   Zoom produit plein écran
-───────────────────────────────────────────── */
 function ProductZoomViewer({ products, startIndex, currency, convertPrice, onClose, onBuy, onShare }) {
   const [index, setIndex] = useState(startIndex);
   const [muted, setMuted] = useState(true);
@@ -862,14 +767,6 @@ function ProductZoomViewer({ products, startIndex, currency, convertPrice, onClo
   );
 }
 
-/* ══════════════════════════════════════════════════════════
-   MODAL COMMANDE AVEC LIVRAISON — create-colis
-   Même parcours que OrderModal dans live.js (destinataire, pays,
-   ville, adresse GPS, type/mode de livraison), restylé aux tokens
-   Citrus Orange de ce fichier. Écrit uniquement via la Netlify
-   Function `create-colis.js` (Admin SDK) — aucune écriture
-   Firestore cliente.
-══════════════════════════════════════════════════════════ */
 function ColisOrderModal({ product, sellerId, authUser, onClose }) {
   const [step, setStep] = useState('form');
   const [nomDest, setNomDest] = useState(
@@ -977,8 +874,14 @@ function ColisOrderModal({ product, sellerId, authUser, onClose }) {
   if (!product) return null;
 
   return (
-    <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className={styles.modalSheet}>
+    <div
+      className={styles.modalBackdrop}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className={styles.modalSheet} onClick={(e) => e.stopPropagation()}>
         <div className={styles.modalHandle} />
         <div className={styles.modalHeader}>
           <div>
