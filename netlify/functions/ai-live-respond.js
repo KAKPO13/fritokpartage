@@ -1,16 +1,12 @@
-import { adminAuth, adminDb } from '../../app/lib/firebaseAdmin.js';
-import { AiReplyOrchestrator } from '../../app/lib/ai-live-assistant/application/use-cases/AiReplyOrchestrator.js';
-import { ResponseManager } from '../../app/lib/ai-live-assistant/application/use-cases/ResponseManager.js';
-import { LlmProviderFactory } from '../../app/lib/ai-live-assistant/application/use-cases/LlmProviderFactory.js';
-import { SessionProductKnowledgeProvider } from '../../app/lib/ai-live-assistant/data/knowledge/SessionProductKnowledgeProvider.js';
-import { AdminSessionSnapshotSource } from '../../app/lib/ai-live-assistant/data/firestore-admin/AdminSessionSnapshotSource.js';
-import { AdminAiCacheRepository } from '../../app/lib/ai-live-assistant/data/firestore-admin/AdminAiCacheRepository.js';
-import { AdminAiEventsRepository } from '../../app/lib/ai-live-assistant/data/firestore-admin/AdminAiEventsRepository.js';
-import { AdminCommentsRepository } from '../../app/lib/ai-live-assistant/data/firestore-admin/AdminCommentsRepository.js';
-
-export async function handler(event) {
-  // ton code ici
-
+import { adminAuth, adminDb } from '../../lib/firebaseAdmin.js';
+import { handleCommentAiReply } from '../../lib/ai-live-assistant/application/services/AiReplyOrchestrator.js';
+import { createResponseManager } from '../../lib/ai-live-assistant/application/services/ResponseManager.js';
+import { createLlmProvider, resolveDefaultProviderName } from '../../lib/ai-live-assistant/application/services/LlmProviderFactory.js';
+import { createSessionProductKnowledgeProvider } from '../../lib/ai-live-assistant/data/knowledge/SessionProductKnowledgeProvider.js';
+import { createAdminSessionSnapshotSource } from '../../lib/ai-live-assistant/data/firestore-admin/AdminSessionSnapshotSource.js';
+import { createAdminAiCacheRepository } from '../../lib/ai-live-assistant/data/firestore-admin/AdminAiCacheRepository.js';
+import { createAdminAiEventsRepository } from '../../lib/ai-live-assistant/data/firestore-admin/AdminAiEventsRepository.js';
+import { createAdminCommentsRepository } from '../../lib/ai-live-assistant/data/firestore-admin/AdminCommentsRepository.js';
 
 /**
  * POST /.netlify/functions/ai-live-respond
@@ -50,7 +46,7 @@ function corsHeaders(event) {
   };
 }
 
-
+export async function handler(event) {
   // Préflight CORS : le header `Authorization` + `Content-Type: application/json`
   // déclenche un préflight navigateur. Sans réponse explicite à OPTIONS,
   // le POST réel n'est jamais envoyé — voir netlify.toml, section
