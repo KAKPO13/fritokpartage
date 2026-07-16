@@ -7,6 +7,7 @@ import {
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '@/lib/firebaseClient';
 import UltraLivePage from './UltraLivePage';
+import AiLiveAssistantBridge from '@/lib/ai-live-assistant/presentation/AiLiveAssistantBridge';
 import styles from './multiLiveFeed.module.css';
 
 // ⚠️ Voir firestore.rules, `/live_avatar_sessions/{sessionId}` :
@@ -231,6 +232,18 @@ export default function MultiLiveFeedPage({ viewerId, isActive = true }) {
                     sessionId={sess.id}
                     viewerId={viewerId}
                     isActive={isActive && isCurrent}
+                  />
+                  {/* FriTok AI Live Assistant (Modules 1-5) — composant
+                      invisible (retourne null), monté en FRÈRE de
+                      UltraLivePage, jamais en parent/enfant modifié.
+                      Observe les commentaires en lecture seule et
+                      déclenche la réponse IA ; celle-ci s'affiche ensuite
+                      dans le fil de chat existant via le onSnapshot déjà
+                      en place dans UltraLivePage.js — aucune autre
+                      modification requise ici. */}
+                  <AiLiveAssistantBridge
+                    sessionId={sess.id}
+                    enabled={isActive && isCurrent}
                   />
                   {isSeen && <WatchedBadge />}
                 </>
