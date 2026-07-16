@@ -83,6 +83,7 @@ export async function handler(event) {
     return { statusCode: 400, headers: corsHeaders(event), body: JSON.stringify({ error: 'sessionId et commentId requis' }) };
   }
 
+
   try {
     const aiEvents = createAdminAiEventsRepository({ db: adminDb });
     const comments = createAdminCommentsRepository({ db: adminDb });
