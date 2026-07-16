@@ -162,6 +162,13 @@ function IconSend() {
     </svg>
   );
 }
+function IconComment() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </svg>
+  );
+}
 function IconChevron({ dir = 'left' }) {
   const points = dir === 'left' ? '15 18 9 12 15 6' : '9 18 15 12 9 6';
   return (
@@ -300,6 +307,7 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
   const [zoomIndex, setZoomIndex] = useState(null);
   const [orderProduct, setOrderProduct] = useState(null);
   const [currency, setCurrency] = useState('XOF');
+  const [commentsVisible, setCommentsVisible] = useState(true);
   const [toastMsg, showToast] = useToast();
 
   const exchangeRates = { XOF: 1 };
@@ -485,16 +493,24 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
         <GlassBtn icon={<IconShare />} onClick={() => shareLive(sellerId, activeProductId)} />
       </div>
 
-      <div className={styles.chatArea}>
-        {[...comments].reverse().map((c) => (
-          <ChatBubble key={c.id} user={c.viewerId ?? 'user'} text={c.text ?? ''} />
-        ))}
-      </div>
+      {commentsVisible && (
+        <div className={styles.chatArea}>
+          {[...comments].reverse().map((c) => (
+            <ChatBubble key={c.id} user={c.viewerId ?? 'user'} text={c.text ?? ''} />
+          ))}
+        </div>
+      )}
 
       <div className={styles.actionRail}>
         <RailItem icon={<IconHeart filled />} label="J'aime" color="#FF6B9D" onClick={sendLike} />
         <RailItem icon={<IconShare />} label="Partager" color="#FFF0DC" onClick={() => shareLive(sellerId, activeProductId)} />
         <RailItem icon={<IconGift />} label="Cadeau" color="#FFB700" onClick={() => sendGift('🎁')} />
+        <RailItem
+          icon={<IconComment />}
+          label={commentsVisible ? 'Masquer' : 'Commentaires'}
+          color={commentsVisible ? '#FFF0DC' : '#8a7a68'}
+          onClick={() => setCommentsVisible((v) => !v)}
+        />
       </div>
 
       {hearts.map((h) => (
@@ -514,18 +530,20 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
         />
       )}
 
-      <div className={styles.commentInputWrap} onClick={(e) => e.stopPropagation()}>
-        <input
-          className={styles.commentField}
-          placeholder="Écrire un commentaire…"
-          value={commentInput}
-          onChange={(e) => setCommentInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && sendComment()}
-        />
-        <button className={styles.commentSend} onClick={sendComment}>
-          <IconSend />
-        </button>
-      </div>
+      {commentsVisible && (
+        <div className={styles.commentInputWrap} onClick={(e) => e.stopPropagation()}>
+          <input
+            className={styles.commentField}
+            placeholder="Écrire un commentaire…"
+            value={commentInput}
+            onChange={(e) => setCommentInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && sendComment()}
+          />
+          <button className={styles.commentSend} onClick={sendComment}>
+            <IconSend />
+          </button>
+        </div>
+      )}
 
       {zoomIndex !== null && (
         <ProductZoomViewer
