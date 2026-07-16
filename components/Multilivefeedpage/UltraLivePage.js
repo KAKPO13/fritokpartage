@@ -348,11 +348,13 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive, authUser]);
 
+  // Écoute des commentaires — trié sur `timestamp` (et non `time`), qui est
+  // le nom de champ réellement écrit par avatar-viewer-track.js côté serveur.
   useEffect(() => {
     if (!authUser) return;
     const q = query(
       collection(sessionRef, 'comments'),
-      orderBy('time', 'desc'),
+      orderBy('timestamp', 'desc'),
       limit(COMMENT_LIMIT)
     );
     const unsub = onSnapshot(q, (snap) => {
@@ -496,7 +498,7 @@ export default function UltraLivePage({ sessionId, viewerId, isActive }) {
       {commentsVisible && (
         <div className={styles.chatArea}>
           {[...comments].reverse().map((c) => (
-            <ChatBubble key={c.id} user={c.viewerId ?? 'user'} text={c.text ?? ''} />
+            <ChatBubble key={c.id} user={c.viewerId ?? 'user'} text={c.message ?? ''} />
           ))}
         </div>
       )}
