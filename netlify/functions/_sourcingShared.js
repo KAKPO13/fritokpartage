@@ -74,11 +74,11 @@ export async function envoyerNotificationAgent(requestId, agent, devis, totalIte
     return { success: false, error: 'WhatsApp non configuré' };
   }
 
-  const token = genererTokenAgent(requestId, agent.id);
-  const lienPage = `https://fritok.net/agent/sourcing/${requestId}?token=${token}`;
-  const numeroAgent = String(agent.whatsapp).replace(/\D/g, '');
-
   try {
+    const token = genererTokenAgent(requestId, agent.id);
+    const lienPage = `https://fritok.net/agent/sourcing/${requestId}?token=${token}`;
+    const numeroAgent = String(agent.whatsapp).replace(/\D/g, '');
+
     const res = await fetch(
       `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
       {
