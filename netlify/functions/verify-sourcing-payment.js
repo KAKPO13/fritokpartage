@@ -45,7 +45,6 @@ export const handler = async (event) => {
     if (!verifRes.ok || verifData.status !== 'success' || verifData.data?.status !== 'successful') {
       return { statusCode: 400, body: JSON.stringify({ error: 'Paiement non confirmé par Flutterwave' }) };
     }
-    
 
     const montantPaye = Number(verifData.data.amount);
     const currencyPaye = verifData.data.currency;
