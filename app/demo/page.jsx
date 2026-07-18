@@ -147,6 +147,11 @@ const PAGE_SIZE = 20;
 // ── B2B ──────────────────────────────────────────────────────────────────
 const B2B_CART_LS_KEY = 'fritok_b2b_cart';
 
+// ── Sourcing régional ────────────────────────────────────────────────────
+// localStorage (pas sessionStorage) : intention d'achat plus lente à mûrir
+// que le panier B2B, doit survivre à la fermeture de l'onglet.
+const SOURCING_LS_KEY = 'fritok_sourcing_cart';
+
 /* ══════════════════════════════════════════════════════════
    ICÔNES
 ══════════════════════════════════════════════════════════ */
@@ -270,6 +275,18 @@ function IconCheckCircle() {
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
       <polyline points="22 4 12 14.01 9 11.01"/>
+    </svg>
+  );
+}
+
+// ── Sourcing régional ────────────────────────────────────────────────────
+function IconSourcingAdd() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="7"/>
+      <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      <line x1="11" y1="8" x2="11" y2="14"/>
+      <line x1="8" y1="11" x2="14" y2="11"/>
     </svg>
   );
 }
@@ -478,8 +495,7 @@ function CommentsModal({ videoId, authUser, onClose, onAuthRequired, onSent }) {
 
 /* ══════════════════════════════════════════════════════════
    MODAL : COMMANDE + LIVRAISON
-   Grand public uniquement — jamais ouvert par le bouton B2B
-   (voir handleAddToB2BCart dans VideoSlide, qui n'y touche pas).
+   Grand public uniquement — jamais ouvert par le bouton B2B ni Sourcing.
 ══════════════════════════════════════════════════════════ */
 function OrderModal({ product, sellerId, authUser, onClose }) {
   const [step,        setStep]        = useState('form');
@@ -870,8 +886,6 @@ function ReportSheet({ videoId, sellerId, authUser, onClose }) {
 
 /* ══════════════════════════════════════════════════════════
    B2B — HOOK PANIER LOCAL
-   Équivalent du Map<String, OrderLine> _selected local de
-   OrderSelectionScreen.dart en Flutter, persisté en sessionStorage.
 ══════════════════════════════════════════════════════════ */
 function useB2BCart() {
   const [cart, setCart] = useState([]);
@@ -930,6 +944,62 @@ function useB2BCart() {
 }
 
 /* ══════════════════════════════════════════════════════════
+   SOURCING RÉGIONAL — HOOK PANIER LOCAL
+   Panier local uniquement, jamais d'écriture Firestore avant soumission
+   (voir architecture-sourcing-regional-fritok.md). Quantité fixée à 1 —
+   pas de sélecteur de quantité en V1. Aucune vérification d'auth ici :
+   se connecter n'est requis qu'à la SOUMISSION de la demande, pas à
+   l'ajout au panier.
+══════════════════════════════════════════════════════════ */
+function useSourcingCart() {
+  const [items, setItems] = useState([]);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(SOURCING_LS_KEY) || '[]');
+      setItems(Array.isArray(raw) ? raw : []);
+    } catch { /* corrompu ou navigation privée */ }
+    setReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    try { localStorage.setItem(SOURCING_LS_KEY, JSON.stringify(items)); } catch { /* quota / navigation privée */ }
+  }, [items, ready]);
+
+  const isInCart = useCallback((videoId) => items.some(i => i.videoId === videoId), [items]);
+
+  const toggle = useCallback((item) => {
+    if (!item?.product) return;
+    setItems(prev => {
+      const exists = prev.some(i => i.videoId === item.id);
+      if (exists) return prev.filter(i => i.videoId !== item.id);
+      // Affichage seulement — le prix/titre réels sont relus côté serveur
+      // (submit-sourcing-request.js) à la soumission, jamais confiance ici.
+      return [...prev, {
+        videoId: item.id,
+        productId: item.product.productId ?? '',
+        titre: item.product.name ?? '',
+        image: item.product.thumbnail || item.product.image || '',
+        prixAffiche: Number(item.product.price ?? 0),
+        lienProduit: `https://fritok.net/demo?video=${item.id}`,
+        quantite: 1,
+        addedAt: Date.now(),
+      }];
+    });
+  }, []);
+
+  const remove = useCallback((videoId) => {
+    setItems(prev => prev.filter(i => i.videoId !== videoId));
+  }, []);
+
+  const clear = useCallback(() => setItems([]), []);
+
+  return { items, isInCart, toggle, remove, clear, ready };
+}
+
+/* ══════════════════════════════════════════════════════════
    B2B — BARRE FLOTTANTE PANIER
 ══════════════════════════════════════════════════════════ */
 function B2BCartBar({ cart, onOpenReview }) {
@@ -955,7 +1025,6 @@ function B2BCartBar({ cart, onOpenReview }) {
 
 /* ══════════════════════════════════════════════════════════
    B2B — ÉCRAN DE REVUE/SÉLECTION DU PANIER
-   Équivalent direct de OrderSelectionScreen.dart.
 ══════════════════════════════════════════════════════════ */
 function B2BCartSheet({ cart, onClose, onUpdateQty, onToggleSelected, onRemove, onConfirm }) {
   const selectedCount = cart.filter(l => l.selected).length;
@@ -1022,6 +1091,149 @@ function B2BCartSheet({ cart, onClose, onUpdateQty, onToggleSelected, onRemove, 
             Créer le bon de commande ({selectedCount})
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   SOURCING RÉGIONAL — BOUTON FLOTTANT
+   Positionné en haut à droite (sous la barre du haut) plutôt qu'en bas,
+   pour ne jamais chevaucher B2BCartBar qui occupe déjà le bas de l'écran.
+══════════════════════════════════════════════════════════ */
+function SourcingFab({ count, onOpen }) {
+  if (count === 0) return null;
+  return (
+    <button className={styles.sourcingFab} onClick={onOpen} aria-label="Voir ma liste sourcing">
+      <IconSourcingAdd/>
+      <span className={styles.sourcingBadge}>{count}</span>
+    </button>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   SOURCING RÉGIONAL — SHEET DE REVUE + SOUMISSION
+   Sélection/désélection avant envoi (le produit décoché reste dans le
+   panier local pour une prochaine demande), suppression définitive, et
+   soumission qui appelle submit-sourcing-request.js — seul point où le
+   panier local touche enfin le serveur.
+══════════════════════════════════════════════════════════ */
+function SourcingCartSheet({ cart, authUser, onClose, onAuthRequired }) {
+  const [excluded, setExcluded]     = useState(new Set());
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult]         = useState(null);
+  const [toast, setToast]           = useState(null);
+
+  const toggleSelect = (videoId) => {
+    setExcluded(prev => {
+      const next = new Set(prev);
+      next.has(videoId) ? next.delete(videoId) : next.add(videoId);
+      return next;
+    });
+  };
+
+  const selectedItems = cart.items.filter(i => !excluded.has(i.videoId));
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
+
+  const envoyerBon = async () => {
+    if (!authUser) { onClose(); onAuthRequired(); return; }
+    if (selectedItems.length === 0) { showToast('Sélectionnez au moins un produit'); return; }
+    setSubmitting(true);
+    try {
+      const idToken = await authUser.getIdToken();
+      const res = await fetch('/.netlify/functions/submit-sourcing-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          items: selectedItems.map(i => ({ videoId: i.videoId, quantite: i.quantite })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Échec de la demande');
+
+      setResult(data);
+      // Retire uniquement les produits envoyés — ceux décochés restent
+      // dans le panier local pour une prochaine demande.
+      selectedItems.forEach(i => cart.remove(i.videoId));
+    } catch (e) {
+      showToast('Erreur : ' + e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modalSheet}>
+        <div className={styles.modalHandle}/>
+        <div className={styles.modalHeader}>
+          <div>
+            <p className={styles.modalTitle}>Ma liste sourcing</p>
+            <p className={styles.modalSub}>
+              {selectedItems.length}/{cart.items.length} sélectionné{selectedItems.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+          <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
+        </div>
+
+        {!result && (
+          <div className={styles.modalBody}>
+            {cart.items.length === 0 && (
+              <div className={styles.commentEmpty}>
+                <p>Liste vide</p>
+                <p>Ajoutez des produits depuis le feed en tapant sur le bouton Sourcing.</p>
+              </div>
+            )}
+            {cart.items.map(i => {
+              const isSelected = !excluded.has(i.videoId);
+              return (
+                <div key={i.videoId} className={styles.recapCard} style={{ opacity: isSelected ? 1 : 0.45 }}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelect(i.videoId)}
+                    style={{ width: 18, height: 18, flexShrink: 0 }}
+                  />
+                  <img className={styles.recapImg} src={i.image} alt=""/>
+                  <div className={styles.recapInfo} style={{ flex: 1 }}>
+                    <p className={styles.recapName}>{i.titre}</p>
+                    <p className={styles.recapPrice}>{i.prixAffiche.toLocaleString('fr-FR')} XOF (indicatif)</p>
+                  </div>
+                  <button
+                    onClick={() => cart.remove(i.videoId)}
+                    style={{ background: 'none', border: 'none', color: '#ff4520', cursor: 'pointer', flexShrink: 0 }}
+                    aria-label="Retirer du panier"
+                  >
+                    <IconClose/>
+                  </button>
+                </div>
+              );
+            })}
+            {cart.items.length > 0 && (
+              <button className={styles.confirmBtn} onClick={envoyerBon} disabled={submitting || selectedItems.length === 0}>
+                {submitting ? <Spinner/> : `Envoyer ma demande (${selectedItems.length})`}
+              </button>
+            )}
+          </div>
+        )}
+
+        {result && (
+          <div className={styles.modalBody}>
+            <p className={styles.qrHint}>
+              Votre demande a été assignée à <strong>{result.agent.prenom} {result.agent.nom}</strong> ({result.agent.ville}, {result.agent.pays}).
+            </p>
+            <div className={styles.fraisCard}>
+              <div className={styles.fraisRow}><span>Sous-total articles</span><span>{result.devis.sousTotal.toLocaleString('fr-FR')} {result.devis.currency}</span></div>
+              <div className={styles.fraisRow}><span>Frais sourcing</span><span>{(result.devis.feeItems + result.devis.feePerOrder).toLocaleString('fr-FR')} {result.devis.currency}</span></div>
+              <div className={styles.fraisRow}><span>Livraison</span><span>{result.devis.shippingToClient.toLocaleString('fr-FR')} {result.devis.currency}</span></div>
+              <div className={styles.fraisDivider}/>
+              <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{result.devis.total.toLocaleString('fr-FR')} {result.devis.currency}</span></div>
+            </div>
+            <button className={styles.confirmBtn} onClick={onClose}>Fermer</button>
+          </div>
+        )}
+
+        <ToastMsg msg={toast}/>
       </div>
     </div>
   );
@@ -1207,13 +1419,16 @@ function useSeenVideos(authUser, authReady) {
 
 /* ══════════════════════════════════════════════════════════
    VIDEO SLIDE
-   Ajout B2B : deux nouvelles props `inCart` et `onAddToCart`. Le bouton
-   "Commander" (handleOrder) reste STRICTEMENT inchangé — il ouvre toujours
-   OrderModal, pour tout le monde. Un second bouton, visible uniquement si
-   `item.b2bAvailable` est vrai, ajoute le produit au panier B2B local sans
-   jamais ouvrir de modal.
+   Trois familles d'actions désormais : grand public (handleOrder,
+   inchangé), B2B (handleAddToB2BCart, conditionné à item.b2bAvailable),
+   et Sourcing (handleToggleSourcing, visible sur toute vidéo avec
+   produit — pas de condition de disponibilité).
 ══════════════════════════════════════════════════════════ */
-function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, markSeen, inCart, onAddToCart }) {
+function VideoSlide({
+  item, isActive, authUser, authReady, muted, setMuted, markSeen,
+  inCart, onAddToCart,
+  inSourcing, onToggleSourcing,
+}) {
   const videoRef  = useRef(null);
   const tapTimer  = useRef(null);
   const router    = useRouter();
@@ -1226,9 +1441,6 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
 
   const sellerId = item.userId ?? item.refArticle ?? '';
 
-  // Dérivé directement du document vidéo (posé à la publication) — pas
-  // d'un statut de compte acheteur : n'importe qui connecté peut ajouter
-  // au panier pro dès qu'une vidéo vient d'un fournisseur B2B vérifié.
   const b2bAvailable = item.b2bAvailable === true;
 
   const { liked, count: likeCount, toggle: toggleLike, ready: likeReady } =
@@ -1288,13 +1500,19 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
     else           { setOrderProduct(item.product); }
   };
 
-  // AJOUT — action strictement séparée : ajoute au panier B2B local,
-  // jamais d'ouverture d'OrderModal.
+  // B2B — ajoute au panier fournisseur local, jamais d'ouverture d'OrderModal.
   const handleAddToB2BCart = e => {
     e.stopPropagation();
     if (!authReady) return;
     if (!authUser) { setAuthPrompt(true); return; }
     onAddToCart?.(item, sellerId, item.title);
+  };
+
+  // Sourcing — ajout/retrait 100% local, aucune vérification d'auth ici
+  // (décidé : login requis seulement à la soumission de la demande).
+  const handleToggleSourcing = e => {
+    e.stopPropagation();
+    onToggleSourcing?.(item);
   };
 
   const handleFollow = (e) => {
@@ -1410,14 +1628,24 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
           <span className={styles.countGold}>Shop</span>
         </button>
 
-        {/* AJOUT — bouton B2B, visible uniquement si CETTE vidéo vient d'un
-            fournisseur B2B vérifié. Aucune condition sur le compte du
-            spectateur. */}
+        {/* B2B — visible uniquement si CETTE vidéo vient d'un fournisseur
+            B2B vérifié. Aucune condition sur le compte du spectateur. */}
         {b2bAvailable && (
           <button className={`${styles.actionBtn} ${styles.b2bAddBtn}`} onClick={handleAddToB2BCart}>
             {inCart ? <IconCheckCircle/> : <IconCartAdd/>}
             <span className={inCart ? styles.b2bAddedLabel : styles.count}>
               {inCart ? 'Ajouté' : 'Pro'}
+            </span>
+          </button>
+        )}
+
+        {/* SOURCING — visible sur toute vidéo avec produit, contrairement
+            à Pro qui est conditionné à b2bAvailable. */}
+        {item.product && (
+          <button className={`${styles.actionBtn} ${styles.sourcingAddBtn}`} onClick={handleToggleSourcing}>
+            {inSourcing ? <IconCheckCircle/> : <IconSourcingAdd/>}
+            <span className={inSourcing ? styles.sourcingAddedLabel : styles.count}>
+              {inSourcing ? 'Ajouté' : 'Sourcing'}
             </span>
           </button>
         )}
@@ -1452,7 +1680,10 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
             {/* INCHANGÉ — CTA grand public */}
             <button className={styles.productCta} onClick={handleOrder}>Commander</button>
 
-            {/* AJOUT — CTA B2B distinct, seulement si la vidéo est éligible */}
+            {/* B2B — CTA distinct, seulement si la vidéo est éligible.
+                Volontairement pas de 3e CTA sourcing ici : le bouton de la
+                colonne d'actions suffit, la carte produit reste lisible
+                avec au plus 2 CTA sur 310px de large. */}
             {b2bAvailable && (
               <button
                 className={inCart ? styles.productCtaAdded : styles.productCtaB2B}
@@ -1477,8 +1708,6 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
         />
       )}
 
-      {/* Modal commande — grand public uniquement, jamais ouvert par le
-          bouton B2B */}
       {orderProduct && (
         <OrderModal
           product={orderProduct}
@@ -1518,9 +1747,6 @@ function Skeleton() {
 
 /* ══════════════════════════════════════════════════════════
    NORMALISATION D'UN DOC video_playlist
-   b2bAvailable : posé à `true` uniquement par AddVideoPage si le vendeur
-   est fournisseur B2B vérifié au moment de la publication (voir règle
-   Firestore isB2BVerifiedSupplier()). Normalisé en booléen strict.
 ══════════════════════════════════════════════════════════ */
 function normalizeVideoDoc(id, data) {
   const p = data.product ?? {};
@@ -1569,6 +1795,15 @@ function DemoPageInner() {
     setShowCartSheet(false);
     router.push('/b2b/commande');
   };
+
+  // ── Sourcing régional ────────────────────────────────────────────────
+  // authPromptTop : modal de connexion dédiée au niveau DemoPageInner,
+  // séparée de celle de chaque VideoSlide (qui reste locale à sa propre
+  // logique). Nécessaire parce que SourcingCartSheet est rendu ici, pas
+  // à l'intérieur d'un VideoSlide.
+  const sourcingCart = useSourcingCart();
+  const [showSourcingSheet, setShowSourcingSheet] = useState(false);
+  const [authPromptTop, setAuthPromptTop] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => {
@@ -1729,6 +1964,8 @@ function DemoPageInner() {
                   markSeen={markSeen}
                   inCart={isInCart(item.id)}
                   onAddToCart={(it, sellerId, sellerName) => addItem(it, sellerId, sellerName)}
+                  inSourcing={sourcingCart.isInCart(item.id)}
+                  onToggleSourcing={(it) => sourcingCart.toggle(it)}
                 />
               ) : (
                 <div className={styles.slidePlaceholder}/>
@@ -1750,7 +1987,7 @@ function DemoPageInner() {
 
       <div className={styles.counter}>{activeIdx + 1} / {orderedPlaylist.length}</div>
 
-      {/* B2B — panier + revue, visibles dès que le panier n'est pas vide */}
+      {/* B2B — panier + revue */}
       <B2BCartBar cart={cart} onOpenReview={() => setShowCartSheet(true)}/>
       {showCartSheet && (
         <B2BCartSheet
@@ -1762,6 +1999,18 @@ function DemoPageInner() {
           onConfirm={handleConfirmOrder}
         />
       )}
+
+      {/* Sourcing régional — FAB + revue */}
+      <SourcingFab count={sourcingCart.items.length} onOpen={() => setShowSourcingSheet(true)}/>
+      {showSourcingSheet && (
+        <SourcingCartSheet
+          cart={sourcingCart}
+          authUser={authUser}
+          onClose={() => setShowSourcingSheet(false)}
+          onAuthRequired={() => setAuthPromptTop(true)}
+        />
+      )}
+      {authPromptTop && <AuthRequiredModal onClose={() => setAuthPromptTop(false)}/>}
     </div>
   );
 }

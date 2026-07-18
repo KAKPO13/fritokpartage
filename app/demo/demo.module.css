@@ -932,8 +932,6 @@
 
 /* ══════════════════════════════════════════════════════════
    B2B — panier local, barre flottante, écran de revue
-   (ajouts ; rien au-dessus n'est modifié à part .productCard qui a reçu
-   flex-wrap/row-gap plus haut pour accueillir deux CTA côte à côte)
 ══════════════════════════════════════════════════════════ */
 
 /* ── Barre panier flottante B2B ──────────────────────────────────────────── */
@@ -1072,3 +1070,43 @@
   display: flex; align-items: center; justify-content: center;
 }
 .b2bCartRemove:hover { opacity: 0.9; }
+
+/* ══════════════════════════════════════════════════════════
+   SOURCING RÉGIONAL — bouton flottant, colonne d'actions,
+   écran de revue (SourcingCartSheet réutilise .recapCard,
+   .fraisCard, .modalSheet etc. définis plus haut — rien à
+   dupliquer pour l'écran de revue lui-même)
+══════════════════════════════════════════════════════════ */
+
+/* ── FAB en haut à droite, sous la barre du haut (topBar ~52-60px) et sous
+   .topBarRight (mute + flag) pour ne jamais les chevaucher ─────────────── */
+.sourcingFab {
+  position: fixed;
+  top: 64px;
+  right: 0.75rem;
+  z-index: 55;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(10,10,10,0.9);
+  border: 1.5px solid rgba(45,212,191,0.5);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+.sourcingBadge {
+  position: absolute;
+  top: -4px; right: -4px;
+  min-width: 18px; height: 18px;
+  border-radius: 9px;
+  background: #2DD4BF;
+  color: #000;
+  font-size: 0.65rem;
+  font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px;
+}
+
+/* ── Bouton Sourcing dans la colonne d'actions — teal, distinct du gold
+   (Shop) et du violet (Pro B2B) ─────────────────────────────────────────── */
+.sourcingAddBtn svg { stroke: #2DD4BF !important; }
+.sourcingAddedLabel { font-size: 0.72rem; color: #34C759; font-weight: 700; }
