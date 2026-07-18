@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { db, auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { collection, doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import SubscriptionGuard from "@/components/SubscriptionGuard";
 
 // ─── Buckets R2 ────────────────────────────────────────────
@@ -18,18 +18,8 @@ function uuidv4() {
 }
 
 // ─── Keywords ──────────────────────────────────────────────
-// ⚠️ FIX PERMISSION : la règle Firestore video_playlist.create exige
-// keywords.size() <= 10 (voir firestore.rules). L'ancienne version ne
-// bornait rien : une description de 2-3 phrases dépasse presque toujours
-// 10 mots uniques, donc la publication échouait en permission-denied
-// pour tout vendeur qui remplissait normalement le formulaire.
-//
-// Garder ce MAX_KEYWORDS synchronisé avec firestore.rules, comme
-// FRAIS_MAX / TOTAL_MAX le sont déjà avec AjouterColisPage.jsx.
 const MAX_KEYWORDS = 10;
 
-// Mots vides retirés pour ne pas gâcher les 10 emplacements disponibles
-// avec des mots sans valeur de recherche.
 const STOPWORDS = new Set([
   "le", "la", "les", "de", "des", "du", "un", "une", "et", "en", "pour",
   "avec", "dans", "sur", "au", "aux", "ce", "ces", "cette", "son", "sa",
@@ -38,10 +28,6 @@ const STOPWORDS = new Set([
 ]);
 
 function generateKeywords(title, name, description) {
-  // Le titre et le nom du produit sont concaténés AVANT la description :
-  // comme on tronque à MAX_KEYWORDS ensuite, ça priorise naturellement
-  // les mots les plus pertinents pour la recherche (titre/produit) sur
-  // les mots de la description, plus longue et moins ciblée.
   const words = `${title} ${name} ${description}`
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, "")
@@ -52,8 +38,6 @@ function generateKeywords(title, name, description) {
 }
 
 // ─── Upload direct vers le worker Cloudflare ───────────────
-// Exactement la même logique que Flutter (_uploadSecureWorker)
-// Le worker gère le CORS → pas de proxy Next.js nécessaire
 const WORKER_URL = "https://divine-haze-26a2.fritok013.workers.dev";
 
 async function uploadToR2(file, bucket, userId, contentType, onProgress) {
@@ -89,10 +73,18 @@ async function uploadToR2(file, bucket, userId, contentType, onProgress) {
 }
 
 // ─── Firestore ─────────────────────────────────────────────
-async function saveToFirestore({ userId, title, productName, description, price, videoUrl, imageUrl, thumbUrl }) {
+//
+// AJOUT — b2bAvailable : n'est écrit QUE si true. Laissé absent du document
+// quand la case n'est pas cochée (ou que le vendeur n'est pas fournisseur
+// vérifié), plutôt que d'envoyer explicitement `false` — la règle
+// video_playlist.create l'accepte dans les deux cas
+// (`!('b2bAvailable' in ...) || request.resource.data.b2bAvailable == isB2BVerifiedSupplier(uid)`),
+// mais omettre le champ évite tout risque si jamais ce contrôle évoluait
+// pour devenir strict sur la présence du champ.
+async function saveToFirestore({ userId, title, productName, description, price, videoUrl, imageUrl, thumbUrl, b2bAvailable }) {
   const videoId   = uuidv4();
   const productId = uuidv4();
-  await setDoc(doc(collection(db, "video_playlist"), videoId), {
+  const data = {
     videoId, userId,
     title:     title.trim(),
     videoUrl,
@@ -108,7 +100,10 @@ async function saveToFirestore({ userId, title, productName, description, price,
       price:       parseFloat(price),
       image:       imageUrl,
     },
-  });
+  };
+  if (b2bAvailable) data.b2bAvailable = true;
+
+  await setDoc(doc(collection(db, "video_playlist"), videoId), data);
   return videoId;
 }
 
@@ -249,6 +244,41 @@ function CitrusField({ label, hint, icon, value, onChange, maxLines = 1, type = 
   );
 }
 
+// AJOUT — case à cocher "Proposer en B2B", visible uniquement pour un
+// fournisseur vérifié (voir b2bSupplierVerified dans AddVideoContent).
+// Style volontairement distinct (violet plutôt qu'orange) pour signaler
+// visuellement qu'il s'agit d'une option professionnelle, pas grand public.
+function B2BToggleCard({ checked, onChange }) {
+  return (
+    <div
+      onClick={() => onChange(!checked)}
+      style={{
+        display: "flex", alignItems: "center", gap: 12, padding: 16,
+        borderRadius: 16, cursor: "pointer",
+        background: checked ? "#F0EEFE" : "#FFFFFF",
+        border: `1.5px solid ${checked ? "#533AB7" : "#FFDDB0"}`,
+        transition: "all 0.15s",
+      }}
+    >
+      <div style={{
+        width: 24, height: 24, borderRadius: 8, flexShrink: 0,
+        background: checked ? "#533AB7" : "#FFF",
+        border: `1.5px solid ${checked ? "#533AB7" : "#BF9060"}`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        color: "#fff", fontSize: 14, fontWeight: 800,
+      }}>{checked ? "✓" : ""}</div>
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#2D1500" }}>
+          🏭 Proposer ce produit en B2B
+        </div>
+        <div style={{ fontSize: 11.5, color: "#8B5E3C", marginTop: 2, lineHeight: 1.4 }}>
+          Visible par les grossistes, supermarchés et hôtels, avec vos tarifs dégressifs vérifiés.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProgressRow({ label, icon, value }) {
   const done = value >= 1.0;
   return (
@@ -300,7 +330,7 @@ function PublishButton({ onTap, disabled }) {
   );
 }
 
-function SuccessPage({ onHome, onPublishAnother }) {
+function SuccessPage({ onHome, onPublishAnother, wasB2B }) {
   return (
     <div style={{ minHeight: "100vh", background: "#FFF8EE", display: "flex", flexDirection: "column" }}>
       <div style={{
@@ -320,7 +350,7 @@ function SuccessPage({ onHome, onPublishAnother }) {
           Vidéo publiée !
         </div>
         <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 14, marginTop: 6 }}>
-          Ton contenu est en ligne 🚀
+          {wasB2B ? "En ligne pour le grand public et les pros 🏭" : "Ton contenu est en ligne 🚀"}
         </div>
       </div>
 
@@ -372,6 +402,15 @@ function AddVideoContent() {
   const [user,      setUser]      = useState(null);
   const [authReady, setAuthReady] = useState(false);
 
+  // AJOUT — statut fournisseur B2B du vendeur connecté, lu une fois à
+  // l'authentification (users/{uid}.b2bSupplier.status). Ne conditionne
+  // que l'AFFICHAGE de la case à cocher : la vraie garantie reste la
+  // règle Firestore isB2BVerifiedSupplier() côté serveur, qui revérifie
+  // tout au moment de l'écriture — même si ce state était trafiqué côté
+  // client, la publication échouerait simplement.
+  const [b2bSupplierVerified, setB2bSupplierVerified] = useState(false);
+  const [wantB2B, setWantB2B] = useState(false);
+
   const [videoFile,     setVideoFile]     = useState(null);
   const [videoLocalUrl, setVideoLocalUrl] = useState(null);
   const [imageFile,     setImageFile]     = useState(null);
@@ -389,29 +428,26 @@ function AddVideoContent() {
 
   const [toast,     setToast]     = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [publishedAsB2B, setPublishedAsB2B] = useState(false);
 
   const videoRef   = useRef(null);
   const videoInput = useRef(null);
   const imageInput = useRef(null);
 
   // ── Auth Firebase ─────────────────────────────────────────
-  // ⚠️ FIX PERMISSION : cette page est réservée aux vendeurs abonnés
-  // (SubscriptionGuard + règle hasActiveSubscription() dans firestore.rules,
-  // qui fait un get() sur /users/{uid}). L'ancienne version connectait en
-  // ANONYME tout visiteur non authentifié (signInAnonymously) — un uid
-  // anonyme n'a pas de document /users/{uid}, donc hasActiveSubscription()
-  // échoue systématiquement et la publication finit en permission-denied,
-  // avec un toast "Erreur : inconnue" qui masque le vrai problème
-  // (l'utilisateur n'est en fait pas connecté).
-  //
-  // Comportement aligné sur AjouterColisPage.jsx : redirection vers
-  // /connexion plutôt que création d'une session anonyme. Ajustez le
-  // chemin de la page ("/publish" ci-dessous) s'il diffère dans le routeur.
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
       if (u && !u.isAnonymous) {
         setUser(u);
         setAuthReady(true);
+        // AJOUT — lecture du statut fournisseur B2B (isOwner(uid), déjà
+        // autorisé par les règles existantes sur /users/{uid}).
+        try {
+          const snap = await getDoc(doc(db, "users", u.uid));
+          setB2bSupplierVerified(snap.exists() && snap.data().b2bSupplier?.status === "verified");
+        } catch {
+          setB2bSupplierVerified(false);
+        }
       } else {
         window.location.href = "/connexion?next=/publish";
       }
@@ -463,6 +499,13 @@ function AddVideoContent() {
     setProgressVideo(0);
     setProgressImage(0);
 
+    // AJOUT — double garde côté client : n'envoie b2bAvailable que si la
+    // case est cochée ET que le statut vérifié tenait toujours au moment
+    // de publier. La règle Firestore revalide de toute façon ce champ
+    // contre le vrai statut serveur — ceci évite juste un aller-retour
+    // inutile en cas d'incohérence locale.
+    const b2bAvailable = wantB2B && b2bSupplierVerified;
+
     try {
       setUploadStep("Envoi de l'image et de la vidéo...");
       const [imageUrl, videoUrl] = await Promise.all([
@@ -475,9 +518,10 @@ function AddVideoContent() {
       setUploadStep("Sauvegarde dans la base de données...");
       await saveToFirestore({
         userId: user.uid, title, productName, description, price,
-        videoUrl, imageUrl, thumbUrl: imageUrl,
+        videoUrl, imageUrl, thumbUrl: imageUrl, b2bAvailable,
       });
 
+      setPublishedAsB2B(b2bAvailable);
       setPage("success");
     } catch (e) {
       console.error("Publish error:", e);
@@ -493,6 +537,7 @@ function AddVideoContent() {
     setImageFile(null); setImagePreview(null);
     setTitle(""); setProductName(""); setDescription(""); setPrice("");
     setProgressVideo(0); setProgressImage(0);
+    setWantB2B(false);
   };
 
   const totalProgress = (progressImage + progressVideo) / 2;
@@ -501,6 +546,7 @@ function AddVideoContent() {
   if (page === "success") {
     return (
       <SuccessPage
+        wasB2B={publishedAsB2B}
         onHome={() => { resetForm(); setPage("form"); }}
         onPublishAnother={() => { resetForm(); setPage("form"); }}
       />
@@ -667,6 +713,14 @@ function AddVideoContent() {
             icon="🏷️" value={price} onChange={setPrice} type="number" suffix="XOF" />
         </div>
 
+        {/* AJOUT — option B2B, uniquement visible pour un fournisseur vérifié */}
+        {b2bSupplierVerified && (
+          <>
+            <div style={{ height: 20 }} />
+            <B2BToggleCard checked={wantB2B} onChange={setWantB2B} />
+          </>
+        )}
+
         <div style={{ height: 32 }} />
 
         {/* Upload progress ou bouton */}
@@ -729,7 +783,6 @@ function AddVideoContent() {
 
 // ─────────────────────────────────────────────────────────────
 // 🔒 Export default — protégé par SubscriptionGuard
-//    Vérifie trial/abonnement avant d'afficher le formulaire
 // ─────────────────────────────────────────────────────────────
 export default function AddVideoPage() {
   return (

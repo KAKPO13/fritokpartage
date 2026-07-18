@@ -14,32 +14,6 @@ import styles from './demo.module.css';
 
 /* ══════════════════════════════════════════════════════════
    PAYS / VILLES / TARIFS DE LIVRAISON
-   ── ÉTENDU (multi-pays Afrique de l'Ouest) ──
-   (gardés ici pour l'affichage instantané du récapitulatif — le
-   montant définitif est TOUJOURS recalculé et validé côté serveur
-   dans netlify/functions/create-colis.js avant écriture)
-
-   ⚠️ TARIFS non-CI = PLACEHOLDERS. Seuls les tarifs Côte d'Ivoire
-   (Abidjan/Bouaké) sont des chiffres réels d'origine. Les tables GH/
-   NG/SN ci-dessous sont des ordres de grandeur pour que la structure
-   soit complète et testable, PAS des tarifs validés — à remplacer par
-   tes vrais barèmes avant mise en production sur ces marchés. Repère-
-   les avec le commentaire "PLACEHOLDER" sur chaque table concernée.
-
-   ⚠️ Autre limite connue : `villeDepart` envoyé à create-colis reste
-   approximé par la ville "hub" du pays sélectionné (capitale
-   économique), faute de connaître la ville réelle du vendeur à cet
-   endroit du code (l'objet product/session ne la porte pas). Idéalement
-   villeDepart devrait venir du profil vendeur — TODO si cette donnée
-   devient disponible.
-
-   Structure pensée pour matcher un futur document Firestore
-   `config/delivery` (déjà prévu, lecture publique authentifiée dans
-   firestore.rules) : { CI: { label, currency, hub, villes, tarifs }, ... }
-   — migrer vers Firestore permettra d'ajouter des villes/pays sans
-   redéploiement. Non fait ici (pas d'accès à create-colis.js pour
-   coordonner le format exact côté serveur), mais la forme ci-dessous
-   est compatible avec cette migration.
 ══════════════════════════════════════════════════════════ */
 const COUNTRIES = {
   CI: {
@@ -67,7 +41,6 @@ const COUNTRIES = {
       'Dakar','Thiès','Rufisque','Mbour','Saint-Louis','Kaolack',
       'Ziguinchor','Touba','Diourbel','Louga','Tambacounda','Kolda',
     ],
-    // PLACEHOLDER — à remplacer par de vrais tarifs Sénégal.
     tarifs: {
       'Dakar': { 'Dakar': 1500, 'Thiès': 2500, default: 3000 },
       default: { default: 3500 },
@@ -82,7 +55,6 @@ const COUNTRIES = {
       'Accra','Kumasi','Tamale','Sekondi-Takoradi','Ashaiman',
       'Sunyani','Cape Coast','Obuasi','Teshie','Tema',
     ],
-    // PLACEHOLDER — à remplacer par de vrais tarifs Ghana (GHS).
     tarifs: {
       'Accra':  { 'Accra': 20, 'Kumasi': 35, default: 40 },
       'Kumasi': { 'Kumasi': 20, 'Accra': 35, default: 40 },
@@ -98,7 +70,6 @@ const COUNTRIES = {
       'Lagos','Abuja','Kano','Ibadan','Port Harcourt','Benin City',
       'Kaduna','Enugu','Aba','Onitsha',
     ],
-    // PLACEHOLDER — à remplacer par de vrais tarifs Nigeria (NGN).
     tarifs: {
       'Lagos': { 'Lagos': 1000, 'Abuja': 2500, default: 3000 },
       'Abuja': { 'Abuja': 1000, 'Lagos': 2500, default: 3000 },
@@ -114,7 +85,6 @@ const COUNTRIES = {
       'Cotonou','Porto-Novo','Parakou','Djougou','Bohicon',
       'Kandi','Ouidah','Abomey','Natitingou','Lokossa',
     ],
-    // PLACEHOLDER — à remplacer par de vrais tarifs Bénin.
     tarifs: {
       'Cotonou': { 'Cotonou': 1000, 'Porto-Novo': 2000, default: 2500 },
       default:   { default: 3000 },
@@ -129,7 +99,6 @@ const COUNTRIES = {
       'Lomé','Sokodé','Kara','Kpalimé','Atakpamé',
       'Dapaong','Tsévié','Aného','Bassar','Notsé',
     ],
-    // PLACEHOLDER — à remplacer par de vrais tarifs Togo.
     tarifs: {
       'Lomé':  { 'Lomé': 1000, 'Sokodé': 2500, default: 3000 },
       default: { default: 3500 },
@@ -144,7 +113,6 @@ const COUNTRIES = {
       'Ouagadougou','Bobo-Dioulasso','Koudougou','Banfora','Ouahigouya',
       'Kaya','Tenkodogo','Fada N\'Gourma','Dédougou','Gaoua',
     ],
-    // PLACEHOLDER — à remplacer par de vrais tarifs Burkina Faso.
     tarifs: {
       'Ouagadougou':    { 'Ouagadougou': 1000, 'Bobo-Dioulasso': 2500, default: 3000 },
       'Bobo-Dioulasso': { 'Bobo-Dioulasso': 1000, 'Ouagadougou': 2500, default: 3000 },
@@ -171,25 +139,13 @@ const fmt = (n, countryCode = DEFAULT_COUNTRY) => {
   return Number(n).toLocaleString('fr-FR') + ' ' + (CURRENCY_SUFFIX[currency] ?? currency);
 };
 
-/* ══════════════════════════════════════════════════════════
-   HISTORIQUE "VIDÉOS VUES" (invité, pas connecté)
-   Connecté → Firestore users/{uid}/vues/{videoId}
-   Invité   → localStorage (capé à SEEN_LS_MAX entrées)
-══════════════════════════════════════════════════════════ */
 const SEEN_LS_KEY = 'fritok_vues_invite';
 const SEEN_LS_MAX = 300;
-
-// Nombre de slides montées de chaque côté de la slide active (P0 —
-// virtualisation du feed, voir DemoPage). RENDER_WINDOW=2 → au plus 5
-// <VideoSlide> réellement montées à tout moment, donc au plus ~25
-// listeners Firestore ouverts pour le feed entier, quelle que soit la
-// taille du catalogue de vidéos.
 const RENDER_WINDOW = 2;
-
-// Taille de page pour le chargement paginé de video_playlist (P0 — voir
-// point 4 de l'analyse : plus de getDocs() sans limit() sur toute la
-// collection).
 const PAGE_SIZE = 20;
+
+// ── B2B ──────────────────────────────────────────────────────────────────
+const B2B_CART_LS_KEY = 'fritok_b2b_cart';
 
 /* ══════════════════════════════════════════════════════════
    ICÔNES
@@ -290,6 +246,34 @@ function IconFlag() {
   );
 }
 
+// ── B2B ──────────────────────────────────────────────────────────────────
+function IconBriefcase() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="7" width="20" height="14" rx="2"/>
+      <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+    </svg>
+  );
+}
+function IconCartAdd() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+      <line x1="12" y1="3" x2="12" y2="8" stroke="#34C759"/>
+      <line x1="9.5" y1="5.5" x2="14.5" y2="5.5" stroke="#34C759"/>
+    </svg>
+  );
+}
+function IconCheckCircle() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+      <polyline points="22 4 12 14.01 9 11.01"/>
+    </svg>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════
    PETITS COMPOSANTS
 ══════════════════════════════════════════════════════════ */
@@ -352,7 +336,6 @@ function CommentsModal({ videoId, authUser, onClose, onAuthRequired, onSent }) {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
-  // Écoute temps-réel des commentaires
   useEffect(() => {
     if (!videoId) return;
     const q = query(
@@ -368,7 +351,7 @@ function CommentsModal({ videoId, authUser, onClose, onAuthRequired, onSent }) {
 
   const handleSend = async () => {
     if (!authUser) { onClose(); onAuthRequired(); return; }
-    const trimmed = text.trim().slice(0, 500); // borne alignée sur firestore.rules
+    const trimmed = text.trim().slice(0, 500);
     if (!trimmed) return;
     setSending(true);
     try {
@@ -416,7 +399,6 @@ function CommentsModal({ videoId, authUser, onClose, onAuthRequired, onSent }) {
           <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
         </div>
 
-        {/* Liste commentaires */}
         <div className={styles.commentList}>
           {loading && (
             <div className={styles.commentLoading}>
@@ -450,7 +432,6 @@ function CommentsModal({ videoId, authUser, onClose, onAuthRequired, onSent }) {
           ))}
         </div>
 
-        {/* Saisie commentaire */}
         <div className={styles.commentInputBar}>
           {authUser
             ? (
@@ -497,21 +478,8 @@ function CommentsModal({ videoId, authUser, onClose, onAuthRequired, onSent }) {
 
 /* ══════════════════════════════════════════════════════════
    MODAL : COMMANDE + LIVRAISON
-   ── CORRIGÉ ──
-   La commande n'est plus écrite directement dans Firestore
-   (firestore.rules interdit `allow create` sur /commandes — le
-   client n'a jamais eu la permission d'y écrire). Elle passe
-   maintenant par la Netlify Function `create-colis`, qui :
-     - revalide tout côté serveur
-     - recalcule fraisLivraison / totalXof (ne fait jamais confiance
-       au calcul client, qui reste ici uniquement pour l'affichage
-       instantané du récapitulatif avant confirmation)
-     - sépare téléphone / adresse précise / GPS dans une
-       sous-collection privée non lisible par tout le vivier de
-       livreurs (voir firestore.rules)
-   Le QR code est généré localement (lib `qrcode`) — il ne transite
-   plus par un service tiers (api.qrserver.com) avec les données du
-   client dans l'URL.
+   Grand public uniquement — jamais ouvert par le bouton B2B
+   (voir handleAddToB2BCart dans VideoSlide, qui n'y touche pas).
 ══════════════════════════════════════════════════════════ */
 function OrderModal({ product, sellerId, authUser, onClose }) {
   const [step,        setStep]        = useState('form');
@@ -530,18 +498,14 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
   const [errors,      setErrors]      = useState({});
   const [commandeId,  setCommandeId]  = useState(null);
   const [qrImgUrl,    setQrImgUrl]    = useState(null);
-  const [serverTotal, setServerTotal] = useState(null); // { fraisXof, totalXof } validés serveur
+  const [serverTotal, setServerTotal] = useState(null);
   const [toast,       setToast]       = useState(null);
 
   const country  = COUNTRIES[pays] ?? COUNTRIES[DEFAULT_COUNTRY];
   const prix     = Number(product?.price ?? 0);
-  // Estimation affichée avant confirmation — le montant qui compte réellement
-  // est celui renvoyé par create-colis après recalcul serveur.
   const fraisXof = villeClient ? getFrais(pays, country.hub, villeClient, typeLivr) : 0;
   const totalXof = prix + fraisXof;
 
-  // Changer de pays réinitialise la ville choisie (liste différente) —
-  // évite de garder sélectionnée une ville d'un autre pays.
   const handlePaysChange = (nextPays) => {
     setPays(nextPays);
     setVilleClient('');
@@ -587,17 +551,9 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          // sellerId != l'appelant → la fonction traite ceci comme une
-          // commande marketplace (userIdVend = sellerId, pas l'acheteur)
           sellerId,
           nomDestinataire: nomDest.trim(),
           telDestinataire: telephone.trim(),
-          // ⚠️ villeDepart reste approximé par la ville "hub" du pays
-          // choisi (pas la vraie ville du vendeur, non disponible ici —
-          // voir note en tête de fichier sur COUNTRIES). `pays` est
-          // ajouté pour permettre à create-colis.js de router vers le
-          // bon barème serveur si besoin — vérifie que cette fonction
-          // sait déjà lire ce champ, sinon il faudra l'y ajouter.
           pays,
           villeDepart: country.hub,
           villeDestination: villeClient,
@@ -619,8 +575,6 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Échec de la commande');
 
-      // QR généré localement — ne contient plus téléphone/adresse/GPS,
-      // uniquement l'identifiant de commande et le vendeur (pour le scan livreur).
       const dataUrl = await QRCode.toDataURL(data.qrPayload, {
         width: 220,
         margin: 1,
@@ -803,26 +757,6 @@ function OrderModal({ product, sellerId, authUser, onClose }) {
 
 /* ══════════════════════════════════════════════════════════
    BOTTOM SHEET — SIGNALER LA VIDÉO
-   ── AJOUT (inspiré de ReportSheet dans live.module.js) ──
-   Écrit dans /video_reports (nouvelle collection, distincte de
-   /live_reports — même modèle mais videoId au lieu de channelId).
-   Nécessite d'ajouter aux firestore.rules :
-
-     match /video_reports/{reportId} {
-       allow read: if false; // modération uniquement (Admin SDK / console)
-       allow create: if isAuth()
-         && request.resource.data.reporterId == request.auth.uid
-         && request.resource.data.keys().hasOnly([
-              'videoId','sellerId','reporterId','reason','details','createdAt','status'
-            ])
-         && request.resource.data.status == 'pending'
-         && request.resource.data.reason is string
-         && request.resource.data.details is string
-         && request.resource.data.details.size() <= 500;
-       allow update, delete: if false;
-     }
-
-   Sans cette règle, l'écriture ci-dessous échouera (permission-denied).
 ══════════════════════════════════════════════════════════ */
 const REPORT_REASONS = [
   { key: 'sexuel',     label: 'Contenu sexuel ou nudité' },
@@ -935,19 +869,175 @@ function ReportSheet({ videoId, sellerId, authUser, onClose }) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   B2B — HOOK PANIER LOCAL
+   Équivalent du Map<String, OrderLine> _selected local de
+   OrderSelectionScreen.dart en Flutter, persisté en sessionStorage.
+══════════════════════════════════════════════════════════ */
+function useB2BCart() {
+  const [cart, setCart] = useState([]);
+
+  useEffect(() => {
+    try {
+      const raw = JSON.parse(sessionStorage.getItem(B2B_CART_LS_KEY) || '[]');
+      setCart(raw);
+    } catch { /* ignore */ }
+  }, []);
+
+  const persist = useCallback((updater) => {
+    setCart(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try { sessionStorage.setItem(B2B_CART_LS_KEY, JSON.stringify(next)); } catch { /* quota / navigation privée */ }
+      return next;
+    });
+  }, []);
+
+  const isInCart = useCallback((videoId) => cart.some(l => l.videoId === videoId), [cart]);
+
+  const addItem = useCallback((item, sellerId, sellerName) => {
+    if (!item?.product) return;
+    persist(prev => {
+      if (prev.some(l => l.videoId === item.id)) return prev;
+      return [...prev, {
+        videoId:      item.id,
+        sellerId,
+        sellerName:   sellerName || item.title || 'Boutique',
+        nom:          item.product.name || '',
+        prixAffiche:  Number(item.product.price ?? 0),
+        quantite:     1,
+        selected:     true,
+        thumbnail:    item.product.thumbnail || item.product.image || '',
+      }];
+    });
+  }, [persist]);
+
+  const removeItem = useCallback((videoId) => {
+    persist(prev => prev.filter(l => l.videoId !== videoId));
+  }, [persist]);
+
+  const updateQty = useCallback((videoId, delta) => {
+    persist(prev => prev.map(l =>
+      l.videoId === videoId ? { ...l, quantite: Math.max(1, l.quantite + delta) } : l
+    ));
+  }, [persist]);
+
+  const toggleSelected = useCallback((videoId) => {
+    persist(prev => prev.map(l =>
+      l.videoId === videoId ? { ...l, selected: !l.selected } : l
+    ));
+  }, [persist]);
+
+  return { cart, isInCart, addItem, removeItem, updateQty, toggleSelected };
+}
+
+/* ══════════════════════════════════════════════════════════
+   B2B — BARRE FLOTTANTE PANIER
+══════════════════════════════════════════════════════════ */
+function B2BCartBar({ cart, onOpenReview }) {
+  if (cart.length === 0) return null;
+  const bySeller = new Set(cart.map(l => l.sellerId)).size;
+
+  return (
+    <button className={styles.b2bCartBar} onClick={onOpenReview}>
+      <div className={styles.b2bCartInfo}>
+        <IconBriefcase/>
+        <div>
+          <div className={styles.b2bCartCount}>
+            {cart.length} produit{cart.length > 1 ? 's' : ''}
+            {bySeller > 1 ? ` · ${bySeller} fournisseurs` : ''}
+          </div>
+          <div className={styles.b2bCartSub}>Panier professionnel</div>
+        </div>
+      </div>
+      <span className={styles.b2bCartBtn}>Voir mon panier</span>
+    </button>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   B2B — ÉCRAN DE REVUE/SÉLECTION DU PANIER
+   Équivalent direct de OrderSelectionScreen.dart.
+══════════════════════════════════════════════════════════ */
+function B2BCartSheet({ cart, onClose, onUpdateQty, onToggleSelected, onRemove, onConfirm }) {
+  const selectedCount = cart.filter(l => l.selected).length;
+
+  return (
+    <div className={styles.modalBackdrop} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modalSheet}>
+        <div className={styles.modalHandle}/>
+        <div className={styles.modalHeader}>
+          <div>
+            <p className={styles.modalTitle}>Mon panier professionnel</p>
+            <p className={styles.modalSub}>
+              {selectedCount} sélectionné{selectedCount > 1 ? 's' : ''} sur {cart.length}
+            </p>
+          </div>
+          <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
+        </div>
+
+        <div className={styles.commentList} style={{ maxHeight: '60dvh' }}>
+          {cart.length === 0 && (
+            <div className={styles.commentEmpty}>
+              <p>Panier vide</p>
+              <p>Ajoutez des produits depuis le feed en tapant sur le bouton mallette.</p>
+            </div>
+          )}
+          {cart.map(line => (
+            <div key={line.videoId} className={styles.b2bCartLine}>
+              <button
+                className={line.selected ? styles.b2bCheckOn : styles.b2bCheckOff}
+                onClick={() => onToggleSelected(line.videoId)}
+                aria-label={line.selected ? 'Désélectionner' : 'Sélectionner'}
+              >
+                {line.selected && <IconCheckCircle/>}
+              </button>
+
+              {line.thumbnail && (
+                <img src={line.thumbnail} alt="" className={styles.b2bCartThumb}/>
+              )}
+
+              <div className={styles.b2bCartLineInfo}>
+                <span className={styles.b2bCartLineName}>{line.nom}</span>
+                <span className={styles.b2bCartLineSeller}>{line.sellerName}</span>
+              </div>
+
+              <div className={styles.b2bQtyControl}>
+                <button onClick={() => onUpdateQty(line.videoId, -1)}>−</button>
+                <span>{line.quantite}</span>
+                <button onClick={() => onUpdateQty(line.videoId, 1)}>+</button>
+              </div>
+
+              <button className={styles.b2bCartRemove} onClick={() => onRemove(line.videoId)}>
+                <IconClose/>
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.modalBody} style={{ paddingTop: 8 }}>
+          <button
+            className={styles.confirmBtn}
+            disabled={selectedCount === 0}
+            onClick={() => onConfirm(cart.filter(l => l.selected))}
+          >
+            Créer le bon de commande ({selectedCount})
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
    HOOK : LIKES persistés Firestore
-   Sous-collection : video_playlist/{videoId}/likes/{userId}
 ══════════════════════════════════════════════════════════ */
 function useLike(videoId, initialCount, authUser) {
   const [liked,  setLiked]  = useState(false);
   const [count,  setCount]  = useState(initialCount ?? 0);
   const [ready,  setReady]  = useState(false);
 
-  // Vérifie si l'utilisateur a déjà liké (une seule fois à l'init)
   useEffect(() => {
     if (!videoId || !authUser?.uid) { setReady(true); return; }
     const likeRef = doc(db, 'video_playlist', videoId, 'likes', authUser.uid);
-    // onSnapshot pour rester sync si multiple onglets
     const unsub = onSnapshot(likeRef, snap => {
       setLiked(snap.exists());
       setReady(true);
@@ -955,18 +1045,6 @@ function useLike(videoId, initialCount, authUser) {
     return unsub;
   }, [videoId, authUser?.uid]);
 
-  // ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 2) : ce compteur
-  // écoutait auparavant TOUTE la sous-collection `likes` en onSnapshot pour en
-  // déduire snap.size. Facturation Firestore : un read par document du
-  // snapshot initial + un read par like ajouté/retiré, PAR CLIENT qui écoute.
-  // Sur une vidéo virale (ex. 200k likes × 50k spectateurs simultanés), ça
-  // représente des milliards de reads pour afficher un simple chiffre.
-  // Remplacé par une requête d'agrégation ponctuelle (getCountFromServer) :
-  // facturée ~1 read par tranche de 1000 documents scannés, pas 1 par
-  // document. Le compteur n'est donc plus mis à jour en temps réel quand un
-  // AUTRE utilisateur like — seule l'action de CET utilisateur (toggle
-  // optimiste ci-dessous) met à jour l'affichage immédiatement, ce qui est
-  // un compromis largement acceptable pour un compteur d'affichage.
   useEffect(() => {
     if (!videoId) return;
     let cancelled = false;
@@ -997,11 +1075,6 @@ function useLike(videoId, initialCount, authUser) {
 
 /* ══════════════════════════════════════════════════════════
    HOOK : COMMENT COUNT
-   ⚠️ P0 — CORRIGÉ : même correctif que useLike (voir plus haut).
-   getCountFromServer au montage au lieu d'un onSnapshot permanent sur
-   toute la sous-collection comments. `bump()` permet un incrément
-   optimiste local juste après l'envoi d'un commentaire par CET
-   utilisateur (voir CommentsModal.onSent), sans re-solliciter Firestore.
 ══════════════════════════════════════════════════════════ */
 function useCommentCount(videoId, initialCount) {
   const [count, setCount] = useState(initialCount ?? 0);
@@ -1021,15 +1094,7 @@ function useCommentCount(videoId, initialCount) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   HOOK : FOLLOW persisté Firestore (façon TikTok)
-   Modèle bidirectionnel :
-     users/{sellerId}/followers/{followerId}  → { userId: followerId, createdAt }
-     users/{followerId}/following/{sellerId}  → { userId: sellerId,   createdAt }
-   Deux écritures distinctes, mais chaque document reste sous le uid de
-   son propriétaire → compatible avec une règle firestore.rules du type
-   allow write: if request.auth.uid == {le uid du sous-chemin}.
-   `followerCount` compte en direct via onSnapshot sur la sous-collection
-   followers du vendeur (même pattern que useCommentCount / useLike).
+   HOOK : FOLLOW persisté Firestore
 ══════════════════════════════════════════════════════════ */
 function useFollow(sellerId, authUser) {
   const [following,     setFollowing]     = useState(false);
@@ -1038,7 +1103,6 @@ function useFollow(sellerId, authUser) {
 
   const isSelf = !!(authUser?.uid && sellerId && authUser.uid === sellerId);
 
-  // Statut "je suis déjà abonné ?" — un seul doc à surveiller
   useEffect(() => {
     if (!sellerId || !authUser?.uid || isSelf) { setReady(true); return; }
     const followRef = doc(db, 'users', sellerId, 'followers', authUser.uid);
@@ -1049,9 +1113,6 @@ function useFollow(sellerId, authUser) {
     return unsub;
   }, [sellerId, authUser?.uid, isSelf]);
 
-  // ⚠️ P0 — CORRIGÉ : même correctif que useLike/useCommentCount. Agrégation
-  // ponctuelle au lieu d'un onSnapshot permanent sur toute la sous-collection
-  // followers (voir analyse-scalabilite-fritok.md, point 2).
   useEffect(() => {
     if (!sellerId) return;
     let cancelled = false;
@@ -1087,18 +1148,11 @@ function useFollow(sellerId, authUser) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   HOOK : HISTORIQUE DES VIDÉOS VUES (logique "à la TikTok")
-   - Charge une seule fois l'historique existant au montage.
-   - seenIdsRef est une ref (pas un state) : on ne veut PAS que le
-     feed se réordonne pendant que l'utilisateur scrolle et que de
-     nouvelles vidéos se marquent "vues" en direct — seenReady ne
-     bascule à true qu'une fois, ce qui déclenche un seul tri initial.
-   - markSeen() met à jour la ref immédiatement (pour éviter les
-     écritures en double) + persiste (Firestore ou localStorage).
+   HOOK : HISTORIQUE DES VIDÉOS VUES
 ══════════════════════════════════════════════════════════ */
 function useSeenVideos(authUser, authReady) {
   const seenIdsRef  = useRef(new Set());
-  const writtenRef  = useRef(new Set()); // anti-doublon d'écriture dans la session
+  const writtenRef  = useRef(new Set());
   const [seenReady, setSeenReady] = useState(false);
 
   useEffect(() => {
@@ -1135,8 +1189,6 @@ function useSeenVideos(authUser, authReady) {
     seenIdsRef.current.add(videoId);
 
     if (authUser?.uid) {
-      // Doc appartenant à l'utilisateur → autorisé par firestore.rules
-      // (allow write: if request.auth.uid == uid sur users/{uid}/vues/{id})
       setDoc(doc(db, 'users', authUser.uid, 'vues', videoId), {
         vu: true,
         vuLe: serverTimestamp(),
@@ -1155,15 +1207,13 @@ function useSeenVideos(authUser, authReady) {
 
 /* ══════════════════════════════════════════════════════════
    VIDEO SLIDE
-   ── CORRIGÉ ──
-   Le mute/unmute n'est plus un état local par slide (chaque
-   nouvelle slide remontait avec `useState(true)`, ce qui coupait
-   le son à chaque scroll). `muted` et `setMuted` sont désormais
-   reçus en props depuis DemoPage : un seul état partagé par
-   toute la liste, mis à jour une fois pour toutes.
-   Ajout : bouton "suivre" sous l'avatar, branché sur useFollow.
+   Ajout B2B : deux nouvelles props `inCart` et `onAddToCart`. Le bouton
+   "Commander" (handleOrder) reste STRICTEMENT inchangé — il ouvre toujours
+   OrderModal, pour tout le monde. Un second bouton, visible uniquement si
+   `item.b2bAvailable` est vrai, ajoute le produit au panier B2B local sans
+   jamais ouvrir de modal.
 ══════════════════════════════════════════════════════════ */
-function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, markSeen }) {
+function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, markSeen, inCart, onAddToCart }) {
   const videoRef  = useRef(null);
   const tapTimer  = useRef(null);
   const router    = useRouter();
@@ -1176,14 +1226,16 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
 
   const sellerId = item.userId ?? item.refArticle ?? '';
 
-  // Likes Firestore
+  // Dérivé directement du document vidéo (posé à la publication) — pas
+  // d'un statut de compte acheteur : n'importe qui connecté peut ajouter
+  // au panier pro dès qu'une vidéo vient d'un fournisseur B2B vérifié.
+  const b2bAvailable = item.b2bAvailable === true;
+
   const { liked, count: likeCount, toggle: toggleLike, ready: likeReady } =
     useLike(item.id, item.likes ?? 0, authUser);
 
-  // Comment count : lecture ponctuelle (P0) + incrément optimiste local
   const [commentCount, bumpCommentCount] = useCommentCount(item.id, item.comments ?? 0);
 
-  // Follow Firestore (item.userId = id du vendeur/créateur de la vidéo)
   const { following, toggle: toggleFollow, isSelf } = useFollow(sellerId, authUser);
 
   useEffect(() => {
@@ -1207,8 +1259,6 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
     tapTimer.current = setTimeout(() => setTapIcon(null), 800);
   };
 
-  // Marque la vidéo comme "vue" après ~3s de lecture réelle (ou 70% de sa
-  // durée si elle est très courte) — comme TikTok, pas juste au chargement.
   const handleTimeUpdate = () => {
     const vid = videoRef.current;
     if (!vid) return;
@@ -1230,11 +1280,21 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
     setShowComments(true);
   };
 
+  // INCHANGÉ — comportement grand public existant, sur TOUTES les vidéos.
   const handleOrder = e => {
     e.stopPropagation();
     if (!authReady) return;
     if (!authUser) { setAuthPrompt(true); }
     else           { setOrderProduct(item.product); }
+  };
+
+  // AJOUT — action strictement séparée : ajoute au panier B2B local,
+  // jamais d'ouverture d'OrderModal.
+  const handleAddToB2BCart = e => {
+    e.stopPropagation();
+    if (!authReady) return;
+    if (!authUser) { setAuthPrompt(true); return; }
+    onAddToCart?.(item, sellerId, item.title);
   };
 
   const handleFollow = (e) => {
@@ -1344,11 +1404,23 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
           <span className={styles.count}>{commentCount > 0 ? commentCount : ''}</span>
         </button>
 
-        {/* COMMANDER */}
+        {/* COMMANDER — grand public, STRICTEMENT INCHANGÉ */}
         <button className={`${styles.actionBtn} ${styles.cartBtn}`} onClick={handleOrder}>
           <IconCart/>
           <span className={styles.countGold}>Shop</span>
         </button>
+
+        {/* AJOUT — bouton B2B, visible uniquement si CETTE vidéo vient d'un
+            fournisseur B2B vérifié. Aucune condition sur le compte du
+            spectateur. */}
+        {b2bAvailable && (
+          <button className={`${styles.actionBtn} ${styles.b2bAddBtn}`} onClick={handleAddToB2BCart}>
+            {inCart ? <IconCheckCircle/> : <IconCartAdd/>}
+            <span className={inCart ? styles.b2bAddedLabel : styles.count}>
+              {inCart ? 'Ajouté' : 'Pro'}
+            </span>
+          </button>
+        )}
 
         {/* PARTAGER */}
         <button className={styles.actionBtn} onClick={e => e.stopPropagation()}>
@@ -1362,28 +1434,39 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
         <p className={styles.username}>{item.title}</p>
         <p className={styles.tags}>{tags}</p>
         {item.product && (
-          <button className={styles.productCard} onClick={handleOrder}>
+          <div className={styles.productCard}>
             <img
               src={item.product.thumbnail || item.product.image}
               alt={item.product.name}
               className={styles.productThumb}
+              onClick={handleOrder}
               onError={e => { e.currentTarget.style.display = 'none'; }}
             />
-            <div className={styles.productMeta}>
+            <div className={styles.productMeta} onClick={handleOrder}>
               <span className={styles.productName}>{item.product.name}</span>
               <span className={styles.productPrice}>
                 {Number(item.product.price).toLocaleString('fr-FR')} XOF
               </span>
             </div>
-            <span className={styles.productCta}>Commander</span>
-          </button>
+
+            {/* INCHANGÉ — CTA grand public */}
+            <button className={styles.productCta} onClick={handleOrder}>Commander</button>
+
+            {/* AJOUT — CTA B2B distinct, seulement si la vidéo est éligible */}
+            {b2bAvailable && (
+              <button
+                className={inCart ? styles.productCtaAdded : styles.productCtaB2B}
+                onClick={handleAddToB2BCart}
+              >
+                {inCart ? '✓ Au panier' : '+ Panier pro'}
+              </button>
+            )}
+          </div>
         )}
       </div>
 
-      {/* Modal connexion requise */}
       {authPrompt && <AuthRequiredModal onClose={() => setAuthPrompt(false)}/>}
 
-      {/* Modal commentaires */}
       {showComments && (
         <CommentsModal
           videoId={item.id}
@@ -1394,7 +1477,8 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
         />
       )}
 
-      {/* Modal commande */}
+      {/* Modal commande — grand public uniquement, jamais ouvert par le
+          bouton B2B */}
       {orderProduct && (
         <OrderModal
           product={orderProduct}
@@ -1404,7 +1488,6 @@ function VideoSlide({ item, isActive, authUser, authReady, muted, setMuted, mark
         />
       )}
 
-      {/* Modal signalement */}
       {showReport && (
         <ReportSheet
           videoId={item.id}
@@ -1434,34 +1517,22 @@ function Skeleton() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   PAGE /demo
-══════════════════════════════════════════════════════════ */
-/* ══════════════════════════════════════════════════════════
    NORMALISATION D'UN DOC video_playlist
-   ── CORRIGÉ ──
-   Certains documents (selon le flux d'upload d'origine) n'ont
-   videoUrl / userId / title / refArticle QU'imbriqués sous `product`,
-   pas à la racine du document — confirmé par capture Firestore
-   partagée par Gabriel (le doc n'a que comments/createdAt/keywords/
-   likes/product/views à la racine, rien d'autre). Or tout le feed
-   /demo (lecture vidéo, follow, signalement, ouverture de profil) lit
-   ces champs à la racine (item.videoUrl, item.userId, item.title).
-   Cette fonction garantit qu'ils y sont TOUJOURS, quelle que soit la
-   forme d'origine du document — utilisée à chaque endroit où un doc
-   video_playlist est transformé en item de playlist (chargement
-   initial, pagination, et récupération ciblée pour le deep link
-   ?video=).
+   b2bAvailable : posé à `true` uniquement par AddVideoPage si le vendeur
+   est fournisseur B2B vérifié au moment de la publication (voir règle
+   Firestore isB2BVerifiedSupplier()). Normalisé en booléen strict.
 ══════════════════════════════════════════════════════════ */
 function normalizeVideoDoc(id, data) {
   const p = data.product ?? {};
   return {
     id,
     ...data,
-    videoUrl:   data.videoUrl   || p.videoUrl   || '',
-    userId:     data.userId     || p.userId     || '',
-    refArticle: data.refArticle || p.refArticle || '',
-    title:      data.title      || p.title      || '',
-    createdAt:  data.createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
+    videoUrl:     data.videoUrl     || p.videoUrl     || '',
+    userId:       data.userId       || p.userId       || '',
+    refArticle:   data.refArticle   || p.refArticle   || '',
+    title:        data.title        || p.title        || '',
+    b2bAvailable: data.b2bAvailable === true,
+    createdAt:    data.createdAt?.toDate?.()?.toLocaleDateString('fr-FR') ?? '',
   };
 }
 
@@ -1471,22 +1542,13 @@ function DemoPageInner() {
   const [error,     setError]     = useState(null);
   const [activeIdx, setActiveIdx] = useState(0);
   const feedRef = useRef(null);
+  const router  = useRouter();
 
-  // Deep link ?video={id} — voir handleOpenProfile côté VideoSlide et
-  // useProductVideo côté live.js, qui construisent ce lien depuis la
-  // fiche produit d'un live. NOTE : useSearchParams() en composant client
-  // demande normalement un <Suspense> englobant pour ne pas désactiver le
-  // rendu statique de la page côté Next.js — sans incidence fonctionnelle
-  // ici (page déjà 100% client, données chargées à l'exécution), juste un
-  // avertissement de build possible selon la config Next.js du projet.
   const searchParams  = useSearchParams();
   const targetVideoId = searchParams.get('video');
   const deepLinkDoneRef  = useRef(false);
   const deepLinkFetchRef = useRef(false);
 
-  // ⚠️ P0 — pagination (voir analyse-scalabilite-fritok.md, point 4) :
-  // video_playlist n'est plus chargée en une fois sans limite. cursorSnap
-  // retient le dernier document Firestore chargé pour startAfter().
   const [cursorSnap,  setCursorSnap]  = useState(null);
   const [hasMore,     setHasMore]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1494,10 +1556,19 @@ function DemoPageInner() {
   const [authUser,  setAuthUser]  = useState(null);
   const [authReady, setAuthReady] = useState(false);
 
-  // État son GLOBAL, partagé par toutes les slides. Une fois activé
-  // (clic sur l'icône), il reste activé pour la vidéo suivante au scroll.
   const [muted, setMuted] = useState(true);
 
+  // ── B2B ──────────────────────────────────────────────────────────────
+  const { cart, isInCart, addItem, removeItem, toggleSelected, updateQty } = useB2BCart();
+  const [showCartSheet, setShowCartSheet] = useState(false);
+
+  const handleConfirmOrder = (selectedLines) => {
+    try {
+      sessionStorage.setItem('fritok_b2b_order_lines', JSON.stringify(selectedLines));
+    } catch { /* quota / navigation privée */ }
+    setShowCartSheet(false);
+    router.push('/b2b/commande');
+  };
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => {
@@ -1507,14 +1578,8 @@ function DemoPageInner() {
     return unsub;
   }, []);
 
-  // Historique des vidéos déjà vues (Firestore si connecté, localStorage sinon)
   const { seenIdsRef, seenReady, markSeen } = useSeenVideos(authUser, authReady);
 
-  // Liste réordonnée : vidéos non-vues d'abord, vidéos déjà vues repoussées
-  // en fin de liste (jamais filtrées — juste dépriorisées, comme TikTok).
-  // Dépend seulement du chargement initial (playlist, seenReady) : seenIdsRef
-  // étant une ref, les marquages "vu" en direct pendant le scroll ne
-  // déclenchent volontairement PAS de nouveau tri (pas de saut dans le feed).
   const orderedPlaylist = useMemo(() => {
     if (!seenReady || playlist.length === 0) return playlist;
     const unseen = [];
@@ -1525,16 +1590,6 @@ function DemoPageInner() {
     return [...unseen, ...seen];
   }, [playlist, seenReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Résolution du deep link ?video={id} (ex. depuis la fiche produit d'un
-  // live — voir useProductVideo dans live.js). Deux cas :
-  //   1) la vidéo ciblée est déjà dans la page chargée → on scrolle
-  //      directement dessus (setActiveIdx, l'effet de scroll existant
-  //      s'occupe du reste) ;
-  //   2) elle n'y est pas (cas courant, une seule page de PAGE_SIZE est
-  //      chargée au départ) → on va la chercher ponctuellement par ID
-  //      (un seul getDoc, pas de requête sur toute la collection) et on
-  //      l'insère en tête de playlist pour qu'elle entre dans la fenêtre
-  //      de rendu virtualisée dès que activeIdx pointe dessus.
   useEffect(() => {
     if (!targetVideoId || deepLinkDoneRef.current || orderedPlaylist.length === 0) return;
 
@@ -1545,7 +1600,7 @@ function DemoPageInner() {
       return;
     }
 
-    if (deepLinkFetchRef.current) return; // déjà tenté, vidéo introuvable
+    if (deepLinkFetchRef.current) return;
     deepLinkFetchRef.current = true;
 
     (async () => {
@@ -1563,10 +1618,6 @@ function DemoPageInner() {
   useEffect(() => {
     async function load() {
       try {
-        // ⚠️ P0 — CORRIGÉ : plus de getDocs() sans limite sur toute la
-        // collection video_playlist (voir point 4 de l'analyse). Première
-        // page bornée à PAGE_SIZE ; le reste se charge via loadMore()
-        // quand l'utilisateur approche de la fin de la liste chargée.
         const q    = query(collection(db, 'video_playlist'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
         const snap = await getDocs(q);
         const videos = snap.docs.map(d => normalizeVideoDoc(d.id, d.data()));
@@ -1583,9 +1634,6 @@ function DemoPageInner() {
     load();
   }, []);
 
-  // Page suivante de video_playlist — même requête que le chargement
-  // initial, avec startAfter(cursorSnap). Appelée quand l'utilisateur
-  // approche de la fin des vidéos déjà chargées (voir useEffect plus bas).
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMore || !cursorSnap) return;
     setLoadingMore(true);
@@ -1608,8 +1656,6 @@ function DemoPageInner() {
     }
   }, [hasMore, loadingMore, cursorSnap]);
 
-  // Déclenche le chargement de la page suivante quand il ne reste plus que
-  // quelques vidéos non chargées devant l'utilisateur.
   useEffect(() => {
     if (orderedPlaylist.length === 0) return;
     if (orderedPlaylist.length - activeIdx <= 5) loadMore();
@@ -1669,16 +1715,6 @@ function DemoPageInner() {
     <div className={styles.page}>
       <div ref={feedRef} className={styles.feed}>
         {orderedPlaylist.map((item, i) => {
-          // ⚠️ P0 — CORRIGÉ (voir analyse-scalabilite-fritok.md, point 1) :
-          // avant, CHAQUE vidéo de la playlist montait un <VideoSlide>, donc
-          // 3 à 5 listeners Firestore par vidéo — même pour les vidéos
-          // jamais scrollées. Avec ne serait-ce que quelques centaines de
-          // vidéos, un seul utilisateur ouvrait déjà 1000+ listeners.
-          // Ici, seule une fenêtre de RENDER_WINDOW slides autour de la
-          // vidéo active monte réellement <VideoSlide> (et donc ses hooks/
-          // listeners) ; les autres restent un simple div vide de la même
-          // taille, ce qui préserve le scroll-snap et le calcul de
-          // activeIdx (IntersectionObserver sur data-slide) à l'identique.
           const shouldRender = Math.abs(i - activeIdx) <= RENDER_WINDOW;
           return (
             <div key={item.id} data-slide={i} className={styles.slideWrapper}>
@@ -1691,6 +1727,8 @@ function DemoPageInner() {
                   muted={muted}
                   setMuted={setMuted}
                   markSeen={markSeen}
+                  inCart={isInCart(item.id)}
+                  onAddToCart={(it, sellerId, sellerName) => addItem(it, sellerId, sellerName)}
                 />
               ) : (
                 <div className={styles.slidePlaceholder}/>
@@ -1711,22 +1749,23 @@ function DemoPageInner() {
       </div>
 
       <div className={styles.counter}>{activeIdx + 1} / {orderedPlaylist.length}</div>
+
+      {/* B2B — panier + revue, visibles dès que le panier n'est pas vide */}
+      <B2BCartBar cart={cart} onOpenReview={() => setShowCartSheet(true)}/>
+      {showCartSheet && (
+        <B2BCartSheet
+          cart={cart}
+          onClose={() => setShowCartSheet(false)}
+          onUpdateQty={updateQty}
+          onToggleSelected={toggleSelected}
+          onRemove={removeItem}
+          onConfirm={handleConfirmOrder}
+        />
+      )}
     </div>
   );
 }
 
-/* ══════════════════════════════════════════════════════════
-   EXPORT — Suspense obligatoire autour de useSearchParams()
-   ── CORRIGÉ ──
-   useSearchParams() (utilisé pour le deep link ?video={id}, voir
-   DemoPageInner) doit être englobé par un <Suspense> en Next.js App
-   Router, sinon le build de prérendu échoue avec :
-     "useSearchParams() should be wrapped in a suspense boundary"
-   Ce n'est pas juste un avertissement — sans ce wrapper, `next build`
-   sort en erreur et bloque tout le déploiement. Le fallback reste
-   minimal (fond noir identique à la page, pas de flash blanc) le
-   temps que le contenu client s'hydrate.
-══════════════════════════════════════════════════════════ */
 export default function DemoPage() {
   return (
     <Suspense fallback={<div className={styles.page}/>}>

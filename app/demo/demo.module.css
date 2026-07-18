@@ -40,8 +40,6 @@
   background: #111;
 }
 
-/* Remplace <VideoSlide> pour les slides hors de la fenêtre de rendu (P0 —
-   virtualisation du feed) : mêmes dimensions, aucun listener/vidéo montés. */
 .slidePlaceholder {
   width: 100%;
   max-width: 480px;
@@ -189,7 +187,6 @@
 }
 .avatarWrap:hover .followDot { transform: translateX(-50%) scale(1.1); }
 
-/* État "déjà abonné" — même position/forme que .followDot, coche verte */
 .followDotActive {
   position: absolute;
   bottom: -7px; left: 50%;
@@ -240,7 +237,10 @@
   line-height: 1.5;
 }
 
-/* Carte produit inline */
+/* Carte produit inline
+   ── B2B ── flex-wrap + row-gap ajoutés pour accueillir deux CTA
+   (Commander + Panier pro) qui passent à la ligne sur petit écran plutôt
+   que de déborder du conteneur. */
 .productCard {
   display: flex; align-items: center; gap: 0.65rem;
   background: rgba(0,0,0,0.5);
@@ -252,6 +252,8 @@
   cursor: pointer; width: 100%; max-width: 310px;
   text-align: left;
   transition: background 0.2s, transform 0.15s;
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
 .productCard:hover { background: rgba(0,0,0,0.75); transform: translateY(-2px); }
 
@@ -524,7 +526,6 @@
    COMMENTAIRES
 ══════════════════════════════════════════════════════════ */
 
-/* Liste scrollable */
 .commentList {
   flex: 1;
   overflow-y: auto;
@@ -561,7 +562,6 @@
   font-size: 1.2rem;
 }
 
-/* Un commentaire */
 .commentItem {
   display: flex;
   gap: 12px;
@@ -630,7 +630,6 @@
   word-break: break-word;
 }
 
-/* Barre de saisie */
 .commentInputBar {
   flex-shrink: 0;
   padding: 12px 16px 28px;
@@ -694,7 +693,6 @@
 .commentSendBtn:hover:not(:disabled) { opacity: 0.85; transform: scale(1.07); }
 .commentSendBtn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-/* Prompt connexion dans la barre */
 .commentLoginPrompt {
   width: 100%;
   display: flex;
@@ -931,3 +929,146 @@
   }
   .modalBackdrop { align-items: center; }
 }
+
+/* ══════════════════════════════════════════════════════════
+   B2B — panier local, barre flottante, écran de revue
+   (ajouts ; rien au-dessus n'est modifié à part .productCard qui a reçu
+   flex-wrap/row-gap plus haut pour accueillir deux CTA côte à côte)
+══════════════════════════════════════════════════════════ */
+
+/* ── Barre panier flottante B2B ──────────────────────────────────────────── */
+.b2bCartBar {
+  position: fixed;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: max(0.9rem, env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(10,10,10,0.94);
+  border: 1px solid rgba(255,77,0,0.3);
+  border-radius: 16px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  backdrop-filter: blur(10px);
+  max-width: 480px;
+  margin: 0 auto;
+}
+.b2bCartInfo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--orange);
+}
+.b2bCartCount {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+}
+.b2bCartSub {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.b2bCartBtn {
+  flex-shrink: 0;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: none;
+  background: var(--orange);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.b2bCartBtn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+/* ── Variante du CTA produit quand déjà ajouté au panier B2B ─────────────── */
+.productCtaAdded {
+  font-size: 0.72rem;
+  background: rgba(52,199,89,0.15);
+  border: 1px solid rgba(52,199,89,0.5);
+  color: #34C759;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── CTA "Panier pro" dans la fiche produit ───────────────────────────────── */
+.productCtaB2B {
+  font-size: 0.72rem;
+  background: rgba(83,58,183,0.18);
+  border: 1px solid rgba(83,58,183,0.5);
+  color: #A78BFA;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+/* ── Bouton B2B colonne d'actions (à côté de Shop, jamais à sa place) ────── */
+.b2bAddBtn svg { stroke: #A78BFA !important; }
+.b2bAddedLabel { font-size: 0.72rem; color: #34C759; font-weight: 700; }
+
+/* ── Écran de revue du panier (B2BCartSheet) ─────────────────────────────── */
+.b2bCartLine {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.b2bCartLine:last-child { border-bottom: none; }
+
+.b2bCheckOn, .b2bCheckOff {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  background: none;
+  padding: 0;
+}
+.b2bCheckOn  { border: none; }
+.b2bCheckOff { border: 2px solid rgba(255,255,255,0.25); }
+
+.b2bCartThumb {
+  width: 42px; height: 42px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.b2bCartLineInfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.b2bCartLineName {
+  font-size: 0.85rem; color: #fff; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.b2bCartLineSeller { font-size: 0.72rem; color: var(--muted); }
+
+.b2bQtyControl {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 4px 8px;
+  flex-shrink: 0;
+}
+.b2bQtyControl button {
+  background: none; border: none; color: #A78BFA;
+  font-size: 1rem; font-weight: 700; cursor: pointer; padding: 0 2px;
+}
+.b2bQtyControl span { font-size: 0.85rem; color: #fff; font-weight: 700; min-width: 16px; text-align: center; }
+
+.b2bCartRemove {
+  background: none; border: none; cursor: pointer;
+  opacity: 0.5; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.b2bCartRemove:hover { opacity: 0.9; }

@@ -95,7 +95,7 @@ export default function B2BSupplierBanner() {
             maxWidth: 560,
           }}
         >
-          Usines PIA, PME référencées, coopératives : ouvrez vos produits aux
+          Usines PIA, Usines GDIZ, PME référencées, coopératives : ouvrez vos produits aux
           grossistes, supermarchés et hôtels avec des tarifs dégressifs et un
           MOQ adapté à votre production.
         </p>
