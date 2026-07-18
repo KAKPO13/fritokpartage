@@ -19,6 +19,7 @@ import CommandeBanner from '../components/commandes/CommandeBanner'; // ← 🆕
 import KkiapayBanner from '../components/KkiapayBanner'; // ← 🆕 CTA "Recharger mon wallet" (Mobile Money via KkiaPay)
 import CarrieresBanner from '../components/CarrieresBanner'; // ← 🆕 CTA "Rejoignez Made in Benin Live" → /carrieres
 import AvatarLiveBanner from '../components/AvatarLiveBanner';
+import B2BSupplierBanner from '../components/B2BSupplierBanner'; // ← 🆕 CTA "Devenir fournisseur B2B" → /vendeur/devenir-fournisseur-b2b
 
 
 
@@ -43,6 +44,7 @@ export default function Home() {
         <CommandeBanner />       {/* 🆕 CTA "Mes commandes" → /mes-commandes */}
         <LiveBanner />      {/* ← 🆕 CTA "Vendez en direct" → /live */}
         <CarrieresBanner />      {/* 🆕 CTA "Rejoignez Made in Benin Live" → /carrieres */}
+        <B2BSupplierBanner />    {/* 🆕 CTA "Devenir fournisseur B2B" → /vendeur/devenir-fournisseur-b2b */}
         <DeliveryMap />
         <TrustBand />
         <CtaBottom />
