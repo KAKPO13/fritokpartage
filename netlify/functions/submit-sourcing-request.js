@@ -1,12 +1,20 @@
-//netlify/functions/submit-sourcing-request.js
+// netlify/functions/submit-sourcing-request.js
 
-const admin = require('firebase-admin');
-if (!admin.apps.length) admin.initializeApp();
+import admin from 'firebase-admin';
+import { envoyerNotificationAgent } from './_sourcingShared.js';
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    }),
+  });
+}
 const db = admin.firestore();
 
-const { envoyerNotificationAgent } = require('./_sourcingShared');
-
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Méthode non autorisée' }) };
   }
