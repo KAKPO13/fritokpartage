@@ -1,10 +1,11 @@
-//netlify/functions/pay-sourcing-request.js
+// netlify/functions/pay-sourcing-request.js
 
-const admin = require('firebase-admin');
+import admin from 'firebase-admin';
+
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Méthode non autorisée' }) };
   }

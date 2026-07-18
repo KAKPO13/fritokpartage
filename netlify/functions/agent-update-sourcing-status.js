@@ -1,12 +1,12 @@
-//netlify/functions/agent-update-sourcing-status.js
+// netlify/functions/agent-update-sourcing-status.js
 
-const admin = require('firebase-admin');
+import admin from 'firebase-admin';
+import { verifierTokenAgent, transitionAutorisee } from './_sourcingShared.js';
+
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
-const { verifierTokenAgent, transitionAutorisee } = require('./_sourcingShared');
-
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Méthode non autorisée' }) };
   }

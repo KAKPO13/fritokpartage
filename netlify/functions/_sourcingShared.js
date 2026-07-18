@@ -1,13 +1,13 @@
-//netlify/functions/_sourcingShared.js
+// netlify/functions/_sourcingShared.js
 
-const crypto = require('crypto');
+import crypto from 'crypto';
 
 /* ══════════════════════════════════════════════════════════
    TOKEN AGENT — lien signé sans login, même logique que les
    tokens Firebase ID mais scopé à une seule demande de sourcing.
    Format décodé : requestId:agentId:expiry:signature
 ══════════════════════════════════════════════════════════ */
-function genererTokenAgent(requestId, agentId, dureeJours = 7) {
+export function genererTokenAgent(requestId, agentId, dureeJours = 7) {
   const expiry = Date.now() + dureeJours * 86400000;
   const payload = `${requestId}:${agentId}:${expiry}`;
   const signature = crypto
@@ -17,7 +17,7 @@ function genererTokenAgent(requestId, agentId, dureeJours = 7) {
   return Buffer.from(`${payload}:${signature}`).toString('base64url');
 }
 
-function verifierTokenAgent(token) {
+export function verifierTokenAgent(token) {
   try {
     const decoded = Buffer.from(token, 'base64url').toString();
     const parts = decoded.split(':');
@@ -50,7 +50,7 @@ function verifierTokenAgent(token) {
    sourcing_requests. Toute transition hors de cette table est
    rejetée par agent-update-sourcing-status.js.
 ══════════════════════════════════════════════════════════ */
-const TRANSITIONS = {
+export const TRANSITIONS = {
   en_attente_paiement: [], // sort de cet état uniquement via pay-sourcing-request.js / verify-sourcing-payment.js
   sourcing_en_cours: ['en_transit', 'partiellement_introuvable', 'annulee'],
   partiellement_introuvable: ['en_transit', 'annulee'],
@@ -59,7 +59,7 @@ const TRANSITIONS = {
   annulee: [],
 };
 
-function transitionAutorisee(statutActuel, nouveauStatut) {
+export function transitionAutorisee(statutActuel, nouveauStatut) {
   return (TRANSITIONS[statutActuel] || []).includes(nouveauStatut);
 }
 
@@ -68,7 +68,7 @@ function transitionAutorisee(statutActuel, nouveauStatut) {
    Voir section "Créer le template" pour l'approbation Meta requise
    avant que ceci fonctionne réellement.
 ══════════════════════════════════════════════════════════ */
-async function envoyerNotificationAgent(requestId, agent, devis, totalItems) {
+export async function envoyerNotificationAgent(requestId, agent, devis, totalItems) {
   if (!process.env.WHATSAPP_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
     console.warn('WhatsApp non configuré — notification ignorée');
     return { success: false, error: 'WhatsApp non configuré' };
@@ -120,11 +120,3 @@ async function envoyerNotificationAgent(requestId, agent, devis, totalItems) {
     return { success: false, error: e.message };
   }
 }
-
-module.exports = {
-  genererTokenAgent,
-  verifierTokenAgent,
-  transitionAutorisee,
-  TRANSITIONS,
-  envoyerNotificationAgent,
-};
