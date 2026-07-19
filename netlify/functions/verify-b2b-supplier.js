@@ -11,26 +11,28 @@
 // paiement sont fixés — jamais auto-déclarés par le vendeur lui-même
 // (voir isValidB2BSupplierClientWrite() dans les règles, qui exclut ces
 // champs de ce que le client peut écrire).
-//
-// ⚠️ À protéger par un contrôle d'accès admin (custom claim `admin: true`
-// sur le token appelant) — non détaillé ici, à brancher sur votre
-// mécanisme d'authentification back-office existant.
 
-const admin = require('firebase-admin');
+import admin from 'firebase-admin';
+import { requireAdmin } from './_adminShared.js';
+
 if (!admin.apps.length) {
-  admin.initializeApp();
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    }),
+  });
 }
 const db = admin.firestore();
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' };
   }
 
   try {
-    // TODO : vérifier ici que l'appelant est bien un admin FriTok
-    // (idToken = event.headers.authorization, admin.auth().verifyIdToken(),
-    // puis contrôle du custom claim admin).
+    const decoded = await requireAdmin(event); // remplace le TODO — vérifie Bearer token + claim admin
 
     const { uid, decision, pricingTiers, moq, paymentTerms } = JSON.parse(event.body || '{}');
 
@@ -57,14 +59,12 @@ exports.handler = async (event) => {
     const update = {
       'b2bSupplier.status':     decision,
       'b2bSupplier.verifiedAt': admin.firestore.FieldValue.serverTimestamp(),
+      'b2bSupplier.verifiedPar': decoded.uid, // traçabilité — qui a validé/rejeté
     };
 
     const publicRef = db.collection('b2b_suppliers_public').doc(uid);
 
     if (decision === 'verified') {
-      // Validation minimale de ce que l'admin fournit avant d'écrire —
-      // évite qu'un champ manquant/malformé casse la grille tarifaire
-      // affichée ensuite dans B2BSourcingFlow / OrderEditor.
       if (!Array.isArray(pricingTiers) || pricingTiers.length === 0) {
         return { statusCode: 400, body: JSON.stringify({ error: 'pricingTiers requis pour valider (au moins un palier)' }) };
       }
@@ -88,9 +88,6 @@ exports.handler = async (event) => {
       update['b2bSupplier.moq']          = moq;
       update['b2bSupplier.paymentTerms'] = paymentTerms;
 
-      // AJOUT — publie la fiche fournisseur publique consultée par les
-      // acheteurs dans /b2b/commande. Seuls des champs commerciaux, aucune
-      // donnée financière (wallet/solde) du vendeur.
       await publicRef.set({
         sellerId:      uid,
         nomBoutique:   data.nomBoutique || data.username || 'Boutique',
@@ -104,8 +101,6 @@ exports.handler = async (event) => {
         verifiedAt:    admin.firestore.FieldValue.serverTimestamp(),
       });
     } else {
-      // AJOUT — 'rejected' : retire la fiche publique si elle existait
-      // (ex: re-vérification après un statut verified antérieur révoqué).
       await publicRef.delete().catch(() => {});
     }
 
@@ -114,6 +109,6 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: JSON.stringify({ ok: true, uid, decision }) };
   } catch (e) {
     console.error('verify-b2b-supplier:', e);
-    return { statusCode: 500, body: JSON.stringify({ error: 'Erreur serveur' }) };
+    return { statusCode: e.statusCode || 500, body: JSON.stringify({ error: e.message || 'Erreur serveur' }) };
   }
 };
