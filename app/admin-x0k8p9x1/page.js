@@ -40,15 +40,19 @@ export default function AdminHomePage() {
     })();
   }, []);
 
+  // Chemins ABSOLUS (avec le / initial) — un lien relatif du type
+  // "b2b-verification" sur l'URL "/admin-x0k8p9x1" (sans slash final) se
+  // résout en "/b2b-verification" (répertoire parent), pas en
+  // "/admin-x0k8p9x1/b2b-verification". D'où le 404 observé avant ce correctif.
   const sections = [
     {
-      href: 'remboursements',
+      href: '/admin-x0k8p9x1/remboursements',
       titre: 'Remboursements sourcing',
       description: 'Valider les remboursements liés aux produits introuvables',
       count: refundCount,
     },
     {
-      href: 'b2b-verification',
+      href: '/admin-x0k8p9x1/b2b-verification',
       titre: 'Vérification fournisseurs B2B',
       description: 'Examiner les demandes de statut fournisseur en attente',
       count: pendingB2BCount,
