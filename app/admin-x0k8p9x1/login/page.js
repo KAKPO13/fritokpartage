@@ -23,7 +23,7 @@ export default function AdminLoginPage() {
         await auth.signOut();
         throw new Error('Ce compte n\'a pas les droits admin.');
       }
-      router.push('/admin-x0k8p9x1/remboursements');
+      router.push('/admin-x0k8p9x1');
     } catch (e) {
       setErreur(e.message);
     } finally {

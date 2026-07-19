@@ -1,31 +1,33 @@
-//netlify/functions/admin-execute-refund.js
+// netlify/functions/admin-execute-refund.js
 
-const admin = require('firebase-admin');
-if (!admin.apps.length) admin.initializeApp();
+import admin from 'firebase-admin';
+import { requireAdmin } from './_adminShared.js';
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    }),
+  });
+}
 const db = admin.firestore();
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Méthode non autorisée' }) };
   }
 
   try {
-    /* ── 1. Authentification admin ──────────────────────── */
-    const idToken = event.headers.authorization?.split('Bearer ')[1];
-    if (!idToken) {
-      return { statusCode: 401, body: JSON.stringify({ error: 'Non authentifié' }) };
-    }
-    const decoded = await admin.auth().verifyIdToken(idToken);
-    if (!decoded.admin) {
-      return { statusCode: 403, body: JSON.stringify({ error: 'Accès réservé aux admins' }) };
-    }
+    const decoded = await requireAdmin(event); // remplace le bloc dupliqué
 
     const { requestId, itemIndex } = JSON.parse(event.body || '{}');
     if (!requestId || typeof itemIndex !== 'number') {
       return { statusCode: 400, body: JSON.stringify({ error: 'requestId ou itemIndex manquant' }) };
     }
 
-    /* ── 2. Transaction : validation + exécution ─────────── */
+    /* ── Transaction : validation + exécution ─────────── */
     const resultat = await db.runTransaction(async (tx) => {
       const reqRef = db.collection('sourcing_requests').doc(requestId);
       const reqSnap = await tx.get(reqRef);
@@ -36,12 +38,6 @@ exports.handler = async (event) => {
       const remb = remboursements.find(r => r.itemIndex === itemIndex && r.statut === 'en_attente_validation');
       if (!remb) throw new Error('Remboursement déjà traité ou introuvable');
 
-      // Garde-fou supplémentaire : l'item doit toujours être "introuvable"
-      // au moment de l'exécution. Si l'agent l'a re-marqué "trouve" entre la
-      // notification WhatsApp et la validation admin, agent-update-sourcing-status.js
-      // a déjà dû retirer l'entrée de remboursementsEnAttente — mais on vérifie
-      // quand même l'état de l'item pour ne jamais exécuter un remboursement
-      // devenu obsolète si les deux écritures se chevauchaient.
       const item = data.items[itemIndex];
       if (!item || item.statutItem !== 'introuvable') {
         throw new Error('Cet item n\'est plus marqué comme introuvable — remboursement annulé');
@@ -64,18 +60,15 @@ exports.handler = async (event) => {
         throw new Error('Solde escrow insuffisant pour ce remboursement');
       }
 
-      // Créditer le client
       tx.update(userRef, {
         [`wallet.${currency}`]: (walletUser[currency] || 0) + montant,
       });
 
-      // Débiter l'escrow
       tx.update(escrowRef, {
         [`wallet.${currency}`]: (walletEscrow[currency] || 0) - montant,
         solde: soldeEscrowActuel - montant,
       });
 
-      // Historique — même modèle que TransfetMoney existant
       tx.set(db.collection('TransfetMoney').doc(), {
         type: 'remboursement_sourcing',
         requestId, itemIndex,
@@ -85,7 +78,6 @@ exports.handler = async (event) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // Marquer le remboursement comme exécuté + recalculer le total
       const nouveauxRemb = remboursements.map(r =>
         r.itemIndex === itemIndex
           ? { ...r, statut: 'execute', executeLe: new Date().toISOString(), executePar: decoded.uid }
@@ -108,6 +100,6 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: JSON.stringify({ success: true, ...resultat }) };
   } catch (e) {
     console.error('admin-execute-refund:', e);
-    return { statusCode: 400, body: JSON.stringify({ error: e.message }) };
+    return { statusCode: e.statusCode || 400, body: JSON.stringify({ error: e.message }) };
   }
 };
