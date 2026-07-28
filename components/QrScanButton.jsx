@@ -1,40 +1,43 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Html5Qrcode } from "html5-qrcode";
 import QRCode from "qrcode";
 import { useRouter } from "next/navigation";
 import styles from "./QrScanButton.module.css";
 
-// Ajuste ce préfixe selon ta route réelle de profil hôte
-const HOST_PROFILE_ROUTE = "/host"; // ex: /host/[id].js ou /host/[id]/page.jsx
+const HOST_PROFILE_ROUTE = "/host";
 const GENERATE_URL = "https://fritok.net";
 
 export default function QrScanButton({ className }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("scan"); // "scan" | "generate"
+  const [activeTab, setActiveTab] = useState("scan");
   const [error, setError] = useState(null);
   const [qrDataUrl, setQrDataUrl] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   const scannerRef = useRef(null);
   const router = useRouter();
   const readerId = "qr-reader-region";
+
+  // Portal disponible seulement côté client
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const stopScanner = useCallback(async () => {
     if (scannerRef.current) {
       try {
         await scannerRef.current.stop();
         await scannerRef.current.clear();
-      } catch (e) {
-        // scanner déjà arrêté ou jamais démarré
-      }
+      } catch (e) {}
       scannerRef.current = null;
     }
   }, []);
 
-  // Démarre / arrête la caméra selon l'onglet actif
   useEffect(() => {
     if (!isOpen || activeTab !== "scan") {
       stopScanner();
@@ -48,9 +51,7 @@ export default function QrScanButton({ className }) {
       .start(
         { facingMode: "environment" },
         { fps: 10, qrbox: { width: 250, height: 250 } },
-        (decodedText) => {
-          handleScanSuccess(decodedText);
-        },
+        (decodedText) => handleScanSuccess(decodedText),
         () => {}
       )
       .catch((err) => {
@@ -64,7 +65,6 @@ export default function QrScanButton({ className }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, activeTab]);
 
-  // Génère le QR code dès qu'on ouvre l'onglet "Générer"
   useEffect(() => {
     if (!isOpen || activeTab !== "generate" || qrDataUrl) return;
 
@@ -72,10 +72,7 @@ export default function QrScanButton({ className }) {
     QRCode.toDataURL(GENERATE_URL, {
       width: 300,
       margin: 2,
-      color: {
-        dark: "#6B3F1F",
-        light: "#FFF8EE",
-      },
+      color: { dark: "#6B3F1F", light: "#FFF8EE" },
     })
       .then((url) => setQrDataUrl(url))
       .catch((err) => {
@@ -85,20 +82,22 @@ export default function QrScanButton({ className }) {
       .finally(() => setIsGenerating(false));
   }, [isOpen, activeTab, qrDataUrl]);
 
-  /**
-   * Extrait l'ID hôte depuis le contenu scanné, peu importe le format :
-   * - "abc123xyz" (ID brut)
-   * - "https://fritok.net/host/abc123xyz"
-   * - "https://fritok.net/host/abc123xyz?ref=badge"
-   * - "fritok://host/abc123xyz"
-   */
+  // Bloque le scroll du body pendant que le sheet est ouvert
+  useEffect(() => {
+    if (isOpen) {
+      const original = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = original;
+      };
+    }
+  }, [isOpen]);
+
   const extractHostId = (decodedText) => {
     const trimmed = decodedText.trim();
-
     if (!trimmed.includes("/") && !trimmed.includes(":")) {
       return trimmed;
     }
-
     try {
       const url = new URL(trimmed);
       const segments = url.pathname.split("/").filter(Boolean);
@@ -109,7 +108,6 @@ export default function QrScanButton({ className }) {
       const parts = trimmed.split("/").filter(Boolean);
       return parts[parts.length - 1] || trimmed;
     }
-
     return trimmed;
   };
 
@@ -118,12 +116,10 @@ export default function QrScanButton({ className }) {
     setIsOpen(false);
 
     const hostId = extractHostId(decodedText);
-
     if (!hostId) {
       setError("QR code invalide.");
       return;
     }
-
     router.push(`${HOST_PROFILE_ROUTE}/${hostId}`);
   };
 
@@ -143,14 +139,12 @@ export default function QrScanButton({ className }) {
           files: [file],
         });
       } else if (navigator.share) {
-        // Partage sans fichier (fallback)
         await navigator.share({
           title: "FriTok",
           text: "Rejoins-moi sur FriTok !",
           url: GENERATE_URL,
         });
       } else {
-        // Pas de Web Share API : téléchargement direct
         const link = document.createElement("a");
         link.href = qrDataUrl;
         link.download = "fritok-qrcode.png";
@@ -181,6 +175,69 @@ export default function QrScanButton({ className }) {
     setActiveTab(tab);
   };
 
+  const sheetContent = isOpen && (
+    <div className={styles.overlay} onClick={closeModal}>
+      <div className={styles.sheet} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.handle} />
+
+        <div className={styles.header}>
+          <h3 className={styles.title}>
+            {activeTab === "scan" ? "Scannez le badge" : "Mon QR code"}
+          </h3>
+          <button className={styles.closeBtn} onClick={closeModal} type="button">
+            ✕
+          </button>
+        </div>
+
+        <div className={styles.tabs}>
+          <button
+            type="button"
+            className={`${styles.tab} ${activeTab === "scan" ? styles.tabActive : ""}`}
+            onClick={() => switchTab("scan")}
+          >
+            Scanner
+          </button>
+          <button
+            type="button"
+            className={`${styles.tab} ${activeTab === "generate" ? styles.tabActive : ""}`}
+            onClick={() => switchTab("generate")}
+          >
+            Générer
+          </button>
+        </div>
+
+        <div className={styles.content}>
+          {activeTab === "scan" && (
+            <div id={readerId} className={styles.reader} />
+          )}
+
+          {activeTab === "generate" && (
+            <div className={styles.generatePane}>
+              {isGenerating && <p className={styles.hint}>Génération du QR code...</p>}
+
+              {qrDataUrl && !isGenerating && (
+                <>
+                  <img src={qrDataUrl} alt="QR code FriTok" className={styles.qrImage} />
+                  <p className={styles.hint}>{GENERATE_URL}</p>
+                  <button
+                    type="button"
+                    className={styles.shareBtn}
+                    onClick={handleShare}
+                    disabled={isSharing}
+                  >
+                    {isSharing ? "Partage..." : "Partager"}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {error && <p className={styles.error}>{error}</p>}
+      </div>
+    </div>
+  );
+
   return (
     <>
       <button
@@ -191,77 +248,7 @@ export default function QrScanButton({ className }) {
         Scanner un QR code
       </button>
 
-      {isOpen && (
-        <div className={styles.overlay} onClick={closeModal}>
-          <div
-            className={styles.sheet}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className={styles.handle} />
-
-            <div className={styles.header}>
-              <h3 className={styles.title}>
-                {activeTab === "scan" ? "Scannez le badge" : "Mon QR code"}
-              </h3>
-              <button className={styles.closeBtn} onClick={closeModal} type="button">
-                ✕
-              </button>
-            </div>
-
-            <div className={styles.tabs}>
-              <button
-                type="button"
-                className={`${styles.tab} ${activeTab === "scan" ? styles.tabActive : ""}`}
-                onClick={() => switchTab("scan")}
-              >
-                Scanner
-              </button>
-              <button
-                type="button"
-                className={`${styles.tab} ${activeTab === "generate" ? styles.tabActive : ""}`}
-                onClick={() => switchTab("generate")}
-              >
-                Générer
-              </button>
-            </div>
-
-            <div className={styles.content}>
-              {activeTab === "scan" && (
-                <div id={readerId} className={styles.reader} />
-              )}
-
-              {activeTab === "generate" && (
-                <div className={styles.generatePane}>
-                  {isGenerating && (
-                    <p className={styles.hint}>Génération du QR code...</p>
-                  )}
-
-                  {qrDataUrl && !isGenerating && (
-                    <>
-                      <img
-                        src={qrDataUrl}
-                        alt="QR code FriTok"
-                        className={styles.qrImage}
-                      />
-                      <p className={styles.hint}>{GENERATE_URL}</p>
-                      <button
-                        type="button"
-                        className={styles.shareBtn}
-                        onClick={handleShare}
-                        disabled={isSharing}
-                      >
-                        {isSharing ? "Partage..." : "Partager"}
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {error && <p className={styles.error}>{error}</p>}
-          </div>
-        </div>
-      )}
+      {mounted && sheetContent && createPortal(sheetContent, document.body)}
     </>
   );
 }

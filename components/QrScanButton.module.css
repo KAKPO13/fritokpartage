@@ -5,13 +5,14 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  z-index: 1000;
+  z-index: 9999; /* au-dessus de la bottom nav */
 }
 
 .sheet {
+  --bottom-nav-height: 64px; /* ajuste selon la hauteur réelle de ta nav */
   background: #FFF8EE;
   border-radius: 20px 20px 0 0;
-  padding: 12px 24px 28px;
+  padding: 12px 24px calc(28px + var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
   width: 100%;
   max-width: 480px;
   max-height: 85vh;
@@ -22,12 +23,8 @@
 }
 
 @keyframes slideUp {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 
 .handle {
