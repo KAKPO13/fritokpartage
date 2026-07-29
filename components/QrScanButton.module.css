@@ -5,11 +5,11 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  z-index: 9999; /* au-dessus de la bottom nav */
+  z-index: 9999;
 }
 
 .sheet {
-  --bottom-nav-height: 64px; /* ajuste selon la hauteur réelle de ta nav */
+  --bottom-nav-height: 64px;
   background: #FFF8EE;
   border-radius: 20px 20px 0 0;
   padding: 12px 24px calc(28px + var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
@@ -63,7 +63,7 @@
 
 .tabs {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   background: #FFEDD8;
   border-radius: 999px;
   padding: 4px;
@@ -76,11 +76,12 @@
   background: transparent;
   padding: 10px 0;
   border-radius: 999px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #6B3F1F;
   cursor: pointer;
   transition: background 0.2s, color 0.2s;
+  white-space: nowrap;
 }
 
 .tabActive {
@@ -107,6 +108,56 @@
   align-items: center;
   gap: 12px;
   width: 100%;
+}
+
+.colisPane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.colisInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #E0D5C4;
+  background: #FFFFFF;
+  color: #6B3F1F;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.colisInput::placeholder {
+  color: #C9B79C;
+  font-weight: 500;
+}
+
+.colisInput:focus {
+  outline: none;
+  border-color: #FF6B00;
+}
+
+.generateBtn {
+  width: 100%;
+  background: #6B3F1F;
+  color: #FFFFFF;
+  border: none;
+  padding: 12px 0;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.generateBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .qrImage {

@@ -10,20 +10,31 @@ import styles from "./QrScanButton.module.css";
 const HOST_PROFILE_ROUTE = "/host";
 const GENERATE_URL = "https://fritok.net";
 
+// Format attendu : PB-ABJ-000193 (2 lettres - 3 lettres - 6 chiffres)
+const COLIS_CODE_REGEX = /^[A-Z]{2}-[A-Z]{3}-\d{6}$/;
+
 export default function QrScanButton({ className }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("scan");
+  const [activeTab, setActiveTab] = useState("scan"); // "scan" | "generate" | "colis"
   const [error, setError] = useState(null);
+  const [mounted, setMounted] = useState(false);
+
+  // Onglet "Générer" (lien fritok.net)
   const [qrDataUrl, setQrDataUrl] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
-  const [mounted, setMounted] = useState(false);
+
+  // Onglet "Colis" (code manuel)
+  const [colisCode, setColisCode] = useState("");
+  const [colisQrDataUrl, setColisQrDataUrl] = useState(null);
+  const [isGeneratingColis, setIsGeneratingColis] = useState(false);
+  const [isSharingColis, setIsSharingColis] = useState(false);
+  const [colisError, setColisError] = useState(null);
 
   const scannerRef = useRef(null);
   const router = useRouter();
   const readerId = "qr-reader-region";
 
-  // Portal disponible seulement côté client
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -82,7 +93,6 @@ export default function QrScanButton({ className }) {
       .finally(() => setIsGenerating(false));
   }, [isOpen, activeTab, qrDataUrl]);
 
-  // Bloque le scroll du body pendant que le sheet est ouvert
   useEffect(() => {
     if (isOpen) {
       const original = document.body.style.overflow;
@@ -123,31 +133,30 @@ export default function QrScanButton({ className }) {
     router.push(`${HOST_PROFILE_ROUTE}/${hostId}`);
   };
 
-  const handleShare = async () => {
-    if (!qrDataUrl) return;
-    setIsSharing(true);
-    setError(null);
+  const shareQrImage = async (dataUrl, filename, setSharingFn) => {
+    if (!dataUrl) return;
+    setSharingFn(true);
 
     try {
-      const blob = await (await fetch(qrDataUrl)).blob();
-      const file = new File([blob], "fritok-qrcode.png", { type: "image/png" });
+      const blob = await (await fetch(dataUrl)).blob();
+      const file = new File([blob], filename, { type: "image/png" });
 
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           title: "FriTok",
-          text: "Rejoins-moi sur FriTok !",
+          text: "QR code FriTok",
           files: [file],
         });
       } else if (navigator.share) {
         await navigator.share({
           title: "FriTok",
-          text: "Rejoins-moi sur FriTok !",
+          text: "QR code FriTok",
           url: GENERATE_URL,
         });
       } else {
         const link = document.createElement("a");
-        link.href = qrDataUrl;
-        link.download = "fritok-qrcode.png";
+        link.href = dataUrl;
+        link.download = filename;
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -155,10 +164,63 @@ export default function QrScanButton({ className }) {
     } catch (e) {
       if (e?.name !== "AbortError") {
         console.error(e);
-        setError("Impossible de partager le QR code.");
+        throw e;
       }
     } finally {
-      setIsSharing(false);
+      setSharingFn(false);
+    }
+  };
+
+  const handleShare = async () => {
+    setError(null);
+    try {
+      await shareQrImage(qrDataUrl, "fritok-qrcode.png", setIsSharing);
+    } catch {
+      setError("Impossible de partager le QR code.");
+    }
+  };
+
+  const handleColisCodeChange = (e) => {
+    // Force en majuscules pour matcher le format attendu
+    const value = e.target.value.toUpperCase();
+    setColisCode(value);
+    setColisError(null);
+  };
+
+  const handleGenerateColisQr = async () => {
+    setColisError(null);
+
+    if (!COLIS_CODE_REGEX.test(colisCode)) {
+      setColisError("Format attendu : PB-ABJ-000193");
+      return;
+    }
+
+    setIsGeneratingColis(true);
+    try {
+      const url = await QRCode.toDataURL(colisCode, {
+        width: 300,
+        margin: 2,
+        color: { dark: "#6B3F1F", light: "#FFF8EE" },
+      });
+      setColisQrDataUrl(url);
+    } catch (err) {
+      console.error(err);
+      setColisError("Impossible de générer le QR code.");
+    } finally {
+      setIsGeneratingColis(false);
+    }
+  };
+
+  const handleShareColis = async () => {
+    setColisError(null);
+    try {
+      await shareQrImage(
+        colisQrDataUrl,
+        `${colisCode || "colis"}.png`,
+        setIsSharingColis
+      );
+    } catch {
+      setColisError("Impossible de partager le QR code.");
     }
   };
 
@@ -168,6 +230,9 @@ export default function QrScanButton({ className }) {
     setError(null);
     setActiveTab("scan");
     setQrDataUrl(null);
+    setColisCode("");
+    setColisQrDataUrl(null);
+    setColisError(null);
   };
 
   const switchTab = (tab) => {
@@ -182,7 +247,9 @@ export default function QrScanButton({ className }) {
 
         <div className={styles.header}>
           <h3 className={styles.title}>
-            {activeTab === "scan" ? "Scannez le badge" : "Mon QR code"}
+            {activeTab === "scan" && "Scannez le badge"}
+            {activeTab === "generate" && "Mon QR code"}
+            {activeTab === "colis" && "QR code colis"}
           </h3>
           <button className={styles.closeBtn} onClick={closeModal} type="button">
             ✕
@@ -203,6 +270,13 @@ export default function QrScanButton({ className }) {
             onClick={() => switchTab("generate")}
           >
             Générer
+          </button>
+          <button
+            type="button"
+            className={`${styles.tab} ${activeTab === "colis" ? styles.tabActive : ""}`}
+            onClick={() => switchTab("colis")}
+          >
+            Colis
           </button>
         </div>
 
@@ -226,6 +300,50 @@ export default function QrScanButton({ className }) {
                     disabled={isSharing}
                   >
                     {isSharing ? "Partage..." : "Partager"}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {activeTab === "colis" && (
+            <div className={styles.colisPane}>
+              <input
+                type="text"
+                inputMode="text"
+                placeholder="PB-ABJ-000193"
+                value={colisCode}
+                onChange={handleColisCodeChange}
+                className={styles.colisInput}
+                maxLength={13}
+              />
+
+              <button
+                type="button"
+                className={styles.generateBtn}
+                onClick={handleGenerateColisQr}
+                disabled={isGeneratingColis || !colisCode}
+              >
+                {isGeneratingColis ? "Génération..." : "Générer le QR code"}
+              </button>
+
+              {colisError && <p className={styles.error}>{colisError}</p>}
+
+              {colisQrDataUrl && (
+                <>
+                  <img
+                    src={colisQrDataUrl}
+                    alt={`QR code ${colisCode}`}
+                    className={styles.qrImage}
+                  />
+                  <p className={styles.hint}>{colisCode}</p>
+                  <button
+                    type="button"
+                    className={styles.shareBtn}
+                    onClick={handleShareColis}
+                    disabled={isSharingColis}
+                  >
+                    {isSharingColis ? "Partage..." : "Partager"}
                   </button>
                 </>
               )}
