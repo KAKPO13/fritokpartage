@@ -172,7 +172,7 @@ export const handler = async (event) => {
     /* ── 8. PDF + email — même principe de tolérance aux pannes ── */
     let emailResult = { success: false, error: 'Non tenté' };
     try {
-      const pdfBuffer = await genererPdfBon(reqRef.id, items, devis);
+      const pdfBuffer = await genererPdfBon(reqRef.id, items, devis, 'manuel');
       emailResult = await envoyerEmailBon({
         requestId: reqRef.id,
         pdfBuffer,
