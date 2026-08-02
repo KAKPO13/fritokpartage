@@ -994,9 +994,57 @@ function useSourcingCart() {
     setItems(prev => prev.filter(i => i.videoId !== videoId));
   }, []);
 
+  const updateQty = useCallback((videoId, delta) => {
+    setItems(prev => prev.map(i =>
+      i.videoId === videoId ? { ...i, quantite: Math.max(1, Math.min(20, i.quantite + delta)) } : i
+    ));
+  }, []);
+
   const clear = useCallback(() => setItems([]), []);
 
-  return { items, isInCart, toggle, remove, clear, ready };
+  return { items, isInCart, toggle, remove, updateQty, clear, ready };
+}
+
+/* ══════════════════════════════════════════════════════════
+   SOURCING RÉGIONAL — HOOK AGENTS ÉLIGIBLES
+   Lecture directe Firestore côté client (autorisée par les règles :
+   allow read: if request.auth != null sur agent_local_fritok). Filtre
+   par devise + montant, trié par rating/ordersCompleted — mais c'est
+   maintenant le CLIENT qui choisit dans cette liste, le serveur ne fait
+   plus de sélection automatique (voir submit-sourcing-request.js qui
+   revalide intégralement le choix plutôt que de le déterminer lui-même).
+══════════════════════════════════════════════════════════ */
+function useEligibleAgents(sousTotal, currency) {
+  const [agents, setAgents] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const snap = await getDocs(query(
+          collection(db, 'agent_local_fritok'),
+          where('isActive', '==', true),
+          where('verified', '==', true)
+        ));
+        const list = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(a => (a.currency || 'XOF') === currency)
+          .filter(a => sousTotal >= (a.minOrder || 0) && sousTotal <= (a.maxOrder ?? Infinity))
+          .sort((a, b) => (b.rating - a.rating) || (b.ordersCompleted - a.ordersCompleted));
+        if (!cancelled) setAgents(list);
+      } catch (e) {
+        console.error('useEligibleAgents:', e);
+        if (!cancelled) setAgents([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sousTotal, currency]);
+
+  return { agents, loading };
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1119,10 +1167,15 @@ function SourcingFab({ count, onOpen }) {
    panier local touche enfin le serveur.
 ══════════════════════════════════════════════════════════ */
 function SourcingCartSheet({ cart, authUser, onClose, onAuthRequired }) {
-  const [excluded, setExcluded]     = useState(new Set());
-  const [submitting, setSubmitting] = useState(false);
-  const [result, setResult]         = useState(null);
-  const [toast, setToast]           = useState(null);
+  const [excluded, setExcluded]               = useState(new Set());
+  // 3 étapes : sélection produits -> choix manuel de l'agent -> récap final.
+  // La sélection d'agent n'est plus automatique côté serveur (voir
+  // submit-sourcing-request.js) — c'est désormais un choix humain assumé ici.
+  const [step, setStep]                       = useState('produits'); // 'produits' | 'agent' | 'recap'
+  const [selectedAgentId, setSelectedAgentId] = useState(null);
+  const [submitting, setSubmitting]           = useState(false);
+  const [result, setResult]                   = useState(null);
+  const [toast, setToast]                     = useState(null);
 
   const toggleSelect = (videoId) => {
     setExcluded(prev => {
@@ -1133,11 +1186,27 @@ function SourcingCartSheet({ cart, authUser, onClose, onAuthRequired }) {
   };
 
   const selectedItems = cart.items.filter(i => !excluded.has(i.videoId));
+  const sousTotal = selectedItems.reduce((s, i) => s + i.prixAffiche * i.quantite, 0);
+  // TODO : product.currency n'existe pas encore dans video_playlist — tout
+  // est traité comme XOF par défaut, cohérent avec DEVISE_PAR_DEFAUT côté
+  // serveur (submit-sourcing-request.js).
+  const DEVISE = 'XOF';
+
+  // La requête agents n'est déclenchée qu'à l'étape 'agent' (sousTotal=0
+  // sinon), pour ne pas taper Firestore tant que l'utilisateur est encore
+  // en train d'ajuster sa liste de produits.
+  const { agents, loading: agentsLoading } = useEligibleAgents(step === 'agent' ? sousTotal : 0, DEVISE);
+
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
+
+  const passerAuChoixAgent = () => {
+    if (selectedItems.length === 0) { showToast('Sélectionnez au moins un produit'); return; }
+    setStep('agent');
+  };
 
   const envoyerBon = async () => {
     if (!authUser) { onClose(); onAuthRequired(); return; }
-    if (selectedItems.length === 0) { showToast('Sélectionnez au moins un produit'); return; }
+    if (!selectedAgentId) { showToast('Choisissez un agent'); return; }
     setSubmitting(true);
     try {
       const idToken = await authUser.getIdToken();
@@ -1145,6 +1214,7 @@ function SourcingCartSheet({ cart, authUser, onClose, onAuthRequired }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
+          agentId: selectedAgentId,
           items: selectedItems.map(i => ({ videoId: i.videoId, quantite: i.quantite })),
         }),
       });
@@ -1152,6 +1222,7 @@ function SourcingCartSheet({ cart, authUser, onClose, onAuthRequired }) {
       if (!res.ok) throw new Error(data?.error || 'Échec de la demande');
 
       setResult(data);
+      setStep('recap');
       // Retire uniquement les produits envoyés — ceux décochés restent
       // dans le panier local pour une prochaine demande.
       selectedItems.forEach(i => cart.remove(i.videoId));
@@ -1168,15 +1239,21 @@ function SourcingCartSheet({ cart, authUser, onClose, onAuthRequired }) {
         <div className={styles.modalHandle}/>
         <div className={styles.modalHeader}>
           <div>
-            <p className={styles.modalTitle}>Ma liste sourcing</p>
-            <p className={styles.modalSub}>
-              {selectedItems.length}/{cart.items.length} sélectionné{selectedItems.length !== 1 ? 's' : ''}
+            <p className={styles.modalTitle}>
+              {step === 'produits' && 'Ma liste sourcing'}
+              {step === 'agent' && 'Choisir un agent'}
+              {step === 'recap' && 'Demande envoyée'}
             </p>
+            {step === 'produits' && (
+              <p className={styles.modalSub}>
+                {selectedItems.length}/{cart.items.length} sélectionné{selectedItems.length !== 1 ? 's' : ''}
+              </p>
+            )}
           </div>
           <button className={styles.modalClose} onClick={onClose}><IconClose/></button>
         </div>
 
-        {!result && (
+        {step === 'produits' && (
           <div className={styles.modalBody}>
             {cart.items.length === 0 && (
               <div className={styles.commentEmpty}>
@@ -1197,7 +1274,12 @@ function SourcingCartSheet({ cart, authUser, onClose, onAuthRequired }) {
                   <img className={styles.recapImg} src={i.image} alt=""/>
                   <div className={styles.recapInfo} style={{ flex: 1 }}>
                     <p className={styles.recapName}>{i.titre}</p>
-                    <p className={styles.recapPrice}>{i.prixAffiche.toLocaleString('fr-FR')} XOF (indicatif)</p>
+                    <p className={styles.recapPrice}>{i.prixAffiche.toLocaleString('fr-FR')} {DEVISE} (indicatif)</p>
+                  </div>
+                  <div className={styles.b2bQtyControl}>
+                    <button onClick={() => cart.updateQty(i.videoId, -1)}>−</button>
+                    <span>{i.quantite}</span>
+                    <button onClick={() => cart.updateQty(i.videoId, 1)}>+</button>
                   </div>
                   <button
                     onClick={() => cart.remove(i.videoId)}
@@ -1210,21 +1292,71 @@ function SourcingCartSheet({ cart, authUser, onClose, onAuthRequired }) {
               );
             })}
             {cart.items.length > 0 && (
-              <button className={styles.confirmBtn} onClick={envoyerBon} disabled={submitting || selectedItems.length === 0}>
-                {submitting ? <Spinner/> : `Envoyer ma demande (${selectedItems.length})`}
-              </button>
+              <>
+                <div className={styles.fraisCard}>
+                  <div className={`${styles.fraisRow} ${styles.fraisTotal}`}>
+                    <span>Sous-total ({selectedItems.length})</span>
+                    <span>{sousTotal.toLocaleString('fr-FR')} {DEVISE} (indicatif)</span>
+                  </div>
+                </div>
+                <button className={styles.confirmBtn} onClick={passerAuChoixAgent} disabled={selectedItems.length === 0}>
+                  Continuer — choisir un agent
+                </button>
+              </>
             )}
           </div>
         )}
 
-        {result && (
+        {step === 'agent' && (
           <div className={styles.modalBody}>
             <p className={styles.qrHint}>
-              Votre demande a été assignée à <strong>{result.agent.prenom} {result.agent.nom}</strong> ({result.agent.ville}, {result.agent.pays}).
+              Sous-total de votre demande : <strong>{sousTotal.toLocaleString('fr-FR')} {DEVISE}</strong>
+            </p>
+
+            {agentsLoading && (
+              <div className={styles.commentLoading}><Spinner/></div>
+            )}
+
+            {!agentsLoading && agents.length === 0 && (
+              <div className={styles.commentEmpty}>
+                <p>Aucun agent disponible</p>
+                <p>Aucun agent ne traite ce montant ou cette devise pour l'instant.</p>
+              </div>
+            )}
+
+            {!agentsLoading && agents.map(a => (
+              <button
+                key={a.id}
+                onClick={() => setSelectedAgentId(a.id)}
+                className={selectedAgentId === a.id ? styles.toggleSel : styles.toggleOpt}
+                style={{ width: '100%', marginBottom: 8 }}
+              >
+                <span className={styles.toggleLabel}>{a.prenom} {a.nom} — {a.ville}, {a.pays}</span>
+                <span className={styles.toggleSub}>
+                  Commission {a.commissionPercent}% · Livraison {(a.shippingToClient || 0).toLocaleString('fr-FR')} {DEVISE}
+                  {a.rating > 0 ? ` · ★ ${a.rating.toFixed(1)}` : ''}
+                </span>
+              </button>
+            ))}
+
+            {agents.length > 0 && (
+              <button className={styles.confirmBtn} onClick={envoyerBon} disabled={submitting || !selectedAgentId}>
+                {submitting ? <Spinner/> : 'Envoyer ma demande'}
+              </button>
+            )}
+            <button className={styles.authSkip} onClick={() => setStep('produits')}>← Revenir aux produits</button>
+          </div>
+        )}
+
+        {step === 'recap' && result && (
+          <div className={styles.modalBody}>
+            <p className={styles.qrHint}>
+              Votre demande a été envoyée à <strong>{result.agent.prenom} {result.agent.nom}</strong> ({result.agent.ville}, {result.agent.pays}).
             </p>
             <div className={styles.fraisCard}>
               <div className={styles.fraisRow}><span>Sous-total articles</span><span>{result.devis.sousTotal.toLocaleString('fr-FR')} {result.devis.currency}</span></div>
               <div className={styles.fraisRow}><span>Frais sourcing</span><span>{(result.devis.feeItems + result.devis.feePerOrder).toLocaleString('fr-FR')} {result.devis.currency}</span></div>
+              <div className={styles.fraisRow}><span>Commission</span><span>{result.devis.commission.toLocaleString('fr-FR')} {result.devis.currency}</span></div>
               <div className={styles.fraisRow}><span>Livraison</span><span>{result.devis.shippingToClient.toLocaleString('fr-FR')} {result.devis.currency}</span></div>
               <div className={styles.fraisDivider}/>
               <div className={`${styles.fraisRow} ${styles.fraisTotal}`}><span>Total</span><span>{result.devis.total.toLocaleString('fr-FR')} {result.devis.currency}</span></div>
