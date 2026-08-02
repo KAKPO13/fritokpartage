@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   collection, getDocs, orderBy, query, limit, startAfter,
   addDoc, serverTimestamp, doc, getDoc,
-  setDoc, deleteDoc, onSnapshot, getCountFromServer,
+  setDoc, deleteDoc, onSnapshot, getCountFromServer, where,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import QRCode from 'qrcode';
