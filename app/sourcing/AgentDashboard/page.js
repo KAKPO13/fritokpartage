@@ -3,11 +3,11 @@
 
 import { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
-import { db } from '../../lib/firebaseClient';
+import { db } from '../../../lib/firebaseClient';
 import {
   TRANSITIONS_AGENT, labelStatut, couleurStatut,
   labelItemStatut, couleurItemStatut,
-} from '../../lib/sourcingStatuts';
+} from '../../../lib/sourcingStatuts';
 
 /*
   Vue "Agent" — n'est rendue que pour un vendeur avec isAgent === true

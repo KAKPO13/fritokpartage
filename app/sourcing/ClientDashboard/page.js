@@ -3,11 +3,11 @@
 
 import { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
-import { db } from '../../lib/firebaseClient';
+import { db } from '../../../lib/firebaseClient';
 import {
   SOURCING_ETAPES, labelStatut, couleurStatut,
   labelItemStatut, couleurItemStatut,
-} from '../../lib/sourcingStatuts';
+} from '../../../lib/sourcingStatuts';
 
 /*
   Vue "Client" : liste des sourcing_requests où clientId == uid, avec
