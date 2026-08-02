@@ -15,8 +15,8 @@ import Link from 'next/link';
 // Palette Citrus Orange : bg #FFF8EE, orange #FF6B00, zest #FFB700.
 // ─────────────────────────────────────────────
 
-const SOURCING_HREF = '/sourcing/nouveau';
-const AGENT_HREF = '/vendeur/devenir-agent-sourcing';
+const SOURCING_HREF = '/sourcing/ClientDashboard';
+const AGENT_HREF = '/sourcing/AgentDashboard';
 
 const DEMO_ITEMS = [
   { titre: 'Robe wax sur-mesure', tag: "Mode · d'après photo", statut: 'trouve' },
