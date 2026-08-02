@@ -64,6 +64,7 @@ export function genererPdfBon(requestId, items, devis, agentSelectionMode = 'man
     doc.end();
   });
 }
+//correction
 
 /* ══════════════════════════════════════════════════════════
    ENVOI EMAIL — Resend API, pièce jointe PDF en base64
