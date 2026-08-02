@@ -187,6 +187,7 @@ function CommandeCard({ req, authUser }) {
 export default function SourcingAgentDashboard({ authUser, isAgent }) {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading]   = useState(true);
+  const [erreurChargement, setErreurChargement] = useState(null);
 
   useEffect(() => {
     if (!authUser?.uid || !isAgent) { setLoading(false); return; }
@@ -195,14 +196,27 @@ export default function SourcingAgentDashboard({ authUser, isAgent }) {
       where('agentId', '==', authUser.uid),
       orderBy('createdAt', 'desc')
     );
-    const unsub = onSnapshot(q, snap => {
-      // Une demande 'en_attente_paiement' n'est pas encore actionnable par
-      // l'agent (le client n'a pas payé) — filtrée côté client pour éviter
-      // un index composite Firestore supplémentaire (where + where + orderBy).
-      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setRequests(all.filter(r => r.statut !== 'en_attente_paiement'));
-      setLoading(false);
-    }, () => setLoading(false));
+    const unsub = onSnapshot(
+      q,
+      snap => {
+        // Une demande 'en_attente_paiement' n'est pas encore actionnable par
+        // l'agent (le client n'a pas payé) — filtrée côté client pour éviter
+        // un index composite Firestore supplémentaire (where + where + orderBy).
+        const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setRequests(all.filter(r => r.statut !== 'en_attente_paiement'));
+        setLoading(false);
+        setErreurChargement(null);
+      },
+      (e) => {
+        // ⚠️ Avant, cette erreur était totalement avalée. On la logue et on
+        // l'affiche désormais — cas le plus probable : Firestore exige un
+        // index composite (agentId ASC + createdAt DESC) pour cette requête.
+        // La console affichera un lien direct pour le créer si c'est le cas.
+        console.error('[SourcingAgentDashboard] Erreur onSnapshot sourcing_requests:', e);
+        setErreurChargement(e.message || 'Erreur de chargement des commandes.');
+        setLoading(false);
+      }
+    );
     return unsub;
   }, [authUser?.uid, isAgent]);
 
@@ -213,7 +227,14 @@ export default function SourcingAgentDashboard({ authUser, isAgent }) {
   return (
     <div style={{ padding: 16 }}>
       <h2 style={{ color: '#fff', fontSize: 18, fontWeight: 800, margin: '0 0 14px' }}>Sourcing — commandes reçues</h2>
-      {requests.length === 0 && (
+
+      {erreurChargement && (
+        <p style={{ color: '#FCA5A5', fontSize: 13, marginBottom: 12 }}>
+          Erreur : {erreurChargement}
+        </p>
+      )}
+
+      {!erreurChargement && requests.length === 0 && (
         <p style={{ color: '#ffffff60', fontSize: 13 }}>Aucune commande sourcing pour le moment.</p>
       )}
       {requests.map(req => <CommandeCard key={req.id} req={req} authUser={authUser}/>)}

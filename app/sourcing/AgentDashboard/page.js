@@ -13,20 +13,26 @@ import SourcingAgentDashboard from '../../../components/sourcing/SourcingAgentDa
   Gère ici ce que le composant ne gère pas lui-même :
     1. L'état d'authentification Firebase (authUser)
     2. Le rôle "agent" (isAgent), lu sur users/{uid}.isAgent
+    3. Le profil opérationnel de l'agent, lu sur agent_local_fritok/{uid}
+       (isActive, verified) — l'accès au dashboard exige les trois.
 
-  ⚠️ Hypothèse : le flag isAgent vit sur le document users/{uid}.
-  Si dans ton schéma réel il est ailleurs (collection dédiée, custom
-  claim, hooks/useUserRoles.js déjà en place ailleurs dans l'app),
-  remplace uniquement le second useEffect ci-dessous — le reste de la
-  page n'a pas besoin de changer.
+  ⚠️ Convention attendue : agent_local_fritok utilise le uid Firebase
+  comme ID de document (même pattern que users/{uid}), pas un ID
+  auto-généré. Si un profil existant a été créé avec un ID différent,
+  il faut le migrer (relire l'ancien doc, le réécrire sous
+  doc(db, 'agent_local_fritok', uid), supprimer l'ancien) avant qu'il
+  ne soit visible ici.
 */
 
 export default function AgentDashboardPage() {
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  const [isAgent, setIsAgent] = useState(false);
-  const [roleLoading, setRoleLoading] = useState(true);
+  const [isAgentFlag, setIsAgentFlag] = useState(false);
+  const [flagLoading, setFlagLoading] = useState(true);
+
+  const [agentProfile, setAgentProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   // ── 1. Écoute l'état de connexion Firebase ──
   useEffect(() => {
@@ -34,30 +40,49 @@ export default function AgentDashboardPage() {
       setAuthUser(user);
       setAuthLoading(false);
       if (!user) {
-        setIsAgent(false);
-        setRoleLoading(false);
+        setIsAgentFlag(false);
+        setFlagLoading(false);
+        setAgentProfile(null);
+        setProfileLoading(false);
       }
     });
     return unsub;
   }, []);
 
-  // ── 2. Écoute le rôle agent une fois l'utilisateur connu ──
+  // ── 2. Écoute le flag isAgent sur users/{uid} ──
   useEffect(() => {
     if (!authUser?.uid) return;
-    setRoleLoading(true);
+    setFlagLoading(true);
     const unsub = onSnapshot(
       doc(db, 'users', authUser.uid),
       (snap) => {
-        setIsAgent(snap.exists() ? !!snap.data().isAgent : false);
-        setRoleLoading(false);
+        setIsAgentFlag(snap.exists() ? !!snap.data().isAgent : false);
+        setFlagLoading(false);
       },
-      () => setRoleLoading(false)
+      () => setFlagLoading(false)
     );
     return unsub;
   }, [authUser?.uid]);
 
+  // ── 3. Écoute le profil opérationnel sur agent_local_fritok/{uid} ──
+  useEffect(() => {
+    if (!authUser?.uid) return;
+    setProfileLoading(true);
+    const unsub = onSnapshot(
+      doc(db, 'agent_local_fritok', authUser.uid),
+      (snap) => {
+        setAgentProfile(snap.exists() ? snap.data() : null);
+        setProfileLoading(false);
+      },
+      () => setProfileLoading(false)
+    );
+    return unsub;
+  }, [authUser?.uid]);
+
+  const isAgentActif = isAgentFlag && !!agentProfile?.isActive && !!agentProfile?.verified;
+
   // ── États d'affichage ──
-  if (authLoading || (authUser && roleLoading)) {
+  if (authLoading || (authUser && (flagLoading || profileLoading))) {
     return (
       <div style={styles.centerScreen}>
         <p style={styles.messageText}>Chargement…</p>
@@ -75,7 +100,7 @@ export default function AgentDashboardPage() {
     );
   }
 
-  if (!isAgent) {
+  if (!isAgentFlag || !agentProfile) {
     return (
       <div style={styles.centerScreen}>
         <p style={styles.messageText}>
@@ -86,9 +111,20 @@ export default function AgentDashboardPage() {
     );
   }
 
+  if (!agentProfile.isActive || !agentProfile.verified) {
+    return (
+      <div style={styles.centerScreen}>
+        <p style={styles.messageText}>
+          Votre profil agent sourcing est en attente de validation. Vous
+          recevrez une notification dès qu'il sera activé.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.page}>
-      <SourcingAgentDashboard authUser={authUser} isAgent={isAgent} />
+      <SourcingAgentDashboard authUser={authUser} isAgent={isAgentActif} />
     </div>
   );
 }
