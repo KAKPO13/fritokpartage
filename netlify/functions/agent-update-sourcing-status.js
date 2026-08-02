@@ -1,7 +1,23 @@
 // netlify/functions/agent-update-sourcing-status.js
+//
+// ⚠️ CHANGEMENT D'ARCHITECTURE : l'agent traite désormais ses commandes
+// depuis un dashboard in-app (components/sourcing/SourcingAgentDashboard.jsx),
+// donc authentifié via Firebase comme n'importe quel compte "vendeur".
+// L'ancien système de lien signé sans login (verifierTokenAgent, envoyé par
+// WhatsApp) n'est plus le chemin principal — on vérifie maintenant
+// idToken.uid === sourcing_requests.agentId, ET que ce compte a bien
+// isAgent === true (tous les vendeurs ne sont pas agents).
+//
+// genererTokenAgent / verifierTokenAgent restent disponibles dans
+// _sourcingShared.js si tu gardes un canal externe en secours, mais ne sont
+// plus utilisés ici.
 
 import admin from 'firebase-admin';
-import { verifierTokenAgent, transitionAutorisee } from './_sourcingShared.js';
+import {
+  transitionAutorisee,
+  creerNotificationChangementStatut,
+  creerNotificationItemIntrouvable,
+} from './_sourcingShared.js';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -20,22 +36,37 @@ export const handler = async (event) => {
   }
 
   try {
-    const body = JSON.parse(event.body || '{}');
-    const { token, action } = body;
+    /* ── 1. Authentification Firebase (plus de token de lien) ── */
+    const idToken = event.headers.authorization?.split('Bearer ')[1];
+    if (!idToken) {
+      return { statusCode: 401, body: JSON.stringify({ error: 'Non authentifié' }) };
+    }
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    const agentUid = decoded.uid;
 
-    const auth = verifierTokenAgent(token);
-    if (!auth) {
-      return { statusCode: 401, body: JSON.stringify({ error: 'Lien invalide ou expiré' }) };
+    /* ── 2. Vérifier que ce compte est bien agent (pas juste vendeur) ──
+       Défense en profondeur : même si data.agentId correspondait par
+       erreur, un vendeur sans isAgent=true ne doit jamais pouvoir agir. */
+    const userSnap = await db.collection('users').doc(agentUid).get();
+    if (!userSnap.exists || userSnap.data()?.isAgent !== true) {
+      return { statusCode: 403, body: JSON.stringify({ error: 'Ce compte n\'est pas agent sourcing' }) };
     }
 
-    const reqRef = db.collection('sourcing_requests').doc(auth.requestId);
+    const body = JSON.parse(event.body || '{}');
+    const { requestId, action } = body;
+
+    if (!requestId || typeof requestId !== 'string') {
+      return { statusCode: 400, body: JSON.stringify({ error: 'requestId requis' }) };
+    }
+
+    const reqRef = db.collection('sourcing_requests').doc(requestId);
     const reqSnap = await reqRef.get();
     if (!reqSnap.exists) {
       return { statusCode: 404, body: JSON.stringify({ error: 'Demande introuvable' }) };
     }
 
     const data = reqSnap.data();
-    if (data.agentId !== auth.agentId) {
+    if (data.agentId !== agentUid) {
       return { statusCode: 403, body: JSON.stringify({ error: 'Cette demande ne vous est pas assignée' }) };
     }
 
@@ -99,6 +130,14 @@ export const handler = async (event) => {
       }
 
       await reqRef.update(updatePayload);
+
+      // Notification in-app au client — seulement pour 'introuvable', pas
+      // pour chaque 'trouvé' (trop bruyant). Ne bloque jamais la réponse.
+      if (statutItem === 'introuvable') {
+        creerNotificationItemIntrouvable(db, requestId, data.userId, item.titre)
+          .catch(e => console.error('notif item introuvable:', e));
+      }
+
       return { statusCode: 200, body: JSON.stringify({ success: true, items }) };
     }
 
@@ -122,6 +161,11 @@ export const handler = async (event) => {
         statut: nouveauStatut,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+
+      // Notification in-app au client — ne bloque jamais la réponse.
+      creerNotificationChangementStatut(db, requestId, data.userId, nouveauStatut)
+        .catch(e => console.error('notif changement statut:', e));
+
       return { statusCode: 200, body: JSON.stringify({ success: true, statut: nouveauStatut }) };
     }
 

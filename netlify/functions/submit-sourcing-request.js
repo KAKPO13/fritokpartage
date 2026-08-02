@@ -8,7 +8,7 @@
 // (désactivé, montant qui a changé, devise incompatible).
 
 import admin from 'firebase-admin';
-import { envoyerNotificationAgent } from './_sourcingShared.js';
+import { creerNotificationAgent } from './_sourcingShared.js';
 import { genererPdfBon, envoyerEmailBon } from './_pdfShared.js';
 
 if (!admin.apps.length) {
@@ -153,23 +153,33 @@ export const handler = async (event) => {
       userId: uid,
       agentId: agent.id,
       agentSelectionMode: 'manuel', // traçabilité — l'agent a été choisi par le client, pas par un algorithme
+      // Dénormalisé pour l'affichage client (SourcingClientTracker) sans
+      // relecture de agent_local_fritok à chaque rendu.
+      agentPrenom: agent.prenom || '',
+      agentNom: agent.nom || '',
+      agentVille: agent.ville || '',
+      agentPays: agent.pays || '',
       items,
       devis,
       statut: 'en_attente_paiement',
       remboursementsEnAttente: [],
       aRemboursementEnAttente: false,
-      notifStatus: 'en_attente',
-      notifMessageId: null,
+      // Anciennement notifStatus/notifMessageId (WhatsApp) — remplacé par
+      // une notification in-app, il n'y a plus de messageId externe.
+      notifAgentEnvoyee: false,
       emailStatus: 'en_attente',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    /* ── 7. Notification agent (WhatsApp) — ne doit jamais faire
-       échouer la création de la demande si elle échoue.             */
-    const notifResult = await envoyerNotificationAgent(reqRef.id, agent, devis, totalItems);
+    /* ── 7. Notification agent — IN-APP désormais (Firestore),
+       ne doit jamais faire échouer la création de la demande si elle échoue. */
+    const notifResult = await creerNotificationAgent(db, reqRef.id, agent, devis, totalItems);
 
-    /* ── 8. PDF + email — même principe de tolérance aux pannes ── */
+    /* ── 8. PDF + email récapitulatif — inchangé, tolérant aux pannes.
+       Reste utile comme justificatif téléchargeable/emailé au client,
+       indépendant de la notification agent ci-dessus. Si tu n'en as plus
+       l'usage, tu peux supprimer ce bloc et les champs emailStatus. */
     let emailResult = { success: false, error: 'Non tenté' };
     try {
       const pdfBuffer = await genererPdfBon(reqRef.id, items, devis, 'manuel');
@@ -185,8 +195,7 @@ export const handler = async (event) => {
     }
 
     await reqRef.update({
-      notifStatus: notifResult.success ? 'envoyee' : 'echec',
-      notifMessageId: notifResult.messageId ?? null,
+      notifAgentEnvoyee: notifResult.success,
       emailStatus: emailResult.success ? 'envoye' : 'echec',
     });
 
