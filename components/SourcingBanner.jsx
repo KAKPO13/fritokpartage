@@ -16,7 +16,7 @@ import Link from 'next/link';
 // ─────────────────────────────────────────────
 
 const SOURCING_HREF = '/sourcing/ClientDashboard';
-const AGENT_HREF = '/vendeur/devenir-agent-sourcing';
+const AGENT_HREF = '/sourcing/AgentDashboard';
 
 const DEMO_ITEMS = [
   { titre: 'Robe wax sur-mesure', tag: "Mode · d'après photo", statut: 'trouve' },
