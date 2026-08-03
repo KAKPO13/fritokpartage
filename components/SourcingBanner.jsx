@@ -17,6 +17,7 @@ import Link from 'next/link';
 
 const SOURCING_HREF = '/sourcing/ClientDashboard';
 const AGENT_HREF = '/sourcing/AgentDashboard';
+const DEVENIR_AGENT_HREF = '/sourcing/NouvelAgent';
 
 const DEMO_ITEMS = [
   { titre: 'Robe wax sur-mesure', tag: "Mode · d'après photo", statut: 'trouve' },
@@ -91,11 +92,15 @@ export default function SourcingBanner() {
 
           <div style={styles.ctaRow}>
             <Link href={SOURCING_HREF} style={styles.ctaPrimary} className="srcb-cta">
-              Faire une demande de sourcing
+              Mes commandes de sourcing
               <ArrowIcon />
             </Link>
             <Link href={AGENT_HREF} style={styles.ctaSecondary}>
+              Dashboard agent sourcing
+            </Link>
+            <Link href={DEVENIR_AGENT_HREF} style={styles.ctaPrimary} className="srcb-cta">
               Devenir agent sourcing
+              <ArrowIcon />
             </Link>
           </div>
         </div>
