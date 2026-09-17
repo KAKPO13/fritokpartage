@@ -17,7 +17,7 @@
   # ⚠️ Remplace les "..." ci-dessous par les valeurs actuelles (copie-les
   # depuis l'UI Netlify AVANT de les supprimer de là-bas).
   NEXT_PUBLIC_AGORA_APP_ID                 = "5bbfd51877e2435f87afef0f89cebda3"
-  NEXT_PUBLIC_API_BASE                     = "https://fritok.net"
+  NEXT_PUBLIC_API_BASE                     = "https://fritok.live"
   NEXT_PUBLIC_EXCHANGE_API_KEY             = "fe6bfd790c7c81d6ca3e5e9a"
   NEXT_PUBLIC_FIREBASE_APP_ID              = "1:463987328508:web:dc6c86e684a04b45739e79"
   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN         = "cgsp-app.firebaseapp.com"
@@ -27,7 +27,7 @@
   NEXT_PUBLIC_FIREBASE_PROJECT_ID          = "cgsp-app"
   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET      = "cgsp-app.appspot.com"
   NEXT_PUBLIC_FIREBASE_VAPID_KEY           = "BP0z79QPwacaPKYtjr7oybdryZmIdjLE2dxKaEFtPEV18Ts8unM0IeY0Ahy_WVDHTMzDohFRqLbvqfIZ8SkZmnY"
-  NEXT_PUBLIC_FUNCTIONS_URL                = "https://fritok.net/.netlify/functions"
+  NEXT_PUBLIC_FUNCTIONS_URL                = "https://fritok.live/.netlify/functions"
 
 
 [[plugins]]
@@ -109,11 +109,11 @@
   [headers.values]
     X-Frame-Options        = "DENY"
     X-Content-Type-Options = "nosniff"
-    # CORS restreint : UNIQUEMENT fritok.net
+    # CORS restreint : UNIQUEMENT fritok.live
     # Le header dynamique Access-Control-Allow-Origin doit être géré dans
     # chaque Function (voir patch ci-dessous) — ce header statique sert
     # de fallback pour les requêtes sans Origin valide.
-    Access-Control-Allow-Origin = "https://fritok.net"
+    Access-Control-Allow-Origin = "https://fritok.live"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 🔒 HEADERS — Service Worker (pas de cache)

@@ -34,15 +34,15 @@ const auth = admin.auth();
 
 // ── Origines autorisées ───────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = new Set([
-  'https://fritok.net',
-  'https://www.fritok.net',
+  'https://fritok.live',
+  'https://www.fritok.live',
   // Décommenter en développement local uniquement :
   // 'http://localhost:3000',
   // 'http://localhost:8888',
 ]);
 
 function getCorsHeaders(origin) {
-  const allowed = ALLOWED_ORIGINS.has(origin) ? origin : 'https://fritok.net';
+  const allowed = ALLOWED_ORIGINS.has(origin) ? origin : 'https://fritok.live';
   return {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
@@ -62,7 +62,7 @@ function payRef() {
 }
 
 export const handler = async (event) => {
-  const origin = event.headers['origin'] || event.headers['Origin'] || 'https://fritok.net';
+  const origin = event.headers['origin'] || event.headers['Origin'] || 'https://fritok.live';
 
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: getCorsHeaders(origin) };
@@ -209,7 +209,7 @@ export const handler = async (event) => {
 
     // ── 10. Créer le lien Flutterwave ─────────────────────────────────────────
     const ref = payRef();
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://fritok.net';
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://fritok.live';
 
     const flwRes = await fetch('https://api.flutterwave.com/v3/payments', {
       method: 'POST',

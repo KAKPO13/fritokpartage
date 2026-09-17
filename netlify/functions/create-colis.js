@@ -39,7 +39,7 @@ const MODE_PAIEMENT_ALIASES = { mobile: 'enLigne', enLigne: 'enLigne', aLaLivrai
 const TYPE_LIVRAISON_ALIASES = { batch: 'groupee', groupee: 'groupee', solo: 'solo' };
 
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': 'https://fritok.net',
+  'Access-Control-Allow-Origin': 'https://fritok.live',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };

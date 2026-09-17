@@ -51,7 +51,7 @@ exports.handler = async (event) => {
         tx_ref,
         amount,
         currency,
-        redirect_url: "https://fritok.net/payment-callback",
+        redirect_url: "https://fritok.live/payment-callback",
         payment_options: "card,mobilemoney,ussd,banktransfer",
         customer: {
           email: decodedToken.email,
@@ -61,7 +61,7 @@ exports.handler = async (event) => {
         customizations: {
           title: "FriTok Wallet",
           description: `Recharge de ${amount} ${currency}`,
-          logo: "https://fritok.com/logo.png",
+          logo: "https://fritok.live/logo.png",
         },
       }),
     });

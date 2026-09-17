@@ -92,7 +92,7 @@ export const handler = async (event) => {
     catch (e) { return err(e.code || 400, e.message); }
 
     const txRef = generateTxRef();
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://fritok.net';
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://fritok.live';
 
     // 5. TransfetMoney — statut "pending", commun aux deux providers
     const txId = await createTranstetEntry(db, {

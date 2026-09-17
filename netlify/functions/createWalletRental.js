@@ -18,14 +18,14 @@ const MAX_ACTIVE_RENTALS   = 2;
 
 // ── CORS inline ──────────────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = new Set([
-  'https://fritok.net',
-  'https://www.fritok.net',
+  'https://fritok.live',
+  'https://www.fritok.live',
   // 'http://localhost:3000',
   // 'http://localhost:8888',
 ]);
 
 function getCorsHeaders(origin) {
-  const allowed = ALLOWED_ORIGINS.has(origin) ? origin : 'https://fritok.net';
+  const allowed = ALLOWED_ORIGINS.has(origin) ? origin : 'https://fritok.live';
   return {
     'Access-Control-Allow-Origin'      : allowed,
     'Access-Control-Allow-Headers'     : 'Authorization, Content-Type',

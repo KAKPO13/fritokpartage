@@ -27,7 +27,7 @@ const PLANS = {
 
 const TRIAL_DAYS = 14;
 const ESCROW_UID = 'escrow_fritok';
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://fritok.net').split(',');
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://fritok.live').split(',');
 
 function corsHeaders(origin) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];

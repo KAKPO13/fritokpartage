@@ -77,7 +77,7 @@ export const handler = async (event) => {
         productId: p.productId ?? '',
         titre: p.name ?? '',
         image: p.thumbnail || p.image || '',
-        lienProduit: `https://fritok.net/demo?video=${raw.videoId}`,
+        lienProduit: `https://fritok.live/demo?video=${raw.videoId}`,
         quantite: Math.max(1, Math.min(20, Number(raw.quantite) || 1)), // borné 1-20
         prixUnitaire,
         currency: p.currency || DEVISE_PAR_DEFAUT,

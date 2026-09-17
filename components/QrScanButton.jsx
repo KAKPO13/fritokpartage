@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import styles from "./QrScanButton.module.css";
 
 const HOST_PROFILE_ROUTE = "/host";
-const GENERATE_URL = "https://fritok.net";
+const GENERATE_URL = "https://fritok.live";
 
 // Format attendu : PB-ABJ-000193 (2 lettres - 3 lettres - 6 chiffres)
 const COLIS_CODE_REGEX = /^[A-Z]{2}-[A-Z]{3}-\d{6}$/;
@@ -19,7 +19,7 @@ export default function QrScanButton({ className }) {
   const [error, setError] = useState(null);
   const [mounted, setMounted] = useState(false);
 
-  // Onglet "Générer" (lien fritok.net)
+  // Onglet "Générer" (lien fritok.live)
   const [qrDataUrl, setQrDataUrl] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSharing, setIsSharing] = useState(false);

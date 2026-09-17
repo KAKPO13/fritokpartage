@@ -1,7 +1,7 @@
 // netlify/functions/create-ad-campaign.js
 // ─────────────────────────────────────────────────────────────────────────────
 //  Fritok — Création de campagne publicitaire
-//  Hébergement : https://fritok.net/.netlify/functions/create-ad-campaign
+//  Hébergement : https://fritok.live/.netlify/functions/create-ad-campaign
 //
 //  Flux sécurisé :
 //  1. Vérifie le token Firebase (Admin SDK)

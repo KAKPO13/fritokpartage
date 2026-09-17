@@ -5,8 +5,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ALLOWED_ORIGINS = new Set([
-  'https://fritok.net',
-  'https://www.fritok.net',
+  'https://fritok.live',
+  'https://www.fritok.live',
   // Décommenter uniquement en développement local :
   // 'http://localhost:3000',
   // 'http://localhost:8888',

@@ -34,7 +34,7 @@ import { createAdminCommentsRepository } from '../../lib/ai-live-assistant/data/
  *     et forcer un appel LLM arbitraire.
  *   - Idem pour l'intention : re-détectée serveur, jamais reçue du client.
  */
-const ALLOWED_ORIGINS = ['https://fritok.net', 'http://localhost:8888'];
+const ALLOWED_ORIGINS = ['https://fritok.live', 'http://localhost:8888'];
 
 function corsHeaders(event) {
   const origin = event.headers.origin || event.headers.Origin;

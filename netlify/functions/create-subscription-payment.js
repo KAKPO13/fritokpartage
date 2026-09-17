@@ -27,7 +27,7 @@ const PLANS = {
 // Taux de conversion XOF → autres devises (fallback)
 const RATES = { XOF: 1, GHS: 0.013, NGN: 4.75 };
 
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://fritok.net').split(',');
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://fritok.live').split(',');
 
 function corsHeaders(origin) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
@@ -98,7 +98,7 @@ exports.handler = async (event) => {
     tx_ref:       txRef,
     amount,
     currency,
-    redirect_url: `${process.env.SITE_URL ?? 'https://fritok.net'}/seller/subscribe/callback?plan=${plan}`,
+    redirect_url: `${process.env.SITE_URL ?? 'https://fritok.live'}/seller/subscribe/callback?plan=${plan}`,
     customer: {
       email:       userEmail,
       name:        displayName || userEmail,
@@ -107,7 +107,7 @@ exports.handler = async (event) => {
     customizations: {
       title:       'FriTok — Abonnement Vendeur',
       description: planData.label,
-      logo:        `${process.env.SITE_URL ?? 'https://fritok.net'}/logo.png`,
+      logo:        `${process.env.SITE_URL ?? 'https://fritok.live'}/logo.png`,
     },
     meta: {
       uid,      // ← transmis au webhook pour identifier le vendeur

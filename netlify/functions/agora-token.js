@@ -11,8 +11,8 @@ import { RtcTokenBuilder, RtcRole } from 'agora-access-token';
 
 // Origines autorisées
 const ALLOWED_ORIGINS = [
-  'https://fritok.net',
-  'https://www.fritok.net',
+  'https://fritok.live',
+  'https://www.fritok.live',
   'http://localhost:3000',
   'http://localhost:3001',
 ];
