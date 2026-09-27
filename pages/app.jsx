@@ -43,8 +43,8 @@ const D = {
 // Ces constantes servent uniquement à l'UI (récapitulatif avant paiement).
 // Les montants réels sont toujours calculés et validés côté serveur
 // depuis config/tarifs Firestore. Ne jamais les envoyer comme montants à débiter.
-const FRAIS_XOF   = 300;
-const CAUTION_XOF = 200;
+const FRAIS_XOF   = 200;
+const CAUTION_XOF = 300;
 
 // ─── ESCROW_UID — lecture TransfetMoney côté client uniquement ───────────────
 // Utilisé dans la query de déduplication de l'historique (filtre où expediteurId != ESCROW_UID).

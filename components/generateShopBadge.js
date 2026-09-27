@@ -12,7 +12,7 @@ export async function generateShopBadgePDF(shop) {
     throw new Error("shopId et shopName sont requis");
   }
 
-  const shopUrl = `https://fritok.net/shop/${shopId}?src=badge`;
+  const shopUrl = `https://fritok.live/shop/${shopId}?src=badge`;
 
   // 1. Génère le QR code en data URL (haute résolution pour impression nette)
   const qrDataUrl = await QRCode.toDataURL(shopUrl, {
