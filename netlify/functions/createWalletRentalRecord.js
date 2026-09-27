@@ -75,7 +75,7 @@ exports.handler = async (event) => {
       }
     }
 
-    const total = (rental.fraisXof || 100) + (rental.cautionXof || 200);
+    const total = (rental.fraisXof || 200) + (rental.cautionXof || 300);
 
     // TranstetMoney "rental" completed (wallet = immédiat)
     await createTranstetEntry(db, {
@@ -96,7 +96,7 @@ exports.handler = async (event) => {
     await createTranstetEntry(db, {
       type            : 'restitution',
       currency        : rental.devise || 'XOF',
-      montantEnvoye   : rental.cautionXof || 200,
+      montantEnvoye   : rental.cautionXof || 300,
       frais           : 0,
       expediteurId    : 'fritok-system',
       expediteurEmail : 'noreply@fritok.net',
