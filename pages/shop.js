@@ -62,7 +62,7 @@ export async function getServerSideProps({ query: q, res }) {
   const defaultOg = {
     title      : "Boutique FriTok",
     description: "Découvrez des produits en vidéo",
-    image      : "https://fritok.net/og-default.jpg",
+    image      : "https://fritok.live/og-default.jpg",
   };
 
   if (!userId) {
@@ -139,8 +139,8 @@ export default function ShopPage({ userId, videoId, ogData }) {
   const [authReady, setAuthReady] = useState(false);
 
   const pageUrl = userId
-    ? `https://fritok.net/shop?userId=${userId}${videoId ? `&videoId=${videoId}` : ""}`
-    : "https://fritok.net";
+    ? `https://fritok.live/shop?userId=${userId}${videoId ? `&videoId=${videoId}` : ""}`
+    : "https://fritok.live";
 
   // Auth observer
   useEffect(() => {
