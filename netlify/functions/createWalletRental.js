@@ -115,7 +115,7 @@ exports.handler = async (event) => {
       console.error('[createWalletRental] config/tarifs manquant');
       return err(500, 'Configuration tarifaire indisponible', origin);
     }
-    const { fraisXof: FRAIS_XOF = 200, cautionXof: CAUTION_XOF = 300 } = tarifsSnap.data();
+    const { fraisXof: FRAIS_XOF = 150, cautionXof: CAUTION_XOF = 0 } = tarifsSnap.data();
 
     let fraisDevise   = FRAIS_XOF;
     let cautionDevise = CAUTION_XOF;
