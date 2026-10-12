@@ -1149,6 +1149,7 @@ function RestitutionCodeSheet({ onClose }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  QrScanStep
+//
 // ─────────────────────────────────────────────────────────────────────────────
 function QrScanStep({ qrCode, setQrCode, onLookup, loading, error, setError }) {
   const [cameraOn, setCameraOn] = useState(false);
