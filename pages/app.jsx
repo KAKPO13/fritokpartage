@@ -10,9 +10,18 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import dynamic from 'next/dynamic';
-import { createWalletRental, createFlutterwaveRentalPayment, generateRestitutionCode } from '../app/hooks/useWallet';
+import {
+  createWalletRental,
+  createFlutterwaveRentalPayment,
+  generateRestitutionCode,
+  confirmRestitution,
+} from '../app/hooks/useWallet';
 import useRentalAlerts  from '../app/hooks/useRentalAlerts';
 import RentalAlertBanner from '../components/app/RentalAlertBanner';
+import {
+  FRAIS_XOF, CAUTION_XOF, TOTAL_XOF, HAS_CAUTION,
+  rentalFrais, rentalCaution, rentalDevise,
+} from '../app/constants/tarifs';
 
 export const config = { runtime: 'nodejs' };
 
@@ -39,12 +48,9 @@ const D = {
   red       : '#E53E00',
 };
 
-// ─── Tarifs — AFFICHAGE UNIQUEMENT ───────────────────────────────────────────
-// Ces constantes servent uniquement à l'UI (récapitulatif avant paiement).
-// Les montants réels sont toujours calculés et validés côté serveur
-// depuis config/tarifs Firestore. Ne jamais les envoyer comme montants à débiter.
-const FRAIS_XOF   = 150;
-const CAUTION_XOF = 0;
+// ─── Tarifs ──────────────────────────────────────────────────────────────────
+// FRAIS_XOF / CAUTION_XOF / TOTAL_XOF / HAS_CAUTION : voir app/constants/tarifs.js
+// (affichage uniquement — les montants réels viennent de config/tarifs côté serveur).
 
 // ─── ESCROW_UID — lecture TransfetMoney côté client uniquement ───────────────
 // Utilisé dans la query de déduplication de l'historique (filtre où expediteurId != ESCROW_UID).
@@ -295,7 +301,13 @@ function HomeTab({ balance, currency, currencies, normWallet, onCurrencyChange, 
       )}
 
       <div style={{ padding: '20px 24px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <QuickBtn icon="📷" label="Louer un power bank" sub="Scanner ou entrer le QR code" primary onClick={() => onNav('rent')} />
+        <QuickBtn
+          icon="📷"
+          label="Louer un power bank"
+          sub={`${fmt(FRAIS_XOF)} FCFA${HAS_CAUTION ? '' : ' · sans caution'} · scanner ou entrer le QR`}
+          primary
+          onClick={() => onNav('rent')}
+        />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <QuickBtn icon="🗺️" label="Carte" sub="Power banks proches" onClick={() => onNav('map')} />
           <QuickBtn icon="↩️" label="Rendre" sub="Power bank actif" onClick={() => onNav('return')} />
@@ -501,11 +513,8 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
   const [pbData,       setPbData]      = useState(null);
   const [payMethod,    setPayMethod]   = useState('wallet');
   // ── Devise de paiement ──────────────────────────────────────────────────
-  // Valeur initiale neutre ; ajustée juste en dessous par un effet qui
-  // choisit intelligemment la devise réellement approvisionnée dans le
-  // wallet, plutôt que de se fier aveuglément à profile.currency (qui peut
-  // pointer vers une devise à solde 0 alors que d'autres devises ont des
-  // fonds — cf. cas vendeur XOF:0 / NGN:2640).
+  // Valeur initiale neutre ; ajustée par l'effet ci-dessous qui choisit la
+  // devise réellement approvisionnée dans le wallet.
   const [devise,       setDevise]      = useState(() => profile?.currency ?? 'XOF');
   const [rates,        setRates]       = useState(RATES_FALLBACK);
   const [ratesLoading, setRatesLoading]= useState(false);
@@ -517,29 +526,25 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
   const availableDevises = Object.keys(normWalletLocal).filter(k => CUR_META[k]);
 
   // ── Sélection intelligente de la devise par défaut ───────────────────────
-  // Si la devise préférée du profil a un solde nul (ou insuffisant pour le
-  // total à payer une fois converti), on bascule automatiquement vers la
-  // première devise du wallet qui a un solde positif. L'utilisateur garde
-  // la possibilité de changer manuellement via le sélecteur ci-dessous.
+  // 1. la devise préférée du profil si son solde couvre le total ;
+  // 2. sinon la première devise du wallet dont le solde couvre le total ;
+  // 3. sinon la première devise avec un solde positif ;
+  // 4. sinon la devise préférée (message d'erreur cohérent avec le profil).
+  // L'utilisateur peut toujours changer manuellement via le sélecteur.
   useEffect(() => {
-    const preferred     = profile?.currency ?? 'XOF';
-    const preferredSold = normWalletLocal[preferred] ?? 0;
+    const preferred  = profile?.currency ?? 'XOF';
+    const covers     = (c) => (normWalletLocal[c] ?? 0) >= convertFromXof(TOTAL_XOF, c, rates);
+    const isPositive = (c) => (normWalletLocal[c] ?? 0) > 0;
 
-    if (preferredSold > 0) {
-      setDevise(preferred);
-      return;
-    }
+    if (covers(preferred) && isPositive(preferred)) { setDevise(preferred); return; }
 
-    const fallback = availableDevises.find(c => (normWalletLocal[c] ?? 0) > 0);
-    if (fallback) {
-      setDevise(fallback);
-    } else {
-      // Aucune devise n'a de solde positif : on garde la devise préférée
-      // pour que le message d'erreur affiché reste cohérent avec le profil.
-      setDevise(preferred);
-    }
+    const sufficient = availableDevises.find(c => covers(c) && isPositive(c));
+    if (sufficient) { setDevise(sufficient); return; }
+
+    const positive = availableDevises.find(isPositive);
+    setDevise(positive ?? preferred);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.currency, wallet]);
+  }, [profile?.currency, wallet, rates]);
 
   // Taux côté client — affichage uniquement, jamais envoyés comme montants à débiter
   useEffect(() => {
@@ -554,9 +559,9 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
   }, []);
 
   // Montants locaux — affichage uniquement
-  const fraisDevise   = convertFromXof(FRAIS_XOF,               devise, rates);
-  const cautionDevise = convertFromXof(CAUTION_XOF,             devise, rates);
-  const totalDevise   = convertFromXof(FRAIS_XOF + CAUTION_XOF, devise, rates);
+  const fraisDevise   = convertFromXof(FRAIS_XOF,   devise, rates);
+  const cautionDevise = convertFromXof(CAUTION_XOF, devise, rates);
+  const totalDevise   = convertFromXof(TOTAL_XOF,   devise, rates);
   const soldeDevise   = normWalletLocal[devise] ?? 0;
   const soldeInsuffisant = soldeDevise < totalDevise;
 
@@ -592,16 +597,17 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
         // ── Tout délégué au serveur ───────────────────────────────────────────
         // On n'envoie que powerBankId et devise.
         // Le serveur : vérifie le solde, lit les tarifs depuis config/tarifs,
-        // exécute tout dans une transaction Firestore atomique.
+        // exécute tout dans une transaction Firestore atomique, et FIGE les
+        // montants appliqués dans le document rentals.
         const result = await createWalletRental({
           powerBankId: pbData.qrCode || pbData.docId,
           devise,
         });
+        // On garde les montants renvoyés par le serveur (source de vérité) :
+        // si la caution change plus tard, cette location garde ses montants.
         setRental({
           id           : result.rentalId,
           qrCode       : result.qrCode,
-          fraisXof     : FRAIS_XOF,    // affichage uniquement
-          cautionXof   : CAUTION_XOF,  // affichage uniquement
           fraisDevise  : result.fraisDevise,
           cautionDevise: result.cautionDevise,
           devise       : result.devise,
@@ -611,7 +617,10 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
         setStep('done');
 
       } else {
-        // ── Flow Flutterwave — inchangé ───────────────────────────────────────
+        // ── Flow Flutterwave — inchangé tant que le serveur n'est pas adapté ──
+        // TODO : une fois createFlutterwaveRentalPayment serveur recalculant
+        // tout depuis config/tarifs, n'envoyer que
+        // { powerBankId, powerBankDocId, partnerStartId, devise }.
         const result = await createFlutterwaveRentalPayment({
           powerBankId   : pbData.qrCode || pbData.docId,
           powerBankDocId: pbData.docId,
@@ -641,6 +650,14 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
   return (
     <div style={{ padding: 24 }}>
       <div style={{ fontSize: 20, fontWeight: 800, color: D.text1, marginBottom: 20 }}>📷 Louer un power bank</div>
+
+      {/* Bandeau promo — disparaît automatiquement dès que CAUTION_XOF > 0 */}
+      {!HAS_CAUTION && (
+        <div style={{ fontSize: 12, color: D.green, background: D.greenLight, padding: '8px 12px', borderRadius: 8, marginBottom: 16, fontWeight: 600 }}>
+          🎉 Offre de lancement : aucune caution
+        </div>
+      )}
+
       {step === 'scan' && (
         <QrScanStep qrCode={qrCode} setQrCode={setQrCode} onLookup={lookup} loading={loading} error={error} setError={setError} />
       )}
@@ -663,9 +680,9 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
                 <div style={{ height: '100%', width: `${pbData.batteryLevel}%`, background: batteryColor(pbData.batteryLevel), borderRadius: 99, transition: 'width 0.4s' }} />
               </div>
             )}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: HAS_CAUTION ? '1fr 1fr' : '1fr', gap: 10 }}>
               <AmountChip label="Frais" amount={FRAIS_XOF} />
-              <AmountChip label="Caution (remb.)" amount={CAUTION_XOF} amber />
+              {HAS_CAUTION && <AmountChip label="Caution (remb.)" amount={CAUTION_XOF} amber />}
             </div>
           </div>
 
@@ -675,7 +692,7 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
               <div style={{ display: 'flex', gap: 8 }}>
                 {availableDevises.map(d => {
                   const solde     = normWalletLocal[d] ?? 0;
-                  const totalD    = convertFromXof(FRAIS_XOF + CAUTION_XOF, d, rates);
+                  const totalD    = convertFromXof(TOTAL_XOF, d, rates);
                   const suffisant = solde >= totalD;
                   const selected  = devise === d;
                   return (
@@ -699,16 +716,18 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
               <span style={{ fontSize: 13, color: D.text2 }}>Frais de location</span>
               <span style={{ fontSize: 13, fontWeight: 700, color: D.text1 }}>{fmtCur(fraisDevise, devise)}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-              <span style={{ fontSize: 13, color: D.text2 }}>Caution (remboursable)</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: D.amber }}>{fmtCur(cautionDevise, devise)}</span>
-            </div>
+            {HAS_CAUTION && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 13, color: D.text2 }}>Caution (remboursable)</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: D.amber }}>{fmtCur(cautionDevise, devise)}</span>
+              </div>
+            )}
             <div style={{ height: 1, background: D.border, marginBottom: 10 }} />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 14, fontWeight: 700, color: D.text1 }}>Total</span>
               <span style={{ fontSize: 20, fontWeight: 800, color: D.orange }}>{fmtCur(totalDevise, devise)}</span>
             </div>
-            {devise !== 'XOF' && <div style={{ fontSize: 11, color: D.text3, marginTop: 6, textAlign: 'right' }}>= {fmt(FRAIS_XOF + CAUTION_XOF)} FCFA · taux 1 XOF = {(rates[devise] ?? 1).toFixed(4)} {devise}</div>}
+            {devise !== 'XOF' && <div style={{ fontSize: 11, color: D.text3, marginTop: 6, textAlign: 'right' }}>= {fmt(TOTAL_XOF)} FCFA · taux 1 XOF = {(rates[devise] ?? 1).toFixed(4)} {devise}</div>}
             <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: soldeInsuffisant ? '#FEE2E2' : D.greenLight }}>
               <div style={{ fontSize: 12, color: soldeInsuffisant ? D.red : D.green, fontWeight: 600 }}>
                 {soldeInsuffisant
@@ -717,7 +736,6 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
               </div>
             </div>
           </div>
-        
 
           <div style={{ fontSize: 13, color: D.text2, fontWeight: 700, marginBottom: 10 }}>Méthode de paiement</div>
           {['wallet', 'flutterwave'].map(m => (
@@ -746,20 +764,18 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
 // ─────────────────────────────────────────────────────────────────────────────
 //  ReturnTab — restitution déléguée au serveur via confirmRestitution
 //  ─────────────────────────────────────────────────────────────────────────
-//  Sécurité : un QR partenaire statique affiché en boutique peut être
-//  photographié une fois et réutilisé indéfiniment, sans que le gérant en
-//  ait connaissance. À la place, le partenaire génère lui-même un CODE À
-//  6 CHIFFRES, valable 5 minutes et à usage unique, au moment précis de la
-//  restitution (voir section "Générer un code de restitution" dans
-//  ProfileTab côté Vendeur). Le client saisit ce code communiqué par le
-//  gérant. Le serveur vérifie l'existence, la fraîcheur, l'unicité d'usage
-//  et la correspondance avec le bon partenaire AVANT tout remboursement —
-//  et marque le code "used" de façon atomique dans la même transaction.
-//  Il n'y a ici aucune vérification côté client : le code est un secret
-//  éphémère, la seule source de vérité est le serveur.
+//  Sécurité : le partenaire génère un CODE À 6 CHIFFRES, valable 5 minutes et
+//  à usage unique, au moment précis de la restitution (voir
+//  RestitutionCodeSheet dans ProfileTab côté Vendeur). Le serveur vérifie
+//  l'existence, la fraîcheur, l'unicité d'usage et la correspondance avec le
+//  bon partenaire AVANT tout remboursement, et marque le code "used" dans la
+//  même transaction. Aucune vérification côté client.
+//
+//  Caution : les textes de caution dépendent de la caution PROPRE À LA
+//  LOCATION (rentalCaution), pas du tarif actuel — une location démarrée
+//  pendant la promo (caution 0) reste sans caution même après un changement
+//  de tarif, et inversement.
 // ─────────────────────────────────────────────────────────────────────────────
-import { confirmRestitution } from '../app/hooks/useWallet';
-
 function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
   const [step,         setStep]         = useState('select'); // select → code → done
   const [selected,     setSelected]     = useState(null);
@@ -771,6 +787,8 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
   const [refundDevise, setRefundDevise] = useState('XOF');
 
   const selectedRental = activeRentals.find(x => x.id === selected);
+  const cautionAmount  = selectedRental ? rentalCaution(selectedRental) : 0;
+  const cautionLabel   = selectedRental ? fmtCur(cautionAmount, rentalDevise(selectedRental)) : '';
 
   const doReturn = async () => {
     const trimmed = code.trim();
@@ -780,17 +798,23 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
     try {
       // Délégation totale au serveur — c'est lui qui valide le code (existe,
       // non expiré, non utilisé, bon partenaire) avant de recréditer le
-      // wallet, mettre à jour l'Escrow, le rental et le power bank, le tout
-      // dans une transaction atomique.
+      // wallet (si caution > 0), mettre à jour l'Escrow, le rental et le
+      // power bank, le tout dans une transaction atomique.
       const result = await confirmRestitution({ rentalId: selectedRental.id, partnerCode: trimmed });
-      setRefund(result.cautionRefunded ?? selectedRental.cautionDevise ?? selectedRental.cautionXof ?? CAUTION_XOF);
-      setRefundDevise(result.devise ?? selectedRental.devise ?? 'XOF');
+      setRefund(result.cautionRefunded ?? rentalCaution(selectedRental));
+      setRefundDevise(result.devise ?? rentalDevise(selectedRental));
       setDone(true);
     } catch (e) {
       setError(e.message || 'Erreur lors de la restitution.');
     }
     setLoading(false);
   };
+
+  const CautionNotice = ({ style }) => cautionAmount > 0 ? (
+    <div style={{ padding: 14, background: D.greenLight, borderRadius: 12, fontSize: 13, color: D.green, fontWeight: 500, ...style }}>
+      💚 Ta caution de <strong>{cautionLabel}</strong> sera remboursée immédiatement.
+    </div>
+  ) : null;
 
   if (activeRentals.length === 0) return (
     <div style={{ padding: 24, textAlign: 'center', paddingTop: 80 }}>
@@ -804,7 +828,11 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
     <div style={{ padding: 24, textAlign: 'center', paddingTop: 60 }}>
       <div style={{ width: 90, height: 90, borderRadius: '50%', background: D.greenLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, margin: '0 auto 20px' }}>✓</div>
       <div style={{ fontSize: 22, fontWeight: 800, color: D.text1, marginBottom: 8 }}>Power bank rendu !</div>
-      <div style={{ fontSize: 14, color: D.text2, marginBottom: 24 }}>Ta caution de <strong style={{ color: D.green }}>{fmtCur(refund, refundDevise)}</strong> a été remboursée sur ton wallet.</div>
+      <div style={{ fontSize: 14, color: D.text2, marginBottom: 24 }}>
+        {refund > 0
+          ? <>Ta caution de <strong style={{ color: D.green }}>{fmtCur(refund, refundDevise)}</strong> a été remboursée sur ton wallet.</>
+          : 'Merci, ton power bank a bien été restitué.'}
+      </div>
       <button onClick={onSuccess} style={primaryBtn(false)}>Retour à l'accueil</button>
     </div>
   );
@@ -821,15 +849,17 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
             {selected === r.id && <span style={{ color: D.orange, fontWeight: 700 }}>✓</span>}
           </div>
           <div style={{ fontSize: 12, color: D.text2, marginTop: 4 }}>Démarré {fmtDate(r.startTime)} · {elapsed(r.startTime)}</div>
-          <div style={{ fontSize: 12, color: D.amber, marginTop: 2, fontWeight: 600 }}>Caution : {fmt(r.cautionXof ?? CAUTION_XOF)} FCFA</div>
+          {rentalCaution(r) > 0 && (
+            <div style={{ fontSize: 12, color: D.amber, marginTop: 2, fontWeight: 600 }}>
+              Caution : {fmtCur(rentalCaution(r), rentalDevise(r))}
+            </div>
+          )}
         </button>
       ))}
       {selected && (
         <>
-          <div style={{ margin: '12px 0', padding: 14, background: D.greenLight, borderRadius: 12, fontSize: 13, color: D.green, fontWeight: 500 }}>
-            💚 Ta caution de <strong>{fmt(selectedRental?.cautionXof ?? CAUTION_XOF)} FCFA</strong> sera remboursée immédiatement.
-          </div>
-          <div style={{ margin: '0 0 14px', padding: 14, background: D.amberLight, borderRadius: 12, fontSize: 12, color: D.amber, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <CautionNotice style={{ margin: '12px 0' }} />
+          <div style={{ margin: '12px 0 14px', padding: 14, background: D.amberLight, borderRadius: 12, fontSize: 12, color: D.amber, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
             <span>🔒</span>
             <div>Pour ta sécurité, demande au commerçant de générer un code de restitution et saisis-le à l'étape suivante.</div>
           </div>
@@ -860,9 +890,7 @@ function ReturnTab({ db, user, activeRentals, profile, onSuccess }) {
         style={{ ...inputStyle, fontSize: 32, fontWeight: 800, letterSpacing: 10, textAlign: 'center', marginBottom: 16, padding: '18px 14px' }}
       />
 
-      <div style={{ margin: '0 0 16px', padding: 14, background: D.greenLight, borderRadius: 12, fontSize: 13, color: D.green, fontWeight: 500 }}>
-        💚 Ta caution de <strong>{fmt(selectedRental?.cautionXof ?? CAUTION_XOF)} FCFA</strong> sera remboursée immédiatement.
-      </div>
+      <CautionNotice style={{ margin: '0 0 16px' }} />
 
       {error && <div style={{ fontSize: 12, color: D.red, marginBottom: 12, padding: '10px 14px', background: '#FEE2E2', borderRadius: 10 }}>{error}</div>}
 
@@ -941,10 +969,13 @@ function TxRow({ tx }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  PaySuccess
+//  PaySuccess — utilise les montants PROPRES à la location (rentalFrais /
+//  rentalCaution), pas le tarif actuel.
 // ─────────────────────────────────────────────────────────────────────────────
 function PaySuccess({ rental, onHome }) {
-  const isFlw = rental?.paymentMethod === 'flutterwave';
+  const isFlw   = rental?.paymentMethod === 'flutterwave';
+  const dev     = rentalDevise(rental);
+  const caution = rentalCaution(rental);
   return (
     <div style={{ padding: 24, textAlign: 'center', paddingTop: 60 }}>
       <div style={{ width: 100, height: 100, borderRadius: '50%', background: D.greenLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48, margin: '0 auto 24px' }}>✓</div>
@@ -957,12 +988,18 @@ function PaySuccess({ rental, onHome }) {
       </div>
       <div style={{ background: D.surface, borderRadius: 16, padding: 20, border: `1px solid ${D.border}`, textAlign: 'left', marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: D.text3, letterSpacing: 1.5, marginBottom: 14, fontWeight: 700 }}>RÉCAPITULATIF</div>
-        <RecapRow label="Location payée"     value={`${fmt(rental?.fraisXof   ?? FRAIS_XOF)} FCFA`} />
-        <RecapRow label="Caution en attente" value={`${fmt(rental?.cautionXof ?? CAUTION_XOF)} FCFA`} valueColor={D.amber} />
+        <RecapRow label="Location payée" value={fmtCur(rentalFrais(rental), dev)} />
+        {caution > 0 && (
+          <RecapRow label="Caution en attente" value={fmtCur(caution, dev)} valueColor={D.amber} />
+        )}
       </div>
       <div style={{ background: D.amberLight, borderRadius: 12, padding: 14, display: 'flex', gap: 10, alignItems: 'flex-start', textAlign: 'left', marginBottom: 24 }}>
         <span>⏱️</span>
-        <div style={{ fontSize: 12, color: D.amber }}>Rappel dans 45 min — Restitue avant 1h pour récupérer ta caution.</div>
+        <div style={{ fontSize: 12, color: D.amber }}>
+          {caution > 0
+            ? 'Rappel dans 45 min — Restitue avant 1h pour récupérer ta caution.'
+            : 'Rappel dans 45 min — Pense à rendre le power bank avant 1h.'}
+        </div>
       </div>
       <button onClick={onHome} style={primaryBtn(false)}>Retour à l'accueil</button>
     </div>
@@ -1075,11 +1112,7 @@ function ProfileTab({ profile, user, onSignOut, onNav }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RestitutionCodeSheet — génération d'un code de restitution à usage unique
-//  ─────────────────────────────────────────────────────────────────────────
-//  Réservé aux partenaires (role: 'Vendeur'). Le code est valable 5 minutes
-//  et ne peut servir qu'à une seule restitution — c'est cette fraîcheur et
-//  cet usage unique qui garantissent que le gérant est réellement présent
-//  et impliqué dans chaque restitution, contrairement à un QR statique.
+//  Réservé aux partenaires (role: 'Vendeur'). Valable 5 minutes, usage unique.
 // ─────────────────────────────────────────────────────────────────────────────
 function RestitutionCodeSheet({ onClose }) {
   const [code,       setCode]       = useState(null);
@@ -1149,7 +1182,6 @@ function RestitutionCodeSheet({ onClose }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  QrScanStep
-//
 // ─────────────────────────────────────────────────────────────────────────────
 function QrScanStep({ qrCode, setQrCode, onLookup, loading, error, setError }) {
   const [cameraOn, setCameraOn] = useState(false);
@@ -1229,10 +1261,16 @@ function QuickBtn({ icon, label, sub, primary, onClick }) {
   );
 }
 
+// HistoryRow — montants propres à la location, dans SA devise.
+// Une restitution sans caution affiche « — » plutôt que « +0 ».
 function HistoryRow({ rental }) {
   const isReturn = rental.status === 'restitue';
   const isFlw    = rental.paymentMethod === 'flutterwave';
-  const amount   = isReturn ? `+${fmt(rental.cautionXof ?? CAUTION_XOF)} FCFA` : `-${fmt(rental.fraisXof ?? FRAIS_XOF)} FCFA`;
+  const dev      = rentalDevise(rental);
+  const caution  = rentalCaution(rental);
+  const amount   = isReturn
+    ? (caution > 0 ? `+${fmtCur(caution, dev)}` : '—')
+    : `-${fmtCur(rentalFrais(rental), dev)}`;
   return (
     <div style={{ padding: '14px 24px', borderBottom: `0.5px solid ${D.border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
       <div style={{ width: 40, height: 40, borderRadius: 10, background: isReturn ? D.greenLight : D.orangeDim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>{isReturn ? '↩️' : '🔋'}</div>
@@ -1243,7 +1281,7 @@ function HistoryRow({ rental }) {
         </div>
         <div style={{ fontSize: 11, color: D.text2, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rental.qrCode} · {fmtDate(rental.startTime)}</div>
       </div>
-      <div style={{ fontSize: 14, fontWeight: 700, color: isReturn ? D.green : D.text2, flexShrink: 0 }}>{amount}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: isReturn && caution > 0 ? D.green : D.text2, flexShrink: 0 }}>{amount}</div>
     </div>
   );
 }
