@@ -485,6 +485,25 @@ function MapTab({ db }) {
 // ─────────────────────────────────────────────────────────────────────────────
 //  RentTab
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Extraction du code power bank depuis le contenu brut d'un QR ─────────────
+// Le QR peut contenir : le code seul ("PB-ABJ-000193"), une URL
+// ("https://…/pb/PB-ABJ-000193" ou "…?code=PB-ABJ-000193") ou du JSON.
+function extractPbCode(raw) {
+  let v = String(raw ?? '').trim();
+  if (!v) return '';
+  try {
+    const j = JSON.parse(v);
+    if (j && typeof j === 'object') v = String(j.qrCode ?? j.code ?? j.id ?? j.powerBankId ?? v);
+  } catch (_) { /* pas du JSON */ }
+  try {
+    const u = new URL(v);
+    const param = ['qrCode', 'qr', 'code', 'id', 'pb', 'powerBankId']
+      .map(k => u.searchParams.get(k)).find(Boolean);
+    v = param || decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || v);
+  } catch (_) { /* pas une URL */ }
+  return v.trim().toUpperCase();
+}
+
 const RATES_FALLBACK = { XOF: 1, GHS: 0.013, NGN: 4.75 };
 
 function convertFromXof(amountXof, toCurrency, rates) {
@@ -565,8 +584,11 @@ function RentTab({ db, user, wallet, profile, onSuccess }) {
   const soldeDevise   = normWalletLocal[devise] ?? 0;
   const soldeInsuffisant = soldeDevise < totalDevise;
 
-  const lookup = async () => {
-    const id = qrCode.trim().toUpperCase();
+  // `codeOverride` : code lu par la caméra. On ne peut pas se fier à l'état
+  // `qrCode` à cet instant (setQrCode n'a pas encore re-rendu → valeur périmée).
+  const lookup = async (codeOverride) => {
+    const raw = typeof codeOverride === 'string' ? codeOverride : qrCode;
+    const id  = extractPbCode(raw);
     if (!id) { setError('Saisis le code QR du power bank.'); return; }
     setLoading(true); setError('');
     try {
@@ -1187,30 +1209,59 @@ function QrScanStep({ qrCode, setQrCode, onLookup, loading, error, setError }) {
   const [cameraOn, setCameraOn] = useState(false);
   const [camError, setCamError] = useState('');
   const scannerRef = useRef(null);
+  const handledRef = useRef(false);
+  // Toujours la dernière version de onLookup (le callback du scanner est figé
+  // au moment du start, il verrait sinon un lookup périmé).
+  const lookupRef  = useRef(onLookup);
+  lookupRef.current = onLookup;
+
+  const stopCamera = () => {
+    const sc = scannerRef.current;
+    scannerRef.current = null;
+    if (sc) sc.stop().then(() => sc.clear()).catch(() => {});
+    setCameraOn(false);
+  };
 
   const startCamera = async () => {
     setCamError('');
+    handledRef.current = false;
+    // Le conteneur doit être VISIBLE avant start() : en display:none la vidéo
+    // a une taille nulle et rien n'est détecté.
+    setCameraOn(true);
+    await new Promise(r => setTimeout(r, 60));
     try {
       const { Html5Qrcode } = await import('html5-qrcode');
-      const scanner = new Html5Qrcode('fritok-qr-reader');
+      const scanner = new Html5Qrcode('fritok-qr-reader', {
+        verbose: false,
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      });
       scannerRef.current = scanner;
       await scanner.start(
         { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 220, height: 220 } },
-        (decoded) => { const code = decoded.trim().toUpperCase(); setQrCode(code); stopCamera(); setTimeout(onLookup, 150); },
+        {
+          fps: 10,
+          qrbox: (w, h) => { const side = Math.floor(Math.min(w, h) * 0.7); return { width: side, height: side }; },
+        },
+        (decoded) => {
+          if (handledRef.current) return;           // un seul déclenchement
+          handledRef.current = true;
+          const code = extractPbCode(decoded);
+          setQrCode(code);
+          stopCamera();
+          lookupRef.current(code);                  // on passe le code directement
+        },
         () => {},
       );
-      setCameraOn(true);
     } catch (e) {
-      setCamError(e.name === 'NotAllowedError'
-        ? 'Permission caméra refusée. Autorise-la dans les paramètres du navigateur.'
-        : 'Caméra indisponible. Utilise la saisie manuelle ci-dessous.');
+      console.error('Camera error:', e);
+      scannerRef.current = null;
+      setCameraOn(false);
+      setCamError(
+        e?.name === 'NotAllowedError' || /permission/i.test(e?.message || '')
+          ? 'Permission caméra refusée. Autorise-la dans les paramètres du navigateur.'
+          : `Caméra indisponible (${e?.message || e?.name || 'erreur inconnue'}). Utilise la saisie manuelle ci-dessous.`
+      );
     }
-  };
-
-  const stopCamera = () => {
-    if (scannerRef.current) { scannerRef.current.stop().catch(() => {}); scannerRef.current = null; }
-    setCameraOn(false);
   };
 
   useEffect(() => () => stopCamera(), []);
