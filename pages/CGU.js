@@ -12,6 +12,7 @@ export default function CGU() {
           content="Conditions Générales d’Utilisation de l’application FriTok, dédiée à la création de vitrines e-commerce interactives."
         />
       </Head>
+      //
 
       <main style={{ padding: '2rem', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
         <h1>📘 Conditions Générales d’Utilisation – FriTok</h1>
